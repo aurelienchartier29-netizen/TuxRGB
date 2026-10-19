@@ -1,0 +1,62 @@
+TuxRGB 2.0.4-win-beta – Windows Beta Build
+==========================================
+
+FRANÇAIS
+--------
+Ceci est la version bêta de TuxRGB pour Windows 10 / 11 (64 bits).
+Linux reste la version de référence de TuxRGB ; la build Windows est
+maintenue en priorité pour les correctifs de bugs majeurs.
+
+Ce qui est identique à Linux : toute l'interface Material 3 Expressive,
+les effets, les profils, le canevas spatial et le moteur OpenRGB embarqué
+(OpenRGB 1.1, lancé par TuxRGB comme serveur privé).
+
+Ce qui est propre à Windows :
+  - Visualiseur audio : capture WASAPI de la sortie par défaut.
+  - Synchro écran : écran principal (les jeux en plein écran exclusif
+    restent noirs : utilisez le mode « fenêtré sans bordure »).
+  - Zone de notification : icône Windows avec le même menu.
+  - Extinction / veille : les LED passent à 0 % à l'arrêt, au redémarrage,
+    à la fermeture de session et à la mise en veille, puis reviennent au
+    réveil et au démarrage suivant.
+  - Couleur d'accentuation : celle de Windows (Paramètres →
+    Personnalisation → Couleurs), suivie en direct, ainsi que le mode
+    clair / sombre.
+
+Accès matériel :
+  - Périphériques USB / HID (claviers, souris, contrôleurs USB) : rien à
+    faire.
+  - Carte mère et RAM (SMBus) : pilote PawnIO + droits administrateur.
+    L'installateur peut installer PawnIO et configurer le « mode
+    administrateur » (une tâche planifiée qui relance TuxRGB avec les
+    droits administrateur sans invite à chaque démarrage). Sinon :
+    Réglages → Accès matériel → Configurer l'accès.
+
+Fichiers :
+  - Réglages : %APPDATA%\tuxrgb
+  - Journaux et rapport matériel : %LOCALAPPDATA%\tuxrgb
+
+Désinstallation : Paramètres Windows → Applications, ou le menu Démarrer →
+TuxRGB → Désinstaller TuxRGB (les réglages et le pilote PawnIO sont
+conservés).
+
+ENGLISH
+-------
+This is the beta of TuxRGB for Windows 10 / 11 (64-bit). Linux remains
+the reference platform; the Windows build is maintained first and
+foremost for major bug fixes.
+
+Same as on Linux: the whole Material 3 Expressive interface, effects,
+profiles, spatial canvas and the embedded OpenRGB 1.1 engine.
+
+Windows specifics: WASAPI audio capture, primary-monitor screen sync,
+Windows tray icon, LEDs off at shutdown / logoff / sleep (back on resume
+and at the next start), live Windows accent colour and light/dark mode.
+Motherboard and RAM need the PawnIO driver and administrator rights
+(the installer can set both up; otherwise Settings → Hardware access →
+Set up access).
+
+Settings: %APPDATA%\tuxrgb – logs: %LOCALAPPDATA%\tuxrgb
+
+Licence : GPL-2.0-or-later (LICENSE.txt). Source code:
+https://github.com/aurelienchartier29-netizen/TuxRGB

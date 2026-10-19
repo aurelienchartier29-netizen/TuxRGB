@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- TuxRGB – Windows Beta Build. Normal rights by default: administrator
+     mode (SMBus devices) goes through a scheduled task, see
+     crates/tuxrgb/src/win/elevation.rs. The version is filled in by
+     crates/tuxrgb/build.rs. -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"
+          xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+  <assemblyIdentity type="win32" name="io.github.tuxrgb.TuxRGB" version="@VERSION@"
+                    processorArchitecture="amd64"/>
+  <description>TuxRGB – RGB lighting (Windows Beta Build)</description>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 and 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+  <asmv3:application>
+    <asmv3:windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </asmv3:windowsSettings>
+  </asmv3:application>
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0"
+                        processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+    </dependentAssembly>
+  </dependency>
+</assembly>

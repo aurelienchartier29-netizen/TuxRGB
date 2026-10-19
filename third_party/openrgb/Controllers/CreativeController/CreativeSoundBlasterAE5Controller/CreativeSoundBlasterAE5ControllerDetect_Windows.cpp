@@ -1,0 +1,36 @@
+/*---------------------------------------------------------*\
+| CreativeSoundBlasterAE5ControllerDetect_Windows.cpp       |
+|                                                           |
+|   Detector for Creative SoundBlaster AE-5 (Windows)       |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#include "DetectionManager.h"
+#include "CreativeSoundBlasterAE5Controller_Windows.h"
+#include "LogManager.h"
+#include "RGBController_CreativeSoundBlasterAE5_Windows.h"
+
+DetectedControllers DetectCreativeAE5Device()
+{
+    DetectedControllers detected_controllers;
+
+    CreativeSoundBlasterAE5Controller_Windows* controller = new CreativeSoundBlasterAE5Controller_Windows();
+
+    if(controller->Initialize())
+    {
+        RGBController_CreativeSoundBlasterAE5* rgb_controller = new RGBController_CreativeSoundBlasterAE5(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+    else
+    {
+        LOG_WARNING("[Creative SoundBlaster AE-5] Device initialization failed");
+        delete controller;
+    }
+
+    return(detected_controllers);
+}
+
+REGISTER_DETECTOR("Creative SoundBlaster AE-5", DetectCreativeAE5Device);

@@ -1,0 +1,1792 @@
+/*---------------------------------------------------------*\
+| RoccatVulcanKeyboardLayouts.h                             |
+|                                                           |
+|   Layouts for Roccat Vulcan keyboard                      |
+|                                                           |
+|   Mola19                                      29 Sep 2022 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include <map>
+#include <vector>
+#include "RGBControllerKeyNames.h"
+#include "RGBController.h"
+
+enum
+{
+    ROCCAT_VULCAN_LAYOUT_US    = 0,
+    ROCCAT_VULCAN_LAYOUT_DE    = 1,
+    ROCCAT_VULCAN_LAYOUT_UK    = 2,
+    ROCCAT_VULCAN_LAYOUT_FR    = 3,
+    ROCCAT_VULCAN_LAYOUT_JP    = 6,  /* Updated based on Vulcan II Max JIS firmware report value */
+};
+
+#define NA  0xFFFFFFFF
+
+struct led_value
+{
+    const char*         name;
+    unsigned char       id;
+};
+
+struct layout_info
+{
+    unsigned int*               matrix_map;
+    int                         size;
+    int                         rows;
+    int                         cols;
+    std::vector<led_value>      led_names;
+};
+
+static unsigned int ROCCAT_VULCAN_120_AIMO_LAYOUT_KEYS_104[6][24] =
+{
+    {   0,  NA,   8,  14,  19,  24,  NA,  34,  39,  44,  49,  55,  61,  66,  70,  NA,  74,  78,  83,  NA,  NA,  NA,  NA,  NA },
+    {   1,   6,   9,  15,  20,  25,  29,  35,  40,  45,  50,  56,  62,  67,  NA,  NA,  75,  79,  84,  NA,  87,  92,  96, 101 },
+    {   2,  NA,  10,  16,  21,  26,  30,  36,  41,  46,  51,  57,  63,  68,  71,  NA,  76,  80,  85,  NA,  88,  93,  97, 102 },
+    {   3,  NA,  11,  17,  22,  27,  31,  37,  42,  47,  52,  58,  64,  NA,  72,  NA,  NA,  NA,  NA,  NA,  89,  94,  98,  NA },
+    {   4,  NA,  12,  18,  23,  28,  32,  38,  43,  48,  53,  59,  NA,  69,  NA,  NA,  NA,  81,  NA,  NA,  90,  95,  99, 103 },
+    {   5,   7,  13,  NA,  NA,  NA,  33,  NA,  NA,  NA,  54,  60,  65,  NA,  73,  NA,  77,  82,  86,  NA,  91,  NA, 100,  NA }
+};
+
+static unsigned int ROCCAT_VULCAN_120_AIMO_LAYOUT_KEYS_105[6][24] =
+{
+    {   0,  NA,   9,  15,  20,  25,  NA,  35,  40,  45,  50,  56,  62,  67,  72,  NA,  75,  79,  84,  NA,  NA,  NA,  NA,  NA },
+    {   1,   6,  10,  16,  21,  26,  30,  36,  41,  46,  51,  57,  63,  68,  NA,  NA,  76,  80,  85,  NA,  88,  93,  97, 102 },
+    {   2,  NA,  11,  17,  22,  27,  31,  37,  42,  47,  52,  58,  64,  69,  NA,  NA,  77,  81,  86,  NA,  89,  94,  98, 103 },
+    {   3,  NA,  12,  18,  23,  28,  32,  38,  43,  48,  53,  59,  65,  70,  73,  NA,  NA,  NA,  NA,  NA,  90,  95,  99,  NA },
+    {   4,   7,  13,  19,  24,  29,  33,  39,  44,  49,  54,  60,  NA,  71,  NA,  NA,  NA,  82,  NA,  NA,  91,  96, 100, 104 },
+    {   5,   8,  14,  NA,  NA,  NA,  34,  NA,  NA,  NA,  55,  61,  66,  NA,  74,  NA,  78,  83,  87,  NA,  92,  NA, 101,  NA }
+};
+
+static unsigned int ROCCAT_VULCAN_II_LAYOUT_KEYS_105[6][24] =
+{
+    {   0,  NA,   9,  15,  20,  25,  NA,  35,  40,  45,  50,  56,  62,  67,  72,  NA,  75,  79,  84,  NA, 105, 106, 107,  NA },
+    {   1,   6,  10,  16,  21,  26,  30,  36,  41,  46,  51,  57,  63,  68,  NA,  NA,  76,  80,  85,  NA,  88,  93,  97, 102 },
+    {   2,  NA,  11,  17,  22,  27,  31,  37,  42,  47,  52,  58,  64,  69,  NA,  NA,  77,  81,  86,  NA,  89,  94,  98, 103 },
+    {   3,  NA,  12,  18,  23,  28,  32,  38,  43,  48,  53,  59,  65,  70,  73,  NA,  NA,  NA,  NA,  NA,  90,  95,  99,  NA },
+    {   4,   7,  13,  19,  24,  29,  33,  39,  44,  49,  54,  60,  NA,  71,  NA,  NA,  NA,  82,  NA,  NA,  91,  96, 100, 104 },
+    {   5,   8,  14,  NA,  NA,  NA,  34,  NA,  NA,  NA,  55,  61,  66,  NA,  74,  NA,  78,  83,  87,  NA,  92,  NA, 101,  NA }
+};
+
+static unsigned int ROCCAT_VULCAN_TKL_LAYOUT_KEYS_104[6][19] =
+{
+    {   0,  NA,   8,  14,  19,  24,  NA,  34,  39,  44,  49,  55,  61,  66,  70,  NA,  74,  NA,  NA },
+    {   1,   6,   9,  15,  20,  25,  29,  35,  40,  45,  50,  56,  62,  67,  NA,  NA,  75,  78,  82 },
+    {   2,  NA,  10,  16,  21,  26,  30,  36,  41,  46,  51,  57,  63,  68,  71,  NA,  76,  79,  83 },
+    {   3,  NA,  11,  17,  22,  27,  31,  37,  42,  47,  52,  58,  64,  NA,  72,  NA,  NA,  NA,  NA },
+    {   4,  NA,  12,  18,  23,  28,  32,  38,  43,  48,  53,  59,  NA,  69,  NA,  NA,  NA,  80,  NA },
+    {   5,   7,  13,  NA,  NA,  NA,  33,  NA,  NA,  NA,  54,  60,  65,  NA,  73,  NA,  77,  81,  84 }
+};
+
+static unsigned int ROCCAT_VULCAN_TKL_LAYOUT_KEYS_105[6][19] =
+{
+    {   0,  NA,   9,  15,  20,  25,  NA,  35,  40,  45,  50,  56,  62,  67,  72,  NA,  75,  NA,  NA },
+    {   1,   6,  10,  16,  21,  26,  30,  36,  41,  46,  51,  57,  63,  68,  NA,  NA,  76,  79,  83 },
+    {   2,  NA,  11,  17,  22,  27,  31,  37,  42,  47,  52,  58,  64,  69,  NA,  NA,  77,  80,  84 },
+    {   3,  NA,  12,  18,  23,  28,  32,  38,  43,  48,  53,  59,  65,  70,  73,  NA,  NA,  NA,  NA },
+    {   4,   7,  13,  19,  24,  29,  33,  39,  44,  49,  54,  60,  NA,  71,  NA,  NA,  NA,  81,  NA },
+    {   5,   8,  14,  NA,  NA,  NA,  34,  NA,  NA,  NA,  55,  61,  66,  NA,  74,  NA,  78,  82,  85 }
+};
+
+static unsigned int TURTLE_BEACH_VULCAN_II_TKL_PRO_LAYOUT_KEYS_105[6][19] =
+{
+    {   0, NA,  1,  2,  3,  4, NA,  5,  6,  7,  8,  9, 10, 11, 12, NA, NA, NA, NA },
+    {  13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, NA, NA, 79, 80, 81 },
+    {  27, NA, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, NA, NA, 82, 83, 84 },
+    {  40, NA, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, NA, NA, NA, NA },
+    {  54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, NA, 66, NA, NA, NA, 75, NA },
+    {  67, 68, 69, NA, NA, NA, 70, NA, NA, NA, NA, 71, 72, 73, 74, NA, 76, 77, 78 }
+};
+
+static unsigned int ROCCAT_MAGMA_LAYOUT_KEYS[1][5] =
+{
+    {  0,  1,  2,  3,  4 },
+};
+
+static unsigned int ROCCAT_VULCAN_II_MINI_LAYOUT_KEYS_104[5][15] =
+{
+    {   0,   6,  12,  13,  17,  22,  28,  29,  34,  39,  43,  49,  55,  60,  64 },
+    {   1,   7,  14,  18,  19,  23,  30,  36,  35,  40,  44,  50,  56,  61,  65 },
+    {   2,   8,  15,  20,  24,  25,  31,  37,  41,  45,  46,  51,  57,  NA,  66 },
+    {   3,   5,   9,  16,  21,  26,  27,  32,  38,  42,  47,  52,  58,  62,  67 },
+    {   4,  10,  11,  NA,  NA,  33,  NA,  NA,  NA,  48,  53,  54,  59,  63,  68 },
+};
+
+static unsigned int ROCCAT_VULCAN_II_MINI_LAYOUT_KEYS_105[5][15] =
+{
+    {   0,   6,  12,  13,  17,  22,  28,  29,  34,  39,  43,  49,  55,  60,  64 },
+    {   1,   7,  14,  18,  19,  23,  30,  36,  35,  40,  44,  50,  56,  61,  65 },
+    {   2,   8,  15,  20,  24,  25,  31,  37,  41,  45,  46,  51,  57,  NA,  66 },
+    {   3,   5,   9,  16,  21,  26,  27,  32,  38,  42,  47,  52,  58,  62,  67 },
+    {   4,  10,  11,  NA,  NA,  33,  NA,  NA,  NA,  48,  53,  54,  59,  63,  68 },
+};
+
+static std::map<int, layout_info> RoccatVulcan120AimoLayouts =
+{
+    {
+        ROCCAT_VULCAN_LAYOUT_UK,
+        {
+            *ROCCAT_VULCAN_120_AIMO_LAYOUT_KEYS_105,
+            105,
+            6,
+            24,
+            {
+                { KEY_EN_ESCAPE,              0x00 },
+                { KEY_EN_BACK_TICK,           0x01 },
+                { KEY_EN_TAB,                 0x02 },
+                { KEY_EN_CAPS_LOCK,           0x03 },
+                { KEY_EN_LEFT_SHIFT,          0x04 },
+                { KEY_EN_LEFT_CONTROL,        0x05 },
+
+                { KEY_EN_1,                   0x06 },
+                { KEY_EN_ISO_BACK_SLASH,      0x09 },
+                { KEY_EN_LEFT_WINDOWS,        0x0A },
+
+                { KEY_EN_F1,                  0x0B },
+                { KEY_EN_2,                   0x0C },
+                { KEY_EN_Q,                   0x07 },
+                { KEY_EN_A,                   0x08 },
+                { KEY_EN_Z,                   0x0F },
+                { KEY_EN_LEFT_ALT,            0x10 },
+
+                { KEY_EN_F2,                  0x11 },
+                { KEY_EN_3,                   0x12 },
+                { KEY_EN_W,                   0x0D },
+                { KEY_EN_S,                   0x0E },
+                { KEY_EN_X,                   0x15 },
+
+                { KEY_EN_F3,                  0x17 },
+                { KEY_EN_4,                   0x18 },
+                { KEY_EN_E,                   0x13 },
+                { KEY_EN_D,                   0x14 },
+                { KEY_EN_C,                   0x1B },
+
+                { KEY_EN_F4,                  0x1C },
+                { KEY_EN_5,                   0x1D },
+                { KEY_EN_R,                   0x19 },
+                { KEY_EN_F,                   0x1A },
+                { KEY_EN_V,                   0x20 },
+
+                { KEY_EN_6,                   0x21 },
+                { KEY_EN_T,                   0x1E },
+                { KEY_EN_G,                   0x1F },
+                { KEY_EN_B,                   0x24 },
+                { KEY_EN_SPACE,               0x25 },
+
+                { KEY_EN_F5,                  0x30 },
+                { KEY_EN_7,                   0x31 },
+                { KEY_EN_Y,                   0x22 },
+                { KEY_EN_H,                   0x23 },
+                { KEY_EN_N,                   0x34 },
+
+                { KEY_EN_F6,                  0x35 },
+                { KEY_EN_8,                   0x36 },
+                { KEY_EN_U,                   0x32 },
+                { KEY_EN_J,                   0x33 },
+                { KEY_EN_M,                   0x39 },
+
+                { KEY_EN_F7,                  0x3B },
+                { KEY_EN_9,                   0x3C },
+                { KEY_EN_I,                   0x37 },
+                { KEY_EN_K,                   0x38 },
+                { KEY_EN_COMMA,               0x3F },
+
+                { KEY_EN_F8,                  0x41 },
+                { KEY_EN_0,                   0x42 },
+                { KEY_EN_O,                   0x3D },
+                { KEY_EN_L,                   0x3E },
+                { KEY_EN_PERIOD,              0x45 },
+                { KEY_EN_RIGHT_ALT,           0x46 },
+
+                { KEY_EN_F9,                  0x4E },
+                { KEY_EN_MINUS,               0x48 },
+                { KEY_EN_P,                   0x43 },
+                { KEY_EN_SEMICOLON,           0x44 },
+                { KEY_EN_FORWARD_SLASH,       0x4B },
+                { KEY_EN_RIGHT_FUNCTION,      0x4C },
+
+                { KEY_EN_F10,                 0x54 },
+                { KEY_EN_EQUALS,              0x4F },
+                { KEY_EN_LEFT_BRACKET,        0x49 },
+                { KEY_EN_QUOTE,               0x4A },
+                { KEY_EN_MENU,                0x53 },
+
+                { KEY_EN_F11,                 0x55 },
+                { KEY_EN_BACKSPACE,           0x57 },
+                { KEY_EN_RIGHT_BRACKET,       0x50 },
+                { KEY_EN_POUND,               0x60 },
+                { KEY_EN_RIGHT_SHIFT,         0x52 },
+
+                { KEY_EN_F12,                 0x56 },
+                { KEY_EN_ISO_ENTER,           0x58 },
+                { KEY_EN_RIGHT_CONTROL,       0x59 },
+
+                { KEY_EN_PRINT_SCREEN,        0x63 },
+                { KEY_EN_INSERT,              0x64 },
+                { KEY_EN_DELETE,              0x65 },
+                { KEY_EN_LEFT_ARROW,          0x66 },
+
+                { KEY_EN_SCROLL_LOCK,         0x67 },
+                { KEY_EN_HOME,                0x68 },
+                { KEY_EN_END,                 0x69 },
+                { KEY_EN_UP_ARROW,            0x6A },
+                { KEY_EN_DOWN_ARROW,          0x6B },
+
+                { KEY_EN_PAUSE_BREAK,         0x6C },
+                { KEY_EN_PAGE_UP,             0x6D },
+                { KEY_EN_PAGE_DOWN,           0x6E },
+                { KEY_EN_RIGHT_ARROW,         0x6F },
+
+                { KEY_EN_NUMPAD_LOCK,         0x71 },
+                { KEY_EN_NUMPAD_7,            0x72 },
+                { KEY_EN_NUMPAD_4,            0x73 },
+                { KEY_EN_NUMPAD_1,            0x74 },
+                { KEY_EN_NUMPAD_0,            0x75 },
+
+                { KEY_EN_NUMPAD_DIVIDE,       0x77 },
+                { KEY_EN_NUMPAD_8,            0x78 },
+                { KEY_EN_NUMPAD_5,            0x79 },
+                { KEY_EN_NUMPAD_2,            0x7A },
+
+                { KEY_EN_NUMPAD_TIMES,        0x7C },
+                { KEY_EN_NUMPAD_9,            0x7D },
+                { KEY_EN_NUMPAD_6,            0x7E },
+                { KEY_EN_NUMPAD_3,            0x7F },
+
+                { KEY_EN_NUMPAD_PERIOD,       0x80 },
+                { KEY_EN_NUMPAD_MINUS,        0x81 },
+                { KEY_EN_NUMPAD_PLUS,         0x82 },
+                { KEY_EN_NUMPAD_ENTER,        0x83 }
+            }
+        }
+    },
+    {
+        ROCCAT_VULCAN_LAYOUT_US,
+        {
+            *ROCCAT_VULCAN_120_AIMO_LAYOUT_KEYS_104,
+            104,
+            6,
+            24,
+            {
+                { KEY_EN_ESCAPE,              0x00 },
+                { KEY_EN_BACK_TICK,           0x01 },
+                { KEY_EN_TAB,                 0x02 },
+                { KEY_EN_CAPS_LOCK,           0x03 },
+                { KEY_EN_LEFT_SHIFT,          0x04 },
+                { KEY_EN_LEFT_CONTROL,        0x05 },
+
+                { KEY_EN_1,                   0x06 },
+                { KEY_EN_LEFT_WINDOWS,        0x0A },
+
+                { KEY_EN_F1,                  0x0B },
+                { KEY_EN_2,                   0x0C },
+                { KEY_EN_Q,                   0x07 },
+                { KEY_EN_A,                   0x08 },
+                { KEY_EN_Z,                   0x0F },
+                { KEY_EN_LEFT_ALT,            0x10 },
+
+                { KEY_EN_F2,                  0x11 },
+                { KEY_EN_3,                   0x12 },
+                { KEY_EN_W,                   0x0D },
+                { KEY_EN_S,                   0x0E },
+                { KEY_EN_X,                   0x15 },
+
+                { KEY_EN_F3,                  0x17 },
+                { KEY_EN_4,                   0x18 },
+                { KEY_EN_E,                   0x13 },
+                { KEY_EN_D,                   0x14 },
+                { KEY_EN_C,                   0x1B },
+
+                { KEY_EN_F4,                  0x1C },
+                { KEY_EN_5,                   0x1D },
+                { KEY_EN_R,                   0x19 },
+                { KEY_EN_F,                   0x1A },
+                { KEY_EN_V,                   0x20 },
+
+                { KEY_EN_6,                   0x21 },
+                { KEY_EN_T,                   0x1E },
+                { KEY_EN_G,                   0x1F },
+                { KEY_EN_B,                   0x24 },
+                { KEY_EN_SPACE,               0x25 },
+
+                { KEY_EN_F5,                  0x30 },
+                { KEY_EN_7,                   0x31 },
+                { KEY_EN_Y,                   0x22 },
+                { KEY_EN_H,                   0x23 },
+                { KEY_EN_N,                   0x34 },
+
+                { KEY_EN_F6,                  0x35 },
+                { KEY_EN_8,                   0x36 },
+                { KEY_EN_U,                   0x32 },
+                { KEY_EN_J,                   0x33 },
+                { KEY_EN_M,                   0x39 },
+
+                { KEY_EN_F7,                  0x3B },
+                { KEY_EN_9,                   0x3C },
+                { KEY_EN_I,                   0x37 },
+                { KEY_EN_K,                   0x38 },
+                { KEY_EN_COMMA,               0x3F },
+
+                { KEY_EN_F8,                  0x41 },
+                { KEY_EN_0,                   0x42 },
+                { KEY_EN_O,                   0x3D },
+                { KEY_EN_L,                   0x3E },
+                { KEY_EN_PERIOD,              0x45 },
+                { KEY_EN_RIGHT_ALT,           0x46 },
+
+                { KEY_EN_F9,                  0x4E },
+                { KEY_EN_MINUS,               0x48 },
+                { KEY_EN_P,                   0x43 },
+                { KEY_EN_SEMICOLON,           0x44 },
+                { KEY_EN_FORWARD_SLASH,       0x4B },
+                { KEY_EN_RIGHT_FUNCTION,      0x4C },
+
+                { KEY_EN_F10,                 0x54 },
+                { KEY_EN_EQUALS,              0x4F },
+                { KEY_EN_LEFT_BRACKET,        0x49 },
+                { KEY_EN_QUOTE,               0x4A },
+                { KEY_EN_MENU,                0x53 },
+
+                { KEY_EN_F11,                 0x55 },
+                { KEY_EN_BACKSPACE,           0x57 },
+                { KEY_EN_RIGHT_BRACKET,       0x50 },
+                { KEY_EN_RIGHT_SHIFT,         0x52 },
+
+                { KEY_EN_F12,                 0x56 },
+                { KEY_EN_ANSI_BACK_SLASH,     0x51 },
+                { KEY_EN_ANSI_ENTER,          0x58 },
+                { KEY_EN_RIGHT_CONTROL,       0x59 },
+
+                { KEY_EN_PRINT_SCREEN,        0x63 },
+                { KEY_EN_INSERT,              0x64 },
+                { KEY_EN_DELETE,              0x65 },
+                { KEY_EN_LEFT_ARROW,          0x66 },
+
+                { KEY_EN_SCROLL_LOCK,         0x67 },
+                { KEY_EN_HOME,                0x68 },
+                { KEY_EN_END,                 0x69 },
+                { KEY_EN_UP_ARROW,            0x6A },
+                { KEY_EN_DOWN_ARROW,          0x6B },
+
+                { KEY_EN_PAUSE_BREAK,         0x6C },
+                { KEY_EN_PAGE_UP,             0x6D },
+                { KEY_EN_PAGE_DOWN,           0x6E },
+                { KEY_EN_RIGHT_ARROW,         0x6F },
+
+                { KEY_EN_NUMPAD_LOCK,         0x71 },
+                { KEY_EN_NUMPAD_7,            0x72 },
+                { KEY_EN_NUMPAD_4,            0x73 },
+                { KEY_EN_NUMPAD_1,            0x74 },
+                { KEY_EN_NUMPAD_0,            0x75 },
+
+                { KEY_EN_NUMPAD_DIVIDE,       0x77 },
+                { KEY_EN_NUMPAD_8,            0x78 },
+                { KEY_EN_NUMPAD_5,            0x79 },
+                { KEY_EN_NUMPAD_2,            0x7A },
+
+                { KEY_EN_NUMPAD_TIMES,        0x7C },
+                { KEY_EN_NUMPAD_9,            0x7D },
+                { KEY_EN_NUMPAD_6,            0x7E },
+                { KEY_EN_NUMPAD_3,            0x7F },
+
+                { KEY_EN_NUMPAD_PERIOD,       0x80 },
+                { KEY_EN_NUMPAD_MINUS,        0x81 },
+                { KEY_EN_NUMPAD_PLUS,         0x82 },
+                { KEY_EN_NUMPAD_ENTER,        0x83 }
+            }
+        }
+    },
+};
+
+static std::map<int, layout_info> RoccatPyroLayouts =
+{
+    {
+        ROCCAT_VULCAN_LAYOUT_UK,
+        {
+            *ROCCAT_VULCAN_120_AIMO_LAYOUT_KEYS_105,
+            105,
+            6,
+            24,
+            {
+                { KEY_EN_ESCAPE,              0x02 },
+                { KEY_EN_BACK_TICK,           0x03 },
+                { KEY_EN_TAB,                 0x04 },
+                { KEY_EN_CAPS_LOCK,           0x05 },
+                { KEY_EN_LEFT_SHIFT,          0x00 },
+                { KEY_EN_LEFT_CONTROL,        0x01 },
+
+                { KEY_EN_1,                   0x08 },
+                { KEY_EN_ISO_BACK_SLASH,      0x06 },
+                { KEY_EN_LEFT_WINDOWS,        0x07 },
+
+                { KEY_EN_F1,                  0x0D },
+                { KEY_EN_2,                   0x0E },
+                { KEY_EN_Q,                   0x09 },
+                { KEY_EN_A,                   0x0A },
+                { KEY_EN_Z,                   0x0B },
+                { KEY_EN_LEFT_ALT,            0x0C },
+
+                { KEY_EN_F2,                  0x14 },
+                { KEY_EN_3,                   0x15 },
+                { KEY_EN_W,                   0x0F },
+                { KEY_EN_S,                   0x10 },
+                { KEY_EN_X,                   0x11 },
+
+                { KEY_EN_F3,                  0x19 },
+                { KEY_EN_4,                   0x1A },
+                { KEY_EN_E,                   0x16 },
+                { KEY_EN_D,                   0x17 },
+                { KEY_EN_C,                   0x18 },
+
+                { KEY_EN_F4,                  0x1E },
+                { KEY_EN_5,                   0x1F },
+                { KEY_EN_R,                   0x1B },
+                { KEY_EN_F,                   0x1C },
+                { KEY_EN_V,                   0x1D },
+
+                { KEY_EN_6,                   0x24 },
+                { KEY_EN_T,                   0x20 },
+                { KEY_EN_G,                   0x21 },
+                { KEY_EN_B,                   0x22 },
+                { KEY_EN_SPACE,               0x23 },
+
+                { KEY_EN_F5,                  0x28 },
+                { KEY_EN_7,                   0x29 },
+                { KEY_EN_Y,                   0x25 },
+                { KEY_EN_H,                   0x26 },
+                { KEY_EN_N,                   0x27 },
+
+                { KEY_EN_F6,                  0x2F },
+                { KEY_EN_8,                   0x30 },
+                { KEY_EN_U,                   0x2A },
+                { KEY_EN_J,                   0x2B },
+                { KEY_EN_M,                   0x2C },
+
+                { KEY_EN_F7,                  0x35 },
+                { KEY_EN_9,                   0x36 },
+                { KEY_EN_I,                   0x31 },
+                { KEY_EN_K,                   0x32 },
+                { KEY_EN_COMMA,               0x33 },
+
+                { KEY_EN_F8,                  0x3B },
+                { KEY_EN_0,                   0x3C },
+                { KEY_EN_O,                   0x37 },
+                { KEY_EN_L,                   0x38 },
+                { KEY_EN_PERIOD,              0x39 },
+                { KEY_EN_RIGHT_ALT,           0x3A },
+
+                { KEY_EN_F9,                  0x41 },
+                { KEY_EN_MINUS,               0x42 },
+                { KEY_EN_P,                   0x3D },
+                { KEY_EN_SEMICOLON,           0x3E },
+                { KEY_EN_FORWARD_SLASH,       0x3F },
+                { KEY_EN_RIGHT_FUNCTION,      0x40 },
+
+                { KEY_EN_F10,                 0x47 },
+                { KEY_EN_EQUALS,              0x48 },
+                { KEY_EN_LEFT_BRACKET,        0x43 },
+                { KEY_EN_QUOTE,               0x44 },
+                { KEY_EN_MENU,                0x46 },
+
+                { KEY_EN_F11,                 0x4D },
+                { KEY_EN_BACKSPACE,           0x50 },
+                { KEY_EN_RIGHT_BRACKET,       0x49 },
+                { KEY_EN_POUND,               0x4A },
+                { KEY_EN_RIGHT_SHIFT,         0x4B },
+
+                { KEY_EN_F12,                 0x4F },
+                { KEY_EN_ISO_ENTER,           0x52 },
+                { KEY_EN_RIGHT_CONTROL,       0x4C },
+
+                { KEY_EN_PRINT_SCREEN,        0x53 },
+                { KEY_EN_INSERT,              0x54 },
+                { KEY_EN_DELETE,              0x55 },
+                { KEY_EN_LEFT_ARROW,          0x56 },
+
+                { KEY_EN_SCROLL_LOCK,         0x57 },
+                { KEY_EN_HOME,                0x58 },
+                { KEY_EN_END,                 0x59 },
+                { KEY_EN_UP_ARROW,            0x5A },
+                { KEY_EN_DOWN_ARROW,          0x5B },
+
+                { KEY_EN_PAUSE_BREAK,         0x5C },
+                { KEY_EN_PAGE_UP,             0x5D },
+                { KEY_EN_PAGE_DOWN,           0x5E },
+                { KEY_EN_RIGHT_ARROW,         0x5F },
+
+                { KEY_EN_NUMPAD_LOCK,         0x61 },
+                { KEY_EN_NUMPAD_7,            0x62 },
+                { KEY_EN_NUMPAD_4,            0x63 },
+                { KEY_EN_NUMPAD_1,            0x64 },
+                { KEY_EN_NUMPAD_0,            0x65 },
+
+                { KEY_EN_NUMPAD_DIVIDE,       0x67 },
+                { KEY_EN_NUMPAD_8,            0x68 },
+                { KEY_EN_NUMPAD_5,            0x69 },
+                { KEY_EN_NUMPAD_2,            0x6A },
+
+                { KEY_EN_NUMPAD_TIMES,        0x6C },
+                { KEY_EN_NUMPAD_9,            0x6D },
+                { KEY_EN_NUMPAD_6,            0x6E },
+                { KEY_EN_NUMPAD_3,            0x6F },
+                { KEY_EN_NUMPAD_PERIOD,       0x70 },
+
+                { KEY_EN_NUMPAD_MINUS,        0x72 },
+                { KEY_EN_NUMPAD_PLUS,         0x73 },
+                { KEY_EN_NUMPAD_ENTER,        0x75 }
+            }
+        }
+    },
+    {
+        ROCCAT_VULCAN_LAYOUT_US,
+        {
+            *ROCCAT_VULCAN_120_AIMO_LAYOUT_KEYS_104,
+            104,
+            6,
+            24,
+            {
+                { KEY_EN_ESCAPE,              0x02 },
+                { KEY_EN_BACK_TICK,           0x03 },
+                { KEY_EN_TAB,                 0x04 },
+                { KEY_EN_CAPS_LOCK,           0x05 },
+                { KEY_EN_LEFT_SHIFT,          0x00 },
+                { KEY_EN_LEFT_CONTROL,        0x01 },
+
+                { KEY_EN_1,                   0x08 },
+                { KEY_EN_LEFT_WINDOWS,        0x07 },
+
+                { KEY_EN_F1,                  0x0D },
+                { KEY_EN_2,                   0x0E },
+                { KEY_EN_Q,                   0x09 },
+                { KEY_EN_A,                   0x0A },
+                { KEY_EN_Z,                   0x0B },
+                { KEY_EN_LEFT_ALT,            0x0C },
+
+                { KEY_EN_F2,                  0x14 },
+                { KEY_EN_3,                   0x15 },
+                { KEY_EN_W,                   0x0F },
+                { KEY_EN_S,                   0x10 },
+                { KEY_EN_X,                   0x11 },
+
+                { KEY_EN_F3,                  0x19 },
+                { KEY_EN_4,                   0x1A },
+                { KEY_EN_E,                   0x16 },
+                { KEY_EN_D,                   0x17 },
+                { KEY_EN_C,                   0x18 },
+
+                { KEY_EN_F4,                  0x1E },
+                { KEY_EN_5,                   0x1F },
+                { KEY_EN_R,                   0x1B },
+                { KEY_EN_F,                   0x1C },
+                { KEY_EN_V,                   0x1D },
+
+                { KEY_EN_6,                   0x24 },
+                { KEY_EN_T,                   0x20 },
+                { KEY_EN_G,                   0x21 },
+                { KEY_EN_B,                   0x22 },
+                { KEY_EN_SPACE,               0x23 },
+
+                { KEY_EN_F5,                  0x28 },
+                { KEY_EN_7,                   0x29 },
+                { KEY_EN_Y,                   0x25 },
+                { KEY_EN_H,                   0x26 },
+                { KEY_EN_N,                   0x27 },
+
+                { KEY_EN_F6,                  0x2F },
+                { KEY_EN_8,                   0x30 },
+                { KEY_EN_U,                   0x2A },
+                { KEY_EN_J,                   0x2B },
+                { KEY_EN_M,                   0x2C },
+
+                { KEY_EN_F7,                  0x35 },
+                { KEY_EN_9,                   0x36 },
+                { KEY_EN_I,                   0x31 },
+                { KEY_EN_K,                   0x32 },
+                { KEY_EN_COMMA,               0x33 },
+
+                { KEY_EN_F8,                  0x3B },
+                { KEY_EN_0,                   0x3C },
+                { KEY_EN_O,                   0x37 },
+                { KEY_EN_L,                   0x38 },
+                { KEY_EN_PERIOD,              0x39 },
+                { KEY_EN_RIGHT_ALT,           0x3A },
+
+                { KEY_EN_F9,                  0x41 },
+                { KEY_EN_MINUS,               0x42 },
+                { KEY_EN_P,                   0x3D },
+                { KEY_EN_SEMICOLON,           0x3E },
+                { KEY_EN_FORWARD_SLASH,       0x3F },
+                { KEY_EN_RIGHT_FUNCTION,      0x40 },
+
+                { KEY_EN_F10,                 0x47 },
+                { KEY_EN_EQUALS,              0x48 },
+                { KEY_EN_LEFT_BRACKET,        0x43 },
+                { KEY_EN_QUOTE,               0x44 },
+                { KEY_EN_MENU,                0x46 },
+
+                { KEY_EN_F11,                 0x4D },
+                { KEY_EN_BACKSPACE,           0x50 },
+                { KEY_EN_RIGHT_BRACKET,       0x49 },
+                { KEY_EN_RIGHT_SHIFT,         0x4B },
+
+                { KEY_EN_F12,                 0x4F },
+                { KEY_EN_ANSI_BACK_SLASH,     0x51 },
+                { KEY_EN_ANSI_ENTER,          0x52 },
+                { KEY_EN_RIGHT_CONTROL,       0x4C },
+
+                { KEY_EN_PRINT_SCREEN,        0x53 },
+                { KEY_EN_INSERT,              0x54 },
+                { KEY_EN_DELETE,              0x55 },
+                { KEY_EN_LEFT_ARROW,          0x56 },
+
+                { KEY_EN_SCROLL_LOCK,         0x57 },
+                { KEY_EN_HOME,                0x58 },
+                { KEY_EN_END,                 0x59 },
+                { KEY_EN_UP_ARROW,            0x5A },
+                { KEY_EN_DOWN_ARROW,          0x5B },
+
+                { KEY_EN_PAUSE_BREAK,         0x5C },
+                { KEY_EN_PAGE_UP,             0x5D },
+                { KEY_EN_PAGE_DOWN,           0x5E },
+                { KEY_EN_RIGHT_ARROW,         0x5F },
+
+                { KEY_EN_NUMPAD_LOCK,         0x61 },
+                { KEY_EN_NUMPAD_7,            0x62 },
+                { KEY_EN_NUMPAD_4,            0x63 },
+                { KEY_EN_NUMPAD_1,            0x64 },
+                { KEY_EN_NUMPAD_0,            0x65 },
+
+                { KEY_EN_NUMPAD_DIVIDE,       0x67 },
+                { KEY_EN_NUMPAD_8,            0x68 },
+                { KEY_EN_NUMPAD_5,            0x69 },
+                { KEY_EN_NUMPAD_2,            0x6A },
+
+                { KEY_EN_NUMPAD_TIMES,        0x6C },
+                { KEY_EN_NUMPAD_9,            0x6D },
+                { KEY_EN_NUMPAD_6,            0x6E },
+                { KEY_EN_NUMPAD_3,            0x6F },
+                { KEY_EN_NUMPAD_PERIOD,       0x70 },
+
+                { KEY_EN_NUMPAD_MINUS,        0x72 },
+                { KEY_EN_NUMPAD_PLUS,         0x73 },
+                { KEY_EN_NUMPAD_ENTER,        0x75 }
+            }
+        }
+    },
+};
+
+static std::map<int, layout_info> RoccatVulcanIILayouts =
+{
+    {
+        ROCCAT_VULCAN_LAYOUT_UK,
+        {
+            *ROCCAT_VULCAN_II_LAYOUT_KEYS_105,
+            108,
+            6,
+            24,
+            {
+                { KEY_EN_ESCAPE,              0x02 },
+                { KEY_EN_BACK_TICK,           0x03 },
+                { KEY_EN_TAB,                 0x04 },
+                { KEY_EN_CAPS_LOCK,           0x05 },
+                { KEY_EN_LEFT_SHIFT,          0x00 },
+                { KEY_EN_LEFT_CONTROL,        0x01 },
+
+                { KEY_EN_1,                   0x08 },
+                { KEY_EN_ISO_BACK_SLASH,      0x06 },
+                { KEY_EN_LEFT_WINDOWS,        0x07 },
+
+                { KEY_EN_F1,                  0x0D },
+                { KEY_EN_2,                   0x0E },
+                { KEY_EN_Q,                   0x09 },
+                { KEY_EN_A,                   0x0A },
+                { KEY_EN_Z,                   0x0B },
+                { KEY_EN_LEFT_ALT,            0x0C },
+
+                { KEY_EN_F2,                  0x14 },
+                { KEY_EN_3,                   0x15 },
+                { KEY_EN_W,                   0x0F },
+                { KEY_EN_S,                   0x10 },
+                { KEY_EN_X,                   0x11 },
+
+                { KEY_EN_F3,                  0x19 },
+                { KEY_EN_4,                   0x1A },
+                { KEY_EN_E,                   0x16 },
+                { KEY_EN_D,                   0x17 },
+                { KEY_EN_C,                   0x18 },
+
+                { KEY_EN_F4,                  0x1E },
+                { KEY_EN_5,                   0x1F },
+                { KEY_EN_R,                   0x1B },
+                { KEY_EN_F,                   0x1C },
+                { KEY_EN_V,                   0x1D },
+
+                { KEY_EN_6,                   0x24 },
+                { KEY_EN_T,                   0x20 },
+                { KEY_EN_G,                   0x21 },
+                { KEY_EN_B,                   0x22 },
+                { KEY_EN_SPACE,               0x23 },
+
+                { KEY_EN_F5,                  0x28 },
+                { KEY_EN_7,                   0x29 },
+                { KEY_EN_Y,                   0x25 },
+                { KEY_EN_H,                   0x26 },
+                { KEY_EN_N,                   0x27 },
+
+                { KEY_EN_F6,                  0x2F },
+                { KEY_EN_8,                   0x30 },
+                { KEY_EN_U,                   0x2A },
+                { KEY_EN_J,                   0x2B },
+                { KEY_EN_M,                   0x2C },
+
+                { KEY_EN_F7,                  0x35 },
+                { KEY_EN_9,                   0x36 },
+                { KEY_EN_I,                   0x31 },
+                { KEY_EN_K,                   0x32 },
+                { KEY_EN_COMMA,               0x33 },
+
+                { KEY_EN_F8,                  0x3B },
+                { KEY_EN_0,                   0x3C },
+                { KEY_EN_O,                   0x37 },
+                { KEY_EN_L,                   0x38 },
+                { KEY_EN_PERIOD,              0x39 },
+                { KEY_EN_RIGHT_ALT,           0x3A },
+
+                { KEY_EN_F9,                  0x41 },
+                { KEY_EN_MINUS,               0x42 },
+                { KEY_EN_P,                   0x3D },
+                { KEY_EN_SEMICOLON,           0x3E },
+                { KEY_EN_FORWARD_SLASH,       0x3F },
+                { KEY_EN_RIGHT_FUNCTION,      0x40 },
+
+                { KEY_EN_F10,                 0x47 },
+                { KEY_EN_EQUALS,              0x48 },
+                { KEY_EN_LEFT_BRACKET,        0x43 },
+                { KEY_EN_QUOTE,               0x44 },
+                { KEY_EN_MENU,                0x46 },
+
+                { KEY_EN_F11,                 0x4D },
+                { KEY_EN_BACKSPACE,           0x50 },
+                { KEY_EN_RIGHT_BRACKET,       0x49 },
+                { KEY_EN_POUND,               0x4A },
+                { KEY_EN_RIGHT_SHIFT,         0x4B },
+
+                { KEY_EN_F12,                 0x4F },
+                { KEY_EN_ISO_ENTER,           0x52 },
+                { KEY_EN_RIGHT_CONTROL,       0x4C },
+
+                { KEY_EN_PRINT_SCREEN,        0x53 },
+                { KEY_EN_INSERT,              0x54 },
+                { KEY_EN_DELETE,              0x55 },
+                { KEY_EN_LEFT_ARROW,          0x56 },
+
+                { KEY_EN_SCROLL_LOCK,         0x57 },
+                { KEY_EN_HOME,                0x58 },
+                { KEY_EN_END,                 0x59 },
+                { KEY_EN_UP_ARROW,            0x5A },
+                { KEY_EN_DOWN_ARROW,          0x5B },
+
+                { KEY_EN_PAUSE_BREAK,         0x5C },
+                { KEY_EN_PAGE_UP,             0x5D },
+                { KEY_EN_PAGE_DOWN,           0x5E },
+                { KEY_EN_RIGHT_ARROW,         0x5F },
+
+                { KEY_EN_NUMPAD_LOCK,         0x61 },
+                { KEY_EN_NUMPAD_7,            0x62 },
+                { KEY_EN_NUMPAD_4,            0x63 },
+                { KEY_EN_NUMPAD_1,            0x64 },
+                { KEY_EN_NUMPAD_0,            0x65 },
+
+                { KEY_EN_NUMPAD_DIVIDE,       0x67 },
+                { KEY_EN_NUMPAD_8,            0x68 },
+                { KEY_EN_NUMPAD_5,            0x69 },
+                { KEY_EN_NUMPAD_2,            0x6A },
+
+                { KEY_EN_NUMPAD_TIMES,        0x6C },
+                { KEY_EN_NUMPAD_9,            0x6D },
+                { KEY_EN_NUMPAD_6,            0x6E },
+                { KEY_EN_NUMPAD_3,            0x6F },
+                { KEY_EN_NUMPAD_PERIOD,       0x70 },
+
+                { KEY_EN_NUMPAD_MINUS,        0x72 },
+                { KEY_EN_NUMPAD_PLUS,         0x73 },
+                { KEY_EN_NUMPAD_ENTER,        0x75 },
+                { KEY_EN_MEDIA_PREVIOUS,      0x76 },
+                { KEY_EN_MEDIA_PLAY_PAUSE,    0x78 },
+
+                { KEY_EN_MEDIA_NEXT,          0x79 }
+            }
+        }
+    },
+};
+
+static unsigned int ROCCAT_VULCAN_II_MAX_LAYOUT_KEYS_ANSI[6][24] =
+{
+    {   0,  NA,   9,  15,  20,  25,  NA,  35,  40,  45,  50,  56,  62,  67,  72,  NA,  75,  79,  84,  NA, 105, 106, 107,  NA },
+    {   1,   6,  10,  16,  21,  26,  30,  36,  41,  46,  51,  57,  63,  68,  NA,  NA,  76,  80,  85,  NA,  88,  93,  97, 102 },
+    {   2,  NA,  11,  17,  22,  27,  31,  37,  42,  47,  52,  58,  64,  69,  70,  NA,  77,  81,  86,  NA,  89,  94,  98, 103 },
+    {   3,  NA,  12,  18,  23,  28,  32,  38,  43,  48,  53,  59,  65,  73,  NA,  NA,  NA,  NA,  NA,  NA,  90,  95,  99,  NA },
+    {   4,  NA,  13,  19,  24,  29,  33,  39,  44,  49,  54,  60,  71,  NA,  NA,  NA,  NA,  82,  NA,  NA,  91,  96, 100, 104 },
+    {   5,   8,  14,  NA,  NA,  NA,  34,  NA,  NA,  NA,  55,  61,  66,  74,  NA,  NA,  78,  83,  87,  NA,  92,  NA, 101,  NA }
+};
+
+static unsigned int ROCCAT_VULCAN_II_MAX_LAYOUT_KEYS_JIS[6][24] =
+{
+    {   0,  NA,   7,  13,  19,  25,  NA,  35,  40,  45,  51,  57,  63,  69,  73,  NA,  78,  82,  87,  NA, 108, 109, 110,  NA },
+    {   1,   6,   8,  14,  20,  26,  30,  36,  41,  46,  52,  58,  64,  70,  74,  NA,  79,  83,  88,  NA,  91,  96, 100, 105 },
+    {   2,  NA,   9,  15,  21,  27,  31,  37,  42,  47,  53,  59,  65,  71,  75,  NA,  80,  84,  89,  NA,  92,  97, 101, 106 },
+    {   3,  NA,  10,  16,  22,  28,  32,  38,  43,  48,  54,  60,  66,  72,  NA,  NA,  NA,  NA,  NA,  NA,  93,  98, 102,  NA },
+    {   4,  NA,  11,  17,  23,  29,  33,  39,  44,  49,  55,  61,  67,  NA,  76,  NA,  NA,  85,  NA,  NA,  94,  99, 103, 107 },
+    {   5,  NA,  12,  18,  24,  NA,  34,  NA,  NA,  50,  56,  62,  68,  NA,  77,  NA,  81,  86,  90,  NA,  95,  NA, 104,  NA }
+};
+
+static std::map<int, layout_info> RoccatVulcanIIMaxLayouts =
+{
+    {
+        ROCCAT_VULCAN_LAYOUT_US,
+        {
+            *ROCCAT_VULCAN_II_MAX_LAYOUT_KEYS_ANSI,
+            148,
+            6,
+            24,
+            {
+                { KEY_EN_ESCAPE,              0x02 },
+                { KEY_EN_BACK_TICK,           0x03 },
+                { KEY_EN_TAB,                 0x04 },
+                { KEY_EN_CAPS_LOCK,           0x05 },
+                { KEY_EN_LEFT_SHIFT,          0x00 },
+                { KEY_EN_LEFT_CONTROL,        0x01 },
+
+                { KEY_EN_1,                   0x08 },
+                { KEY_EN_UNUSED,              0x06 },
+                { KEY_EN_LEFT_WINDOWS,        0x07 },
+
+                { KEY_EN_F1,                  0x0D },
+                { KEY_EN_2,                   0x0E },
+                { KEY_EN_Q,                   0x09 },
+                { KEY_EN_A,                   0x0A },
+                { KEY_EN_Z,                   0x0B },
+                { KEY_EN_LEFT_ALT,            0x0C },
+
+                { KEY_EN_F2,                  0x14 },
+                { KEY_EN_3,                   0x15 },
+                { KEY_EN_W,                   0x0F },
+                { KEY_EN_S,                   0x10 },
+                { KEY_EN_X,                   0x11 },
+
+                { KEY_EN_F3,                  0x19 },
+                { KEY_EN_4,                   0x1A },
+                { KEY_EN_E,                   0x16 },
+                { KEY_EN_D,                   0x17 },
+                { KEY_EN_C,                   0x18 },
+
+                { KEY_EN_F4,                  0x1F },
+                { KEY_EN_5,                   0x1E },
+                { KEY_EN_R,                   0x1B },
+                { KEY_EN_F,                   0x1C },
+                { KEY_EN_V,                   0x21 },
+
+                { KEY_EN_6,                   0x24 },
+                { KEY_EN_T,                   0x20 },
+                { KEY_EN_G,                   0x1D },
+                { KEY_EN_B,                   0x22 },
+                { KEY_EN_SPACE,               0x28 },
+
+                { KEY_EN_F5,                  0x23 },
+                { KEY_EN_7,                   0x29 },
+                { KEY_EN_Y,                   0x25 },
+                { KEY_EN_H,                   0x26 },
+                { KEY_EN_N,                   0x27 },
+
+                { KEY_EN_F6,                  0x2F },
+                { KEY_EN_8,                   0x30 },
+                { KEY_EN_U,                   0x3D },
+                { KEY_EN_J,                   0x2B },
+                { KEY_EN_M,                   0x2C },
+
+                { KEY_EN_F7,                  0x35 },
+                { KEY_EN_9,                   0x36 },
+                { KEY_EN_I,                   0x31 },
+                { KEY_EN_K,                   0x32 },
+                { KEY_EN_COMMA,               0x33 },
+
+                { KEY_EN_F8,                  0x3B },
+                { KEY_EN_0,                   0x3C },
+                { KEY_EN_O,                   0x37 },
+                { KEY_EN_L,                   0x38 },
+                { KEY_EN_PERIOD,              0x39 },
+                { KEY_EN_RIGHT_ALT,           0x3A },
+
+                { KEY_EN_F9,                  0x41 },
+                { KEY_EN_MINUS,               0x42 },
+                { KEY_EN_P,                   0x2A },
+                { KEY_EN_SEMICOLON,           0x3E },
+                { KEY_EN_FORWARD_SLASH,       0x3F },
+                { KEY_EN_RIGHT_FUNCTION,      0x40 },
+
+                { KEY_EN_F10,                 0x47 },
+                { KEY_EN_EQUALS,              0x48 },
+                { KEY_EN_LEFT_BRACKET,        0x43 },
+                { KEY_EN_QUOTE,               0x44 },
+                { KEY_EN_MENU,                0x46 },
+
+                { KEY_EN_F11,                 0x4D },
+                { KEY_EN_BACKSPACE,           0x50 },
+                { KEY_EN_RIGHT_BRACKET,       0x49 },
+                { KEY_EN_ANSI_BACK_SLASH,     0x51 },
+                { KEY_EN_RIGHT_SHIFT,         0x4B },
+
+                { KEY_EN_F12,                 0x4F },
+                { KEY_EN_ANSI_ENTER,          0x52 },
+                { KEY_EN_RIGHT_CONTROL,       0x4C },
+
+                { KEY_EN_PRINT_SCREEN,        0x53 },
+                { KEY_EN_INSERT,              0x54 },
+                { KEY_EN_DELETE,              0x55 },
+                { KEY_EN_LEFT_ARROW,          0x56 },
+
+                { KEY_EN_SCROLL_LOCK,         0x57 },
+                { KEY_EN_HOME,                0x58 },
+                { KEY_EN_END,                 0x59 },
+                { KEY_EN_UP_ARROW,            0x5A },
+                { KEY_EN_DOWN_ARROW,          0x5B },
+
+                { KEY_EN_PAUSE_BREAK,         0x5C },
+                { KEY_EN_PAGE_UP,             0x5D },
+                { KEY_EN_PAGE_DOWN,           0x5E },
+                { KEY_EN_RIGHT_ARROW,         0x5F },
+
+                { KEY_EN_NUMPAD_LOCK,         0x60 },
+                { KEY_EN_NUMPAD_7,            0x61 },
+                { KEY_EN_NUMPAD_4,            0x62 },
+                { KEY_EN_NUMPAD_1,            0x6C },
+                { KEY_EN_NUMPAD_0,            0x64 },
+
+                { KEY_EN_NUMPAD_DIVIDE,       0x65 },
+                { KEY_EN_NUMPAD_8,            0x66 },
+                { KEY_EN_NUMPAD_5,            0x67 },
+                { KEY_EN_NUMPAD_2,            0x68 },
+
+                { KEY_EN_NUMPAD_TIMES,        0x69 },
+                { KEY_EN_NUMPAD_9,            0x6A },
+                { KEY_EN_NUMPAD_6,            0x6B },
+                { KEY_EN_NUMPAD_3,            0x63 },
+                { KEY_EN_NUMPAD_PERIOD,       0x6D },
+
+                { KEY_EN_NUMPAD_MINUS,        0x6E },
+                { KEY_EN_NUMPAD_PLUS,         0x6F },
+                { KEY_EN_NUMPAD_ENTER,        0x71 },
+
+                { KEY_EN_MEDIA_PREVIOUS,      0x72 },
+                { KEY_EN_MEDIA_PLAY_PAUSE,    0x73 },
+                { KEY_EN_MEDIA_NEXT,          0x74 },
+
+                /*-------------------------------------------------------------*\
+                |  F-Key Indicators (secondary LEDs)                            |
+                \*-------------------------------------------------------------*/
+                { "Key: F1 LED 2",            0x89 },
+                { "Key: F2 LED 2",            0x7B },
+                { "Key: F3 LED 2",            0x81 },
+                { "Key: F4 LED 2",            0x87 },
+                { "Key: F5 LED 2",            0x8D },
+                { "Key: F6 LED 2",            0x76 },
+                { "Key: F7 LED 2",            0x7C },
+                { "Key: F8 LED 2",            0x82 },
+                { "Key: F9 LED 2",            0x88 },
+                { "Key: F10 LED 2",           0x8E },
+                { "Key: F11 LED 2",           0x7A },
+                { "Key: F12 LED 2",           0x80 },
+                { "Key: Print Screen LED 2",  0x86 },
+                { "Key: Scroll Lock LED 2",   0x8C },
+                { "Key: Pause/Break LED 2",   0x92 },
+
+                /*-------------------------------------------------------------*\
+                |  Nav Cluster Indicators (secondary LEDs)                      |
+                \*-------------------------------------------------------------*/
+                { "Key: Insert LED 2",        0x75 },
+                { "Key: Home LED 2",          0x7E },
+                { "Key: Page Up LED 2",       0x84 },
+
+                /*-------------------------------------------------------------*\
+                |  Num Lock Indicator (secondary LED)                           |
+                \*-------------------------------------------------------------*/
+                { "Key: Num Lock LED 2",      0x8B },
+
+                /*-------------------------------------------------------------*\
+                |  Nav Cluster Indicators 2 (secondary LEDs)                    |
+                \*-------------------------------------------------------------*/
+                { "Key: Delete LED 2",        0x78 },
+                { "Key: End LED 2",           0x90 },
+                { "Key: Page Down LED 2",     0x8A },
+
+                /*-------------------------------------------------------------*\
+                |  Caps Lock Indicator (secondary LED)                          |
+                \*-------------------------------------------------------------*/
+                { "Key: Caps Lock LED 2",     0x7D },
+
+                /*-------------------------------------------------------------*\
+                |  Win Key Indicator (secondary LED)                            |
+                \*-------------------------------------------------------------*/
+                { "Key: Left Windows LED 2",  0x83 },
+
+                /*-------------------------------------------------------------*\
+                |  Palm Rest LEDs (order approximate - needs verification)      |
+                \*-------------------------------------------------------------*/
+                { "Palm Rest LED 1",          0x96 },
+                { "Palm Rest LED 2",          0xAD },
+                { "Palm Rest LED 3",          0xA7 },
+                { "Palm Rest LED 4",          0xA1 },
+                { "Palm Rest LED 5",          0x9B },
+                { "Palm Rest LED 6",          0x95 },
+                { "Palm Rest LED 7",          0xAC },
+                { "Palm Rest LED 8",          0xA6 },
+                { "Palm Rest LED 9",          0xA0 },
+                { "Palm Rest LED 10",         0x9A },
+                { "Palm Rest LED 11",         0x94 },
+                { "Palm Rest LED 12",         0xAB },
+                { "Palm Rest LED 13",         0xA5 },
+                { "Palm Rest LED 14",         0x9F },
+                { "Palm Rest LED 15",         0x99 },
+                { "Palm Rest LED 16",         0x93 }
+            }
+        }
+    },
+    {
+        ROCCAT_VULCAN_LAYOUT_JP,
+        {
+            *ROCCAT_VULCAN_II_MAX_LAYOUT_KEYS_JIS,
+            151,
+            6,
+            24,
+            {
+                { KEY_EN_ESCAPE,              0x02 },
+                { KEY_JP_EJ,                  0x03 },
+                { KEY_EN_TAB,                 0x04 },
+                { KEY_EN_CAPS_LOCK,           0x05 },
+                { KEY_EN_LEFT_SHIFT,          0x00 },
+                { KEY_EN_LEFT_CONTROL,        0x01 },
+
+                { KEY_EN_1,                   0x08 },
+
+                { KEY_EN_F1,                  0x0D },
+                { KEY_EN_2,                   0x0E },
+                { KEY_EN_Q,                   0x09 },
+                { KEY_EN_A,                   0x0A },
+                { KEY_EN_Z,                   0x0B },
+                { KEY_EN_LEFT_WINDOWS,        0x07 },
+
+                { KEY_EN_F2,                  0x14 },
+                { KEY_EN_3,                   0x15 },
+                { KEY_EN_W,                   0x0F },
+                { KEY_EN_S,                   0x10 },
+                { KEY_EN_X,                   0x11 },
+                { KEY_EN_LEFT_ALT,            0x0C },
+
+                { KEY_EN_F3,                  0x19 },
+                { KEY_EN_4,                   0x1A },
+                { KEY_EN_E,                   0x16 },
+                { KEY_EN_D,                   0x17 },
+                { KEY_EN_C,                   0x18 },
+                { KEY_JP_MUHENKAN,            0x12 },
+
+                { KEY_EN_F4,                  0x1F },
+                { KEY_EN_5,                   0x1E },
+                { KEY_EN_R,                   0x1B },
+                { KEY_EN_F,                   0x1C },
+                { KEY_EN_V,                   0x21 },
+
+                { KEY_EN_6,                   0x24 },
+                { KEY_EN_T,                   0x20 },
+                { KEY_EN_G,                   0x1D },
+                { KEY_EN_B,                   0x22 },
+                { KEY_EN_SPACE,               0x28 },
+
+                { KEY_EN_F5,                  0x23 },
+                { KEY_EN_7,                   0x29 },
+                { KEY_EN_Y,                   0x25 },
+                { KEY_EN_H,                   0x26 },
+                { KEY_EN_N,                   0x27 },
+
+                { KEY_EN_F6,                  0x2F },
+                { KEY_EN_8,                   0x30 },
+                { KEY_EN_U,                   0x3D },
+                { KEY_EN_J,                   0x2B },
+                { KEY_EN_M,                   0x2C },
+
+                { KEY_EN_F7,                  0x35 },
+                { KEY_EN_9,                   0x36 },
+                { KEY_EN_I,                   0x31 },
+                { KEY_EN_K,                   0x32 },
+                { KEY_EN_COMMA,               0x33 },
+                { KEY_JP_HENKAN,              0x2D },
+
+                { KEY_EN_F8,                  0x3B },
+                { KEY_EN_0,                   0x3C },
+                { KEY_EN_O,                   0x37 },
+                { KEY_EN_L,                   0x38 },
+                { KEY_EN_PERIOD,              0x39 },
+                { KEY_JP_KANA,                0x34 },
+
+                { KEY_EN_F9,                  0x41 },
+                { KEY_EN_MINUS,               0x42 },
+                { KEY_EN_P,                   0x2A },
+                { KEY_EN_SEMICOLON,           0x3E },
+                { KEY_EN_FORWARD_SLASH,       0x3F },
+                { KEY_EN_RIGHT_FUNCTION,      0x40 },
+
+                { KEY_EN_F10,                 0x47 },
+                { KEY_JP_CHEVRON,             0x48 },
+                { KEY_JP_AT,                  0x43 },
+                { KEY_JP_COLON,               0x44 },
+                { KEY_EN_BACK_SLASH,          0x45 },
+                { KEY_EN_MENU,                0x46 },
+
+                { KEY_EN_F11,                 0x4D },
+                { KEY_JP_YEN,                 0x4E },
+                { KEY_EN_LEFT_BRACKET,        0x49 },
+                { KEY_EN_RIGHT_BRACKET,       0x4A },
+
+                { KEY_EN_F12,                 0x4F },
+                { KEY_EN_BACKSPACE,           0x50 },
+                { KEY_EN_ISO_ENTER,           0x52 },
+                { KEY_EN_RIGHT_SHIFT,         0x4B },
+                { KEY_EN_RIGHT_CONTROL,       0x4C },
+
+                { KEY_EN_PRINT_SCREEN,        0x53 },
+                { KEY_EN_INSERT,              0x54 },
+                { KEY_EN_DELETE,              0x55 },
+                { KEY_EN_LEFT_ARROW,          0x56 },
+
+                { KEY_EN_SCROLL_LOCK,         0x57 },
+                { KEY_EN_HOME,                0x58 },
+                { KEY_EN_END,                 0x59 },
+                { KEY_EN_UP_ARROW,            0x5A },
+                { KEY_EN_DOWN_ARROW,          0x5B },
+
+                { KEY_EN_PAUSE_BREAK,         0x5C },
+                { KEY_EN_PAGE_UP,             0x5D },
+                { KEY_EN_PAGE_DOWN,           0x5E },
+                { KEY_EN_RIGHT_ARROW,         0x5F },
+
+                { KEY_EN_NUMPAD_LOCK,         0x60 },
+                { KEY_EN_NUMPAD_7,            0x61 },
+                { KEY_EN_NUMPAD_4,            0x62 },
+                { KEY_EN_NUMPAD_1,            0x6C },
+                { KEY_EN_NUMPAD_0,            0x64 },
+
+                { KEY_EN_NUMPAD_DIVIDE,       0x65 },
+                { KEY_EN_NUMPAD_8,            0x66 },
+                { KEY_EN_NUMPAD_5,            0x67 },
+                { KEY_EN_NUMPAD_2,            0x68 },
+
+                { KEY_EN_NUMPAD_TIMES,        0x69 },
+                { KEY_EN_NUMPAD_9,            0x6A },
+                { KEY_EN_NUMPAD_6,            0x6B },
+                { KEY_EN_NUMPAD_3,            0x63 },
+                { KEY_EN_NUMPAD_PERIOD,       0x6D },
+
+                { KEY_EN_NUMPAD_MINUS,        0x6E },
+                { KEY_EN_NUMPAD_PLUS,         0x6F },
+                { KEY_EN_NUMPAD_ENTER,        0x71 },
+
+                { KEY_EN_MEDIA_PREVIOUS,      0x72 },
+                { KEY_EN_MEDIA_PLAY_PAUSE,    0x73 },
+                { KEY_EN_MEDIA_NEXT,          0x74 },
+
+                /*-------------------------------------------------------------*\
+                |  F-Key Indicators (secondary LEDs)                            |
+                \*-------------------------------------------------------------*/
+                { "Key: F1 LED 2",            0x89 },
+                { "Key: F2 LED 2",            0x7B },
+                { "Key: F3 LED 2",            0x81 },
+                { "Key: F4 LED 2",            0x87 },
+                { "Key: F5 LED 2",            0x8D },
+                { "Key: F6 LED 2",            0x76 },
+                { "Key: F7 LED 2",            0x7C },
+                { "Key: F8 LED 2",            0x82 },
+                { "Key: F9 LED 2",            0x88 },
+                { "Key: F10 LED 2",           0x8E },
+                { "Key: F11 LED 2",           0x7A },
+                { "Key: F12 LED 2",           0x80 },
+                { "Key: Print Screen LED 2",  0x86 },
+                { "Key: Scroll Lock LED 2",   0x8C },
+                { "Key: Pause/Break LED 2",   0x92 },
+
+                /*-------------------------------------------------------------*\
+                |  Nav Cluster Indicators (secondary LEDs)                      |
+                \*-------------------------------------------------------------*/
+                { "Key: Insert LED 2",        0x75 },
+                { "Key: Home LED 2",          0x7E },
+                { "Key: Page Up LED 2",       0x84 },
+
+                /*-------------------------------------------------------------*\
+                |  Num Lock Indicator (secondary LED)                           |
+                \*-------------------------------------------------------------*/
+                { "Key: Num Lock LED 2",      0x8B },
+
+                /*-------------------------------------------------------------*\
+                |  Nav Cluster Indicators 2 (secondary LEDs)                    |
+                \*-------------------------------------------------------------*/
+                { "Key: Delete LED 2",        0x78 },
+                { "Key: End LED 2",           0x90 },
+                { "Key: Page Down LED 2",     0x8A },
+
+                /*-------------------------------------------------------------*\
+                |  Caps Lock Indicator (secondary LED)                          |
+                \*-------------------------------------------------------------*/
+                { "Key: Caps Lock LED 2",     0x7D },
+
+                /*-------------------------------------------------------------*\
+                |  Win Key Indicator (secondary LED)                            |
+                \*-------------------------------------------------------------*/
+                { "Key: Left Windows LED 2",  0x83 },
+
+                /*-------------------------------------------------------------*\
+                |  Palm Rest LEDs (order approximate - needs verification)      |
+                \*-------------------------------------------------------------*/
+                { "Palm Rest LED 1",          0x96 },
+                { "Palm Rest LED 2",          0xAD },
+                { "Palm Rest LED 3",          0xA7 },
+                { "Palm Rest LED 4",          0xA1 },
+                { "Palm Rest LED 5",          0x9B },
+                { "Palm Rest LED 6",          0x95 },
+                { "Palm Rest LED 7",          0xAC },
+                { "Palm Rest LED 8",          0xA6 },
+                { "Palm Rest LED 9",          0xA0 },
+                { "Palm Rest LED 10",         0x9A },
+                { "Palm Rest LED 11",         0x94 },
+                { "Palm Rest LED 12",         0xAB },
+                { "Palm Rest LED 13",         0xA5 },
+                { "Palm Rest LED 14",         0x9F },
+                { "Palm Rest LED 15",         0x99 },
+                { "Palm Rest LED 16",         0x93 }
+            }
+        }
+    },
+};
+
+static std::map<int, layout_info> RoccatVulcanTKLLayouts =
+{
+    {
+        ROCCAT_VULCAN_LAYOUT_UK,
+        {
+            *ROCCAT_VULCAN_TKL_LAYOUT_KEYS_105,
+            86,
+            6,
+            19,
+            {
+                { KEY_EN_ESCAPE,              0x02 },
+                { KEY_EN_BACK_TICK,           0x03 },
+                { KEY_EN_TAB,                 0x04 },
+                { KEY_EN_CAPS_LOCK,           0x05 },
+                { KEY_EN_LEFT_SHIFT,          0x00 },
+                { KEY_EN_LEFT_CONTROL,        0x01 },
+
+                { KEY_EN_1,                   0x08 },
+                { KEY_EN_ISO_BACK_SLASH,      0x06 },
+                { KEY_EN_LEFT_WINDOWS,        0x07 },
+
+                { KEY_EN_F1,                  0x0D },
+                { KEY_EN_2,                   0x0E },
+                { KEY_EN_Q,                   0x09 },
+                { KEY_EN_A,                   0x0A },
+                { KEY_EN_Z,                   0x0B },
+                { KEY_EN_LEFT_ALT,            0x0C },
+
+                { KEY_EN_F2,                  0x14 },
+                { KEY_EN_3,                   0x15 },
+                { KEY_EN_W,                   0x0F },
+                { KEY_EN_S,                   0x10 },
+                { KEY_EN_X,                   0x11 },
+
+                { KEY_EN_F3,                  0x19 },
+                { KEY_EN_4,                   0x1A },
+                { KEY_EN_E,                   0x16 },
+                { KEY_EN_D,                   0x17 },
+                { KEY_EN_C,                   0x18 },
+
+                { KEY_EN_F4,                  0x1E },
+                { KEY_EN_5,                   0x1F },
+                { KEY_EN_R,                   0x1B },
+                { KEY_EN_F,                   0x1C },
+                { KEY_EN_V,                   0x1D },
+
+                { KEY_EN_6,                   0x24 },
+                { KEY_EN_T,                   0x20 },
+                { KEY_EN_G,                   0x21 },
+                { KEY_EN_B,                   0x22 },
+                { KEY_EN_SPACE,               0x23 },
+
+                { KEY_EN_F5,                  0x28 },
+                { KEY_EN_7,                   0x29 },
+                { KEY_EN_Y,                   0x25 },
+                { KEY_EN_H,                   0x26 },
+                { KEY_EN_N,                   0x27 },
+
+                { KEY_EN_F6,                  0x2F },
+                { KEY_EN_8,                   0x30 },
+                { KEY_EN_U,                   0x2A },
+                { KEY_EN_J,                   0x2B },
+                { KEY_EN_M,                   0x2C },
+
+                { KEY_EN_F7,                  0x35 },
+                { KEY_EN_9,                   0x36 },
+                { KEY_EN_I,                   0x31 },
+                { KEY_EN_K,                   0x32 },
+                { KEY_EN_COMMA,               0x33 },
+
+                { KEY_EN_F8,                  0x3B },
+                { KEY_EN_0,                   0x3C },
+                { KEY_EN_O,                   0x37 },
+                { KEY_EN_L,                   0x38 },
+                { KEY_EN_PERIOD,              0x39 },
+                { KEY_EN_RIGHT_ALT,           0x3A },
+
+                { KEY_EN_F9,                  0x41 },
+                { KEY_EN_MINUS,               0x42 },
+                { KEY_EN_P,                   0x3D },
+                { KEY_EN_SEMICOLON,           0x3E },
+                { KEY_EN_FORWARD_SLASH,       0x3F },
+                { KEY_EN_RIGHT_FUNCTION,      0x40 },
+
+                { KEY_EN_F10,                 0x47 },
+                { KEY_EN_EQUALS,              0x48 },
+                { KEY_EN_LEFT_BRACKET,        0x43 },
+                { KEY_EN_QUOTE,               0x44 },
+                { KEY_EN_MENU,                0x46 },
+
+                { KEY_EN_F11,                 0x4D },
+                { KEY_EN_BACKSPACE,           0x50 },
+                { KEY_EN_RIGHT_BRACKET,       0x49 },
+                { KEY_EN_POUND,               0x4A },
+                { KEY_EN_RIGHT_SHIFT,         0x4B },
+
+                { KEY_EN_F12,                 0x4F },
+                { KEY_EN_ISO_ENTER,           0x52 },
+                { KEY_EN_RIGHT_CONTROL,       0x4C },
+
+                { KEY_EN_MEDIA_MUTE,          0x5C },
+                { KEY_EN_INSERT,              0x54 },
+                { KEY_EN_DELETE,              0x55 },
+                { KEY_EN_LEFT_ARROW,          0x56 },
+
+                { KEY_EN_HOME,                0x58 },
+                { KEY_EN_END,                 0x59 },
+                { KEY_EN_UP_ARROW,            0x5A },
+                { KEY_EN_DOWN_ARROW,          0x5B },
+
+                { KEY_EN_PAGE_UP,             0x5D },
+                { KEY_EN_PAGE_DOWN,           0x5E },
+                { KEY_EN_RIGHT_ARROW,         0x5F },
+            }
+        }
+    },
+    {
+        ROCCAT_VULCAN_LAYOUT_US,
+        {
+            *ROCCAT_VULCAN_TKL_LAYOUT_KEYS_104,
+            85,
+            6,
+            19,
+            {
+                { KEY_EN_ESCAPE,              0x02 },
+                { KEY_EN_BACK_TICK,           0x03 },
+                { KEY_EN_TAB,                 0x04 },
+                { KEY_EN_CAPS_LOCK,           0x05 },
+                { KEY_EN_LEFT_SHIFT,          0x00 },
+                { KEY_EN_LEFT_CONTROL,        0x01 },
+
+                { KEY_EN_1,                   0x08 },
+                { KEY_EN_LEFT_WINDOWS,        0x07 },
+
+                { KEY_EN_F1,                  0x0D },
+                { KEY_EN_2,                   0x0E },
+                { KEY_EN_Q,                   0x09 },
+                { KEY_EN_A,                   0x0A },
+                { KEY_EN_Z,                   0x0B },
+                { KEY_EN_LEFT_ALT,            0x0C },
+
+                { KEY_EN_F2,                  0x14 },
+                { KEY_EN_3,                   0x15 },
+                { KEY_EN_W,                   0x0F },
+                { KEY_EN_S,                   0x10 },
+                { KEY_EN_X,                   0x11 },
+
+                { KEY_EN_F3,                  0x19 },
+                { KEY_EN_4,                   0x1A },
+                { KEY_EN_E,                   0x16 },
+                { KEY_EN_D,                   0x17 },
+                { KEY_EN_C,                   0x18 },
+
+                { KEY_EN_F4,                  0x1E },
+                { KEY_EN_5,                   0x1F },
+                { KEY_EN_R,                   0x1B },
+                { KEY_EN_F,                   0x1C },
+                { KEY_EN_V,                   0x1D },
+
+                { KEY_EN_6,                   0x24 },
+                { KEY_EN_T,                   0x20 },
+                { KEY_EN_G,                   0x21 },
+                { KEY_EN_B,                   0x22 },
+                { KEY_EN_SPACE,               0x23 },
+
+                { KEY_EN_F5,                  0x28 },
+                { KEY_EN_7,                   0x29 },
+                { KEY_EN_Y,                   0x25 },
+                { KEY_EN_H,                   0x26 },
+                { KEY_EN_N,                   0x27 },
+
+                { KEY_EN_F6,                  0x2F },
+                { KEY_EN_8,                   0x30 },
+                { KEY_EN_U,                   0x2A },
+                { KEY_EN_J,                   0x2B },
+                { KEY_EN_M,                   0x2C },
+
+                { KEY_EN_F7,                  0x35 },
+                { KEY_EN_9,                   0x36 },
+                { KEY_EN_I,                   0x31 },
+                { KEY_EN_K,                   0x32 },
+                { KEY_EN_COMMA,               0x33 },
+
+                { KEY_EN_F8,                  0x3B },
+                { KEY_EN_0,                   0x3C },
+                { KEY_EN_O,                   0x37 },
+                { KEY_EN_L,                   0x38 },
+                { KEY_EN_PERIOD,              0x39 },
+                { KEY_EN_RIGHT_ALT,           0x3A },
+
+                { KEY_EN_F9,                  0x41 },
+                { KEY_EN_MINUS,               0x42 },
+                { KEY_EN_P,                   0x3D },
+                { KEY_EN_SEMICOLON,           0x3E },
+                { KEY_EN_FORWARD_SLASH,       0x3F },
+                { KEY_EN_RIGHT_FUNCTION,      0x40 },
+
+                { KEY_EN_F10,                 0x47 },
+                { KEY_EN_EQUALS,              0x48 },
+                { KEY_EN_LEFT_BRACKET,        0x43 },
+                { KEY_EN_QUOTE,               0x44 },
+                { KEY_EN_MENU,                0x46 },
+
+                { KEY_EN_F11,                 0x4D },
+                { KEY_EN_BACKSPACE,           0x50 },
+                { KEY_EN_RIGHT_BRACKET,       0x49 },
+                { KEY_EN_RIGHT_SHIFT,         0x4B },
+
+                { KEY_EN_F12,                 0x4F },
+                { KEY_EN_ANSI_BACK_SLASH,     0x51 }, // this one is guessed, not tested with ansi layout
+                { KEY_EN_ANSI_ENTER,          0x52 },
+                { KEY_EN_RIGHT_CONTROL,       0x4C },
+
+                { KEY_EN_MEDIA_MUTE,          0x5C },
+                { KEY_EN_INSERT,              0x54 },
+                { KEY_EN_DELETE,              0x55 },
+                { KEY_EN_LEFT_ARROW,          0x56 },
+
+                { KEY_EN_HOME,                0x58 },
+                { KEY_EN_END,                 0x59 },
+                { KEY_EN_UP_ARROW,            0x5A },
+                { KEY_EN_DOWN_ARROW,          0x5B },
+
+                { KEY_EN_PAGE_UP,             0x5D },
+                { KEY_EN_PAGE_DOWN,           0x5E },
+                { KEY_EN_RIGHT_ARROW,         0x5F },
+            }
+        }
+    },
+};
+
+static std::map<int, layout_info> TurtleBeachVulcanIITKLProLayouts =
+{
+    {
+        ROCCAT_VULCAN_LAYOUT_UK,
+        {
+            *TURTLE_BEACH_VULCAN_II_TKL_PRO_LAYOUT_KEYS_105,
+            85,
+            6,
+            19,
+            {
+                { KEY_EN_ESCAPE,                 0x00 },
+                { KEY_EN_F1,                     0x01 },
+                { KEY_EN_F2,                     0x02 },
+                { KEY_EN_F3,                     0x03 },
+                { KEY_EN_F4,                     0x04 },
+                { KEY_EN_F5,                     0x05 },
+                { KEY_EN_F6,                     0x06 },
+                { KEY_EN_F7,                     0x07 },
+                { KEY_EN_F8,                     0x08 },
+                { KEY_EN_F9,                     0x09 },
+                { KEY_EN_F10,                    0x0A },
+                { KEY_EN_F11,                    0x0B },
+                { KEY_EN_F12,                    0x0C },
+
+                { KEY_EN_BACK_TICK,              0x0D },
+                { KEY_EN_1,                      0x0E },
+                { KEY_EN_2,                      0x0F },
+                { KEY_EN_3,                      0x10 },
+                { KEY_EN_4,                      0x11 },
+                { KEY_EN_5,                      0x12 },
+                { KEY_EN_6,                      0x13 },
+                { KEY_EN_7,                      0x14 },
+                { KEY_EN_8,                      0x15 },
+                { KEY_EN_9,                      0x16 },
+                { KEY_EN_0,                      0x17 },
+                { KEY_EN_MINUS,                  0x18 },
+                { KEY_EN_EQUALS,                 0x19 },
+                { KEY_EN_BACKSPACE,              0x1B },
+
+                { KEY_EN_TAB,                    0x1C },
+                { KEY_EN_Q,                      0x1D },
+                { KEY_EN_W,                      0x1E },
+                { KEY_EN_E,                      0x1F },
+                { KEY_EN_R,                      0x20 },
+                { KEY_EN_T,                      0x21 },
+                { KEY_EN_Y,                      0x22 },
+                { KEY_EN_U,                      0x23 },
+                { KEY_EN_I,                      0x24 },
+                { KEY_EN_O,                      0x25 },
+                { KEY_EN_P,                      0x26 },
+                { KEY_EN_LEFT_BRACKET,           0x27 },
+                { KEY_EN_RIGHT_BRACKET,          0x28 },
+
+                { KEY_EN_CAPS_LOCK,              0x2A },
+                { KEY_EN_A,                      0x2B },
+                { KEY_EN_S,                      0x2C },
+                { KEY_EN_D,                      0x2D },
+                { KEY_EN_F,                      0x2E },
+                { KEY_EN_G,                      0x2F },
+                { KEY_EN_H,                      0x30 },
+                { KEY_EN_J,                      0x31 },
+                { KEY_EN_K,                      0x32 },
+                { KEY_EN_L,                      0x33 },
+                { KEY_EN_SEMICOLON,              0x34 },
+                { KEY_EN_QUOTE,                  0x35 },
+                { KEY_EN_POUND,                  0x36 },
+                { KEY_EN_ISO_ENTER,              0x37 },
+
+                { KEY_EN_LEFT_SHIFT,             0x38 },
+                { KEY_EN_ISO_BACK_SLASH,         0x39 },
+                { KEY_EN_Y,                      0x3A },
+                { KEY_EN_X,                      0x3B },
+                { KEY_EN_C,                      0x3C },
+                { KEY_EN_V,                      0x3D },
+                { KEY_EN_B,                      0x3E },
+                { KEY_EN_N,                      0x3F },
+                { KEY_EN_M,                      0x40 },
+                { KEY_EN_COMMA,                  0x41 },
+                { KEY_EN_PERIOD,                 0x42 },
+                { KEY_EN_FORWARD_SLASH,          0x43 },
+                { KEY_EN_RIGHT_SHIFT,            0x45 },
+
+                { KEY_EN_LEFT_CONTROL,           0x46 },
+                { KEY_EN_LEFT_WINDOWS,           0x47 },
+                { KEY_EN_LEFT_ALT,               0x48 },
+                { KEY_EN_SPACE,                  0x4A },
+                { KEY_EN_RIGHT_ALT,              0x4D },
+                { KEY_EN_RIGHT_FUNCTION,         0x4E },
+                { KEY_EN_MENU,                   0x4F },
+                { KEY_EN_RIGHT_CONTROL,          0x50 },
+
+                { KEY_EN_UP_ARROW,               0x51 },
+                { KEY_EN_LEFT_ARROW,             0x52 },
+                { KEY_EN_DOWN_ARROW,             0x53 },
+                { KEY_EN_RIGHT_ARROW,            0x54 },
+
+                { KEY_EN_INSERT,                 0x5A },
+                { KEY_EN_HOME,                   0x59 },
+                { KEY_EN_PAGE_UP,                0x58 },
+                { KEY_EN_DELETE,                 0x55 },
+                { KEY_EN_END,                    0x56 },
+                { KEY_EN_PAGE_DOWN,              0x57 }
+            }
+        }
+    },
+};
+
+static std::map<int, layout_info> RoccatVulcanIIMiniLayouts =
+{
+    {
+        ROCCAT_VULCAN_LAYOUT_UK,
+        {
+            *ROCCAT_VULCAN_II_MINI_LAYOUT_KEYS_105,
+            69,
+            5,
+            15,
+            {
+                { KEY_EN_ESCAPE,           0x00    },
+                { KEY_EN_TAB,              0x01    },
+                { KEY_EN_CAPS_LOCK,        0x02    },
+                { KEY_EN_LEFT_SHIFT,       0x03    },
+                { KEY_EN_LEFT_CONTROL,     0x04    },
+                { KEY_EN_ISO_BACK_SLASH,   0x05    },
+                { KEY_EN_1,                0x06    },
+                { KEY_EN_Q,                0x07    },
+                { KEY_EN_A,                0x08    },
+                { KEY_EN_Z,                0x09    },
+                { KEY_EN_LEFT_WINDOWS,     0x0A    },
+                { KEY_EN_LEFT_ALT,         0x0B    },
+                { KEY_EN_2,                0x0C    },
+                { KEY_EN_3,                0x0D    },
+                { KEY_EN_W,                0x0E    },
+                { KEY_EN_S,                0x0F    },
+                { KEY_EN_X,                0x10    },
+                { KEY_EN_4,                0x11    },
+                { KEY_EN_E,                0x12    },
+                { KEY_EN_R,                0x13    },
+                { KEY_EN_D,                0x14    },
+                { KEY_EN_C,                0x15    },
+                { KEY_EN_5,                0x16    },
+                { KEY_EN_T,                0x17    },
+                { KEY_EN_F,                0x18    },
+                { KEY_EN_G,                0x19    },
+                { KEY_EN_V,                0x1A    },
+                { KEY_EN_B,                0x1B    },
+                { KEY_EN_6,                0x1C    },
+                { KEY_EN_7,                0x1D    },
+                { KEY_EN_Y,                0x1E    },
+                { KEY_EN_H,                0x1F    },
+                { KEY_EN_N,                0x20    },
+                { KEY_EN_SPACE,            0x21    },
+                { KEY_EN_8,                0x22    },
+                { KEY_EN_I,                0x23    },
+                { KEY_EN_U,                0x24    },
+                { KEY_EN_J,                0x25    },
+                { KEY_EN_M,                0x26    },
+                { KEY_EN_9,                0x27    },
+                { KEY_EN_O,                0x28    },
+                { KEY_EN_K,                0x29    },
+                { KEY_EN_COMMA,            0x2A    },
+                { KEY_EN_0,                0x2B    },
+                { KEY_EN_P,                0x2C    },
+                { KEY_EN_L,                0x2D    },
+                { KEY_EN_SEMICOLON,        0x2E    },
+                { KEY_EN_PERIOD,           0x2F    },
+                { KEY_EN_RIGHT_ALT,        0x30    },
+                { KEY_EN_MINUS,            0x31    },
+                { KEY_EN_LEFT_BRACKET,     0x32    },
+                { KEY_EN_QUOTE,            0x33    },
+                { KEY_EN_FORWARD_SLASH,    0x34    },
+                { KEY_EN_RIGHT_FUNCTION,   0x35    },
+                { KEY_EN_RIGHT_CONTROL,    0x36    },
+                { KEY_EN_EQUALS,           0x37    },
+                { KEY_EN_RIGHT_BRACKET,    0x38    },
+                { KEY_EN_UNUSED,           0x39    },
+                { KEY_EN_RIGHT_SHIFT,      0x3A    },
+                { KEY_EN_LEFT_ARROW,       0x3B    },
+                { KEY_EN_BACKSPACE,        0x3C    },
+                { KEY_EN_ISO_ENTER,        0x3D    },
+                { KEY_EN_UP_ARROW,         0x3E    },
+                { KEY_EN_DOWN_ARROW,       0x3F    },
+                { KEY_EN_DELETE,           0x40    },
+                { KEY_EN_HOME,             0x41    },
+                { KEY_EN_PAGE_UP,          0x42    },
+                { KEY_EN_PAGE_DOWN,        0x43    },
+                { KEY_EN_RIGHT_ARROW,      0x44    },
+            }
+        }
+    },
+    {
+        ROCCAT_VULCAN_LAYOUT_US,
+        {
+            *ROCCAT_VULCAN_II_MINI_LAYOUT_KEYS_104,
+            69,
+            5,
+            15,
+            {
+                { KEY_EN_ESCAPE,           0x00    },
+                { KEY_EN_TAB,              0x01    },
+                { KEY_EN_CAPS_LOCK,        0x02    },
+                { KEY_EN_LEFT_SHIFT,       0x03    },
+                { KEY_EN_LEFT_CONTROL,     0x04    },
+                { KEY_EN_ISO_BACK_SLASH,   0x05    },
+                { KEY_EN_1,                0x06    },
+                { KEY_EN_Q,                0x07    },
+                { KEY_EN_A,                0x08    },
+                { KEY_EN_Z,                0x09    },
+                { KEY_EN_LEFT_WINDOWS,     0x0A    },
+                { KEY_EN_LEFT_ALT,         0x0B    },
+                { KEY_EN_2,                0x0C    },
+                { KEY_EN_3,                0x0D    },
+                { KEY_EN_W,                0x0E    },
+                { KEY_EN_S,                0x0F    },
+                { KEY_EN_X,                0x10    },
+                { KEY_EN_4,                0x11    },
+                { KEY_EN_E,                0x12    },
+                { KEY_EN_R,                0x13    },
+                { KEY_EN_D,                0x14    },
+                { KEY_EN_C,                0x15    },
+                { KEY_EN_5,                0x16    },
+                { KEY_EN_T,                0x17    },
+                { KEY_EN_F,                0x18    },
+                { KEY_EN_G,                0x19    },
+                { KEY_EN_V,                0x1A    },
+                { KEY_EN_B,                0x1B    },
+                { KEY_EN_6,                0x1C    },
+                { KEY_EN_7,                0x1D    },
+                { KEY_EN_Y,                0x1E    },
+                { KEY_EN_H,                0x1F    },
+                { KEY_EN_N,                0x20    },
+                { KEY_EN_SPACE,            0x21    },
+                { KEY_EN_8,                0x22    },
+                { KEY_EN_I,                0x23    },
+                { KEY_EN_U,                0x24    },
+                { KEY_EN_J,                0x25    },
+                { KEY_EN_M,                0x26    },
+                { KEY_EN_9,                0x27    },
+                { KEY_EN_O,                0x28    },
+                { KEY_EN_K,                0x29    },
+                { KEY_EN_COMMA,            0x2A    },
+                { KEY_EN_0,                0x2B    },
+                { KEY_EN_P,                0x2C    },
+                { KEY_EN_L,                0x2D    },
+                { KEY_EN_SEMICOLON,        0x2E    },
+                { KEY_EN_PERIOD,           0x2F    },
+                { KEY_EN_RIGHT_ALT,        0x30    },
+                { KEY_EN_MINUS,            0x31    },
+                { KEY_EN_LEFT_BRACKET,     0x32    },
+                { KEY_EN_QUOTE,            0x33    },
+                { KEY_EN_FORWARD_SLASH,    0x34    },
+                { KEY_EN_RIGHT_FUNCTION,   0x35    },
+                { KEY_EN_RIGHT_CONTROL,    0x36    },
+                { KEY_EN_EQUALS,           0x37    },
+                { KEY_EN_RIGHT_BRACKET,    0x38    },
+                { KEY_EN_UNUSED,           0x39    },
+                { KEY_EN_RIGHT_SHIFT,      0x3A    },
+                { KEY_EN_LEFT_ARROW,       0x3B    },
+                { KEY_EN_BACKSPACE,        0x3C    },
+                { KEY_EN_ANSI_ENTER,       0x3D    },
+                { KEY_EN_UP_ARROW,         0x3E    },
+                { KEY_EN_DOWN_ARROW,       0x3F    },
+                { KEY_EN_DELETE,           0x40    },
+                { KEY_EN_HOME,             0x41    },
+                { KEY_EN_PAGE_UP,          0x42    },
+                { KEY_EN_PAGE_DOWN,        0x43    },
+                { KEY_EN_RIGHT_ARROW,      0x44    },
+            }
+        }
+    },
+};
+
+static std::map<int, layout_info> RoccatMagmaLayouts =
+{
+    {
+        ROCCAT_VULCAN_LAYOUT_US,
+        {
+            *ROCCAT_MAGMA_LAYOUT_KEYS,
+            5,
+            1,
+            5,
+            {
+                { "Keyboard LED 1",             0x00 },
+                { "Keyboard LED 2",             0x01 },
+                { "Keyboard LED 3",             0x02 },
+                { "Keyboard LED 4",             0x03 },
+                { "Keyboard LED 5",             0x04 },
+            }
+        }
+    },
+};

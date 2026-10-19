@@ -1,0 +1,36 @@
+[package]
+name = "tuxrgb-capture"
+description = "TuxRGB inputs: PipeWire audio monitor capture with FFT analysis, Wayland screen capture through the ScreenCast portal, hardware sensors and GLSL shaders"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tuxrgb-core.workspace = true
+realfft.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+wgpu.workspace = true
+crossbeam-channel.workspace = true
+tokio.workspace = true
+
+# Linux: PipeWire (audio monitor, screen cast) through the XDG portal.
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire.workspace = true
+ashpd.workspace = true
+
+# Windows beta build: WASAPI loopback, GDI screen capture, system counters.
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_Multimedia",
+    "Win32_System_Com",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }

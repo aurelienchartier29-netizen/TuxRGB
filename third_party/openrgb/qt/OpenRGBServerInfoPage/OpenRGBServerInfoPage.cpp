@@ -1,0 +1,144 @@
+/*---------------------------------------------------------*\
+| OpenRGBServerInfoPage.cpp                                 |
+|                                                           |
+|   User interface for server information page              |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#include "OpenRGBServerInfoPage.h"
+#include "ui_OpenRGBServerInfoPage.h"
+
+static void UpdateInfoCallback(void * this_ptr)
+{
+    OpenRGBServerInfoPage * this_obj = (OpenRGBServerInfoPage *)this_ptr;
+
+    QMetaObject::invokeMethod(this_obj, "UpdateInfo", Qt::QueuedConnection);
+}
+
+OpenRGBServerInfoPage::OpenRGBServerInfoPage(QWidget *parent) :
+    QFrame(parent),
+    ui(new Ui::OpenRGBServerInfoPage)
+{
+    ui->setupUi(this);
+
+    network_server = ResourceManager::get()->GetServer();
+
+    if(network_server)
+    {
+        network_server->RegisterClientInfoChangeCallback(UpdateInfoCallback, this);
+        network_server->RegisterServerListeningChangeCallback(UpdateInfoCallback, this);
+    }
+
+    UpdateInfo();
+}
+
+OpenRGBServerInfoPage::~OpenRGBServerInfoPage()
+{
+    delete ui;
+}
+
+void OpenRGBServerInfoPage::changeEvent(QEvent *event)
+{
+    if(event->type() == QEvent::LanguageChange)
+    {
+        ui->retranslateUi(this);
+    }
+}
+
+void OpenRGBServerInfoPage::UpdateInfo()
+{
+    if(network_server)
+    {
+        ui->ServerHostValue->setText(network_server->GetHost().c_str());
+        ui->ServerPortValue->setText(std::to_string(network_server->GetPort()).c_str());
+    }
+    else
+    {
+        ui->ServerHostValue->setText(ResourceManager::get()->GetDefaultServerHost().c_str());
+        ui->ServerPortValue->setText(std::to_string(ResourceManager::get()->GetDefaultServerPort()).c_str());
+    }
+
+    if(network_server && network_server->GetListening() && !network_server->GetOnline())
+    {
+        ui->ServerStatusValue->setText(tr("Stopping..."));
+        ui->ServerStartButton->setEnabled(false);
+        ui->ServerStopButton->setEnabled(false);
+        ui->ServerHostValue->setEnabled(false);
+        ui->ServerPortValue->setEnabled(false);
+    }
+    else if(network_server && network_server->GetListening())
+    {
+        ui->ServerStatusValue->setText(tr("Online"));
+        ui->ServerStartButton->setEnabled(false);
+        ui->ServerStopButton->setEnabled(true);
+        ui->ServerHostValue->setEnabled(false);
+        ui->ServerPortValue->setEnabled(false);
+    }
+    else
+    {
+        ui->ServerStatusValue->setText(tr("Offline"));
+        ui->ServerStartButton->setEnabled(true);
+        ui->ServerStopButton->setEnabled(false);
+        ui->ServerHostValue->setEnabled(true);
+        ui->ServerPortValue->setEnabled(true);
+    }
+
+    ui->ServerClientTree->clear();
+
+    if(network_server)
+    {
+        for(unsigned int client_idx = 0; client_idx < network_server->GetNumClients(); client_idx++)
+        {
+            QTreeWidgetItem * new_item = new QTreeWidgetItem();
+
+            new_item->setText(0, network_server->GetClientIP(client_idx));
+            new_item->setText(1, QString::number(network_server->GetClientProtocolVersion(client_idx)));
+            if(network_server->GetClientHostname(client_idx) != "")
+            {
+                new_item->setText(2, QString::fromStdString(network_server->GetClientString(client_idx) + " (" + network_server->GetClientHostname(client_idx) + ")"));
+            }
+            else
+            {
+                new_item->setText(2, QString::fromStdString(network_server->GetClientString(client_idx)));
+            }
+
+            ui->ServerClientTree->addTopLevelItem(new_item);
+        }
+    }
+}
+
+void OpenRGBServerInfoPage::on_ServerStartButton_clicked()
+{
+    if(!network_server)
+    {
+        ResourceManager::get()->InitializeServer();
+        network_server = ResourceManager::get()->GetServer();
+
+        network_server->RegisterClientInfoChangeCallback(UpdateInfoCallback, this);
+        network_server->RegisterServerListeningChangeCallback(UpdateInfoCallback, this);
+    }
+
+    if(network_server->GetOnline() == false)
+    {
+        network_server->SetHost(ui->ServerHostValue->text().toStdString());
+        network_server->SetPort(ui->ServerPortValue->text().toInt());
+        network_server->StartServer();
+
+        UpdateInfo();
+    }
+}
+
+void OpenRGBServerInfoPage::on_ServerStopButton_clicked()
+{
+    if(network_server)
+    {
+        if(network_server->GetOnline() == true)
+        {
+            network_server->StopServer();
+
+            UpdateInfo();
+        }
+    }
+}
