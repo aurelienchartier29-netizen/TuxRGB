@@ -1,0 +1,37 @@
+[package]
+name = "tuxrgb"
+description = "TuxRGB – RGB lighting control for Linux, native Wayland, Material 3 Expressive, powered by OpenRGB"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+
+[[bin]]
+name = "tuxrgb"
+path = "src/main.rs"
+
+[dependencies]
+tuxrgb-core.workspace = true
+tuxrgb-openrgb.workspace = true
+tuxrgb-capture.workspace = true
+iced.workspace = true
+ksni.workspace = true
+ashpd.workspace = true
+zbus.workspace = true
+material-colors.workspace = true
+tokio.workspace = true
+crossbeam-channel.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+directories.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+libc.workspace = true
+rust-ini.workspace = true

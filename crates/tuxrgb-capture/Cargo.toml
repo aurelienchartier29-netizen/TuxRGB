@@ -1,0 +1,19 @@
+[package]
+name = "tuxrgb-capture"
+description = "TuxRGB inputs: PipeWire audio monitor capture with FFT analysis, Wayland screen capture through the ScreenCast portal, hardware sensors and GLSL shaders"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tuxrgb-core.workspace = true
+pipewire.workspace = true
+ashpd.workspace = true
+realfft.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+wgpu.workspace = true
+crossbeam-channel.workspace = true
+tokio.workspace = true

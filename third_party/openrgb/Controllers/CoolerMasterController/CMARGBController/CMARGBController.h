@@ -1,0 +1,136 @@
+/*---------------------------------------------------------*\
+| CMARGBController.h                                        |
+|                                                           |
+|   Driver for Cooler Master ARGB controller                |
+|                                                           |
+|   Chris M (Dr_No)                             10 Oct 2020 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include <string>
+#include <cstring>
+#include <array>
+#include <memory>
+#include <hidapi.h>
+#include "RGBController.h"
+
+#define CM_ARGB_COLOUR_MODE_DATA_SIZE   (sizeof(colour_mode_data[0]) / sizeof(colour_mode_data[0][0]))
+#define CM_ARGB_HEADER_DATA_SIZE        (sizeof(argb_header_data) / sizeof(argb_headers) )
+#define CM_ARGB_INTERRUPT_TIMEOUT       250
+#define CM_ARGB_PACKET_SIZE             65
+#define CM_ARGB_DEVICE_NAME_SIZE        (sizeof(device_name) / sizeof(device_name[ 0 ]))
+#define CM_RGB_OFFSET                   -2
+#define HID_MAX_STR                     255
+
+#define CM_ARGB_BRIGHTNESS_MAX          255
+#define CM_ARGB_FW0000                  std::string("A201804091608")
+#define CM_ARGB_FW0023                  std::string("A202011171238")
+#define CM_ARGB_FW0028                  std::string("A202105291658")
+
+enum
+{
+    CM_ARGB_REPORT_BYTE         = 1,
+    CM_ARGB_COMMAND_BYTE        = 2,
+    CM_ARGB_FUNCTION_BYTE       = 3,
+    CM_ARGB_ZONE_BYTE           = 4,
+    CM_ARGB_MODE_BYTE           = 5,
+    CM_ARGB_COLOUR_INDEX_BYTE	= 6,
+    CM_ARGB_SPEED_BYTE          = 7,
+    CM_ARGB_BRIGHTNESS_BYTE     = 8,
+    CM_ARGB_RED_BYTE            = 9,
+    CM_ARGB_GREEN_BYTE          = 10,
+    CM_ARGB_BLUE_BYTE           = 11
+};
+
+enum
+{
+    CM_ARGB_PORT_ARGB_1         = 0x01,
+    CM_ARGB_PORT_ARGB_2         = 0x02,
+    CM_ARGB_PORT_ARGB_3         = 0x04,
+    CM_ARGB_PORT_ARGB_4         = 0x08,
+    CM_ARGB_PORT_RGB            = 0xFE,
+};
+
+enum
+{
+    CM_RGB_MODE_MIRAGE          = 0x01, //Mirage
+    CM_RGB_MODE_FLASH           = 0x02, //Flash
+    CM_RGB_MODE_BREATHING       = 0x03, //Breathing
+    CM_RGB_MODE_STATIC          = 0x05, //Static
+    CM_RGB_MODE_OFF             = 0x06, //Turn off
+    CM_RGB_MODE_PASSTHRU        = 0xFF  //Motherboard Pass Thru Mode
+};
+
+enum
+{
+    CM_ARGB_MODE_OFF            = 0x0B, //Turn off
+    CM_ARGB_MODE_SPECTRUM       = 0x01, //Spectrum Mode
+    CM_ARGB_MODE_RELOAD         = 0x02, //Reload Mode
+    CM_ARGB_MODE_RECOIL         = 0x03, //Recoil Mode
+    CM_ARGB_MODE_BREATHING      = 0x04, //Breathing Mode
+    CM_ARGB_MODE_REFILL         = 0x05, //Refill Mode
+    CM_ARGB_MODE_DEMO           = 0x06, //Demo Mode
+    CM_ARGB_MODE_FILLFLOW       = 0x08, //Fill Flow Mode
+    CM_ARGB_MODE_RAINBOW        = 0x09, //Rainbow Mode
+    CM_ARGB_MODE_STATIC         = 0x0A, //Static Mode
+    CM_ARGB_MODE_DIRECT         = 0xFE, //Direct Led Control
+    CM_ARGB_MODE_PASSTHRU       = 0xFF  //Motherboard Pass Thru Mode
+};
+
+enum
+{
+    CM_ARGB_SPEED_SLOWEST       = 0x00, // Slowest speed
+    CM_ARGB_SPEED_SLOW          = 0x01, // Slower speed
+    CM_ARGB_SPEED_NORMAL        = 0x02, // Normal speed
+    CM_ARGB_SPEED_FAST          = 0x03, // Fast speed
+    CM_ARGB_SPEED_FASTEST       = 0x04, // Fastest speed
+};
+
+class CMARGBController
+{
+public:
+    CMARGBController(hid_device* dev_handle, char* path);
+    ~CMARGBController();
+
+    std::string GetDeviceName();
+    std::string GetSerial();
+    std::string GetLocation();
+    std::string GetVersion();
+
+    void GetPortStatus
+        (
+        unsigned char   port_idx,
+        unsigned char*  port_mode,
+        unsigned char*  port_speed,
+        unsigned char*  port_brightness,
+        bool*           port_random,
+        unsigned char*  port_red,
+        unsigned char*  port_green,
+        unsigned char*  port_blue
+        );
+
+    void SetPortLEDCount(unsigned char port_idx, unsigned char led_count);
+
+    void SetPortMode
+        (
+        unsigned char   port_idx,
+        unsigned char   port_mode,
+        unsigned char   port_speed,
+        unsigned char   port_brightness,
+        bool            port_random,
+        unsigned char   port_red,
+        unsigned char   port_green,
+        unsigned char   port_blue
+        );
+
+    void SetPortLEDsDirect(unsigned char port_idx, RGBColor *led_colours, unsigned int led_count);
+
+private:
+    hid_device*         dev;
+    std::string         device_name;
+    std::string         location;
+};

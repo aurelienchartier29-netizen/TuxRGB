@@ -1,0 +1,591 @@
+/*---------------------------------------------------------*\
+| DetectionManager.h                                        |
+|                                                           |
+|   OpenRGB Detection Manager handles detecting supported   |
+|   devices and initializing their RGBControllers           |
+|                                                           |
+|   Adam Honse <calcprogrammer1@gmail.com>      08 Jan 2026 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <cstdio>
+#include <functional>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+#include <nlohmann/json.hpp>
+#include "hidapi_wrapper.h"
+#include "i2c_smbus.h"
+#include "RGBController.h"
+#include "SPDWrapper.h"
+
+using json = nlohmann::json;
+
+/*---------------------------------------------------------*\
+| Windows defines "interface" in its headers, stop it       |
+\*---------------------------------------------------------*/
+#undef interface
+
+/*---------------------------------------------------------*\
+| HID Default Values                                        |
+\*---------------------------------------------------------*/
+#define HID_PID_ANY                     -1
+#define HID_VID_ANY                     -1
+#define HID_INTERFACE_ANY               -1
+#define HID_USAGE_ANY                   -1
+#define HID_USAGE_PAGE_ANY              -1
+#define HID_BUS_ANY                     -1
+
+/*---------------------------------------------------------*\
+| Detector Function Types                                   |
+\*---------------------------------------------------------*/
+typedef std::vector<RGBController*> DetectedControllers;
+
+typedef std::function<bool()>                                                                                       I2CBusDetectorFunction;
+typedef std::function<DetectedControllers()>                                                                        DeviceDetectorFunction;
+typedef std::function<DetectedControllers(std::vector<i2c_smbus_interface*>&)>                                      I2CDeviceDetectorFunction;
+typedef std::function<DetectedControllers(i2c_smbus_interface*, std::vector<SPDWrapper*>&, const std::string&)>     I2CDRAMDeviceDetectorFunction;
+typedef std::function<DetectedControllers(i2c_smbus_interface*, uint8_t, const std::string&)>                       I2CPCIDeviceDetectorFunction;
+typedef std::function<DetectedControllers(hid_device_info*, const std::string&)>                                    HIDDeviceDetectorFunction;
+typedef std::function<DetectedControllers(hidapi_wrapper wrapper, hid_device_info*, const std::string&)>            HIDWrappedDeviceDetectorFunction;
+typedef std::function<void()>                                                                                       DynamicDetectorFunction;
+typedef std::function<void()>                                                                                       PreDetectionHookFunction;
+
+/*---------------------------------------------------------*\
+| Detector Block Types                                      |
+\*---------------------------------------------------------*/
+class BasicHIDBlock
+{
+public:
+    std::string                         name;
+    int                                 vid;
+    int                                 pid;
+    int                                 interface;
+    int                                 usage_page;
+    int                                 usage;
+    int                                 bus;
+    bool                                enabled_by_default;
+
+    bool compare(hid_device_info* info);
+    bool matching_id(hid_device_info* info);
+};
+
+class HIDDeviceDetectorBlock : public BasicHIDBlock
+{
+public:
+    HIDDeviceDetectorFunction           function;
+};
+
+class HIDWrappedDeviceDetectorBlock : public BasicHIDBlock
+{
+public:
+    HIDWrappedDeviceDetectorFunction    function;
+};
+
+typedef struct
+{
+    std::string                         name;
+    I2CPCIDeviceDetectorFunction        function;
+    uint16_t                            ven_id;
+    uint16_t                            dev_id;
+    uint16_t                            subven_id;
+    uint16_t                            subdev_id;
+    uint8_t                             i2c_addr;
+    bool                                enabled_by_default;
+} I2CPCIDeviceDetectorBlock;
+
+typedef struct
+{
+    std::string                         name;
+    I2CDRAMDeviceDetectorFunction       function;
+    uint16_t                            jedec_id;
+    uint8_t                             dram_type;
+    bool                                enabled_by_default;
+} I2CDRAMDeviceDetectorBlock;
+
+typedef struct
+{
+    std::string                         name;
+    std::string                         rule;
+} CustomUdevRuleBlock;
+
+/*---------------------------------------------------------*\
+| Detection Callback Type                                   |
+\*---------------------------------------------------------*/
+typedef void (*DetectionCallback)(void *, unsigned int);
+
+/*---------------------------------------------------------*\
+| Update Reason Codes                                       |
+\*---------------------------------------------------------*/
+enum
+{
+    DETECTIONMANAGER_UPDATE_REASON_I2C_BUS_REGISTERED,          /* RegisterI2CBus() called          */
+    DETECTIONMANAGER_UPDATE_REASON_RGBCONTROLLER_REGISTERED,    /* RegisterRGBController() called   */
+    DETECTIONMANAGER_UPDATE_REASON_RGBCONTROLLER_UNREGISTERED,  /* UnregisterRGBController() called */
+    DETECTIONMANAGER_UPDATE_REASON_RGBCONTROLLER_LIST_CLEARED,  /* RGBController list cleared       */
+    DETECTIONMANAGER_UPDATE_REASON_DETECTION_STARTED,           /* Detection started                */
+    DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED,  /* Detection progress changed       */
+    DETECTIONMANAGER_UPDATE_REASON_DETECTION_COMPLETE,          /* Detection completed              */
+};
+
+/*---------------------------------------------------------*\
+| DetectionManager class                                    |
+\*---------------------------------------------------------*/
+class DetectionManager
+{
+public:
+    DetectionManager();
+    ~DetectionManager();
+
+    /*-----------------------------------------------------*\
+    | DetectionManager Global Instance Accessor             |
+    \*-----------------------------------------------------*/
+    static DetectionManager*            get();
+
+    /*-----------------------------------------------------*\
+    | Function for cleaning up on exit                      |
+    \*-----------------------------------------------------*/
+    void                                Cleanup();
+
+    /*-----------------------------------------------------*\
+    | Functions to access device lists                      |
+    \*-----------------------------------------------------*/
+    std::vector<i2c_smbus_interface*>&  GetI2CBuses();
+    std::vector<RGBController*>&        GetRGBControllers();
+
+    /*-----------------------------------------------------*\
+    | Lock the RGBControllers list around external          |
+    | iteration; registration runs on other threads         |
+    \*-----------------------------------------------------*/
+    void                                LockRGBControllers();
+    void                                UnlockRGBControllers();
+
+    /*-----------------------------------------------------*\
+    | I2C Bus Detector Registration Function                |
+    \*-----------------------------------------------------*/
+    void                                RegisterI2CBusDetector(I2CBusDetectorFunction detector);
+
+    /*-----------------------------------------------------*\
+    | RGBController Detector Registration Functions         |
+    \*-----------------------------------------------------*/
+    void                                RegisterDeviceDetector(std::string name, DeviceDetectorFunction detector, bool enabled_by_default = true);
+    void                                RegisterDynamicDetector(std::string name, DynamicDetectorFunction detector);
+    void                                RegisterHIDDeviceDetector(std::string name, HIDDeviceDetectorFunction  detector, int vid, int pid, int interface = HID_INTERFACE_ANY, int usage_page = HID_USAGE_PAGE_ANY, int usage = HID_USAGE_ANY, bool enabled_by_default = true, int bus = HID_BUS_ANY);
+    void                                RegisterHIDWrappedDeviceDetector(std::string name, HIDWrappedDeviceDetectorFunction  detector, int vid, int pid, int interface = HID_INTERFACE_ANY, int usage_page = HID_USAGE_PAGE_ANY, int usage = HID_USAGE_ANY, bool enabled_by_default = true, int bus = HID_BUS_ANY);
+    void                                RegisterI2CDeviceDetector(std::string name, I2CDeviceDetectorFunction  detector, bool enabled_by_default = true);
+    void                                RegisterI2CDRAMDeviceDetector(std::string name, I2CDRAMDeviceDetectorFunction detector, uint16_t jedec_id, uint8_t dram_type, bool enabled_by_default = true);
+    void                                RegisterI2CPCIDeviceDetector(std::string name, I2CPCIDeviceDetectorFunction detector, uint16_t ven_id, uint16_t dev_id, uint16_t subven_id, uint16_t subdev_id, uint8_t i2c_addr, bool enabled_by_default = true);
+
+    /*-----------------------------------------------------*\
+    | Pre-Detection Hook Function Registration Function     |
+    \*-----------------------------------------------------*/
+    void                                RegisterPreDetectionHook(PreDetectionHookFunction hook);
+
+#ifdef __linux__
+    /*-----------------------------------------------------*\
+    | Custom Udev Rules Registration Function               |
+    *------------------------------------------------------*/
+    void                                RegisterCustomUdevRule(std::string name, std::string rule);
+#endif
+
+    /*-----------------------------------------------------*\
+    | Detection Callback Registration Functions             |
+    \*-----------------------------------------------------*/
+    void                                RegisterDetectionCallback(DetectionCallback new_callback, void * new_callback_arg);
+    void                                UnregisterDetectionCallback(DetectionCallback callback, void *callback_arg);
+
+    /*-----------------------------------------------------*\
+    | Functions for registering I2C buses from within       |
+    | detectors                                             |
+    \*-----------------------------------------------------*/
+    void                                RegisterI2CBus(i2c_smbus_interface *bus);
+
+    /*-----------------------------------------------------*\
+    | Functions for registering and unregistering           |
+    | RGBControllers                                        |
+    \*-----------------------------------------------------*/
+    void                                RegisterRGBController(RGBController *rgb_controller, const std::string& detection_path = "");
+    void                                UnregisterRGBController(RGBController *rgb_controller);
+
+    /*-----------------------------------------------------*\
+    | Detection state functions                             |
+    \*-----------------------------------------------------*/
+    void                                AbortDetection();
+    void                                BeginDetection();
+    unsigned int                        GetDetectionPercent();
+    std::string                         GetDetectionString();
+    void                                WaitForDetection();
+
+#ifdef __linux__
+    /*-----------------------------------------------------*\
+    | Udev rules generation function                        |
+    \*-----------------------------------------------------*/
+    bool                                GenerateUdevRules(const std::string& filepath);
+    bool                                PrintUdevRules();
+#endif
+
+private:
+    /*-----------------------------------------------------*\
+    | Static pointer to shared instance of DetectionManager |
+    \*-----------------------------------------------------*/
+    static DetectionManager*                    instance;
+
+    /*-----------------------------------------------------*\
+    | List of I2C buses managed by DetectorManager          |
+    \*-----------------------------------------------------*/
+    std::vector<i2c_smbus_interface*>           i2c_buses;
+
+    /*-----------------------------------------------------*\
+    | List of RGBControllers managed by DetectionManager,   |
+    | guarded with mutex                                    |
+    \*-----------------------------------------------------*/
+    std::vector<RGBController*>                 rgb_controllers;
+    std::mutex                                  RGBControllersMutex;
+
+    /*-----------------------------------------------------*\
+    | Detectors                                             |
+    \*-----------------------------------------------------*/
+    std::vector<DeviceDetectorFunction>         device_detectors;
+    std::vector<std::string>                    device_detector_strings;
+    std::vector<bool>                           device_detector_default_enabled;
+    std::vector<I2CBusDetectorFunction>         i2c_bus_detectors;
+    std::vector<I2CDeviceDetectorFunction>      i2c_device_detectors;
+    std::vector<std::string>                    i2c_device_detector_strings;
+    std::vector<bool>                           i2c_device_detector_default_enabled;
+    std::vector<I2CDRAMDeviceDetectorBlock>     i2c_dram_device_detectors;
+    std::vector<I2CPCIDeviceDetectorBlock>      i2c_pci_device_detectors;
+    std::vector<HIDDeviceDetectorBlock>         hid_generic_detectors;
+    std::vector<HIDDeviceDetectorBlock>         hid_specific_detectors;
+    std::vector<HIDWrappedDeviceDetectorBlock>  hid_wrapped_generic_detectors;
+    std::vector<HIDWrappedDeviceDetectorBlock>  hid_wrapped_specific_detectors;
+    std::vector<DynamicDetectorFunction>        dynamic_detectors;
+    std::vector<std::string>                    dynamic_detector_strings;
+    std::vector<PreDetectionHookFunction>       pre_detection_hooks;
+
+#ifdef __linux__
+    std::vector<CustomUdevRuleBlock>            custom_udev_rules;
+
+    bool                                        WriteUdevRules(FILE* output_file);
+#endif
+
+#ifdef __linux__
+#ifdef __GLIBC__
+    /*-----------------------------------------------------*\
+    | Wrapped libusb hidapi handles                         |
+    \*-----------------------------------------------------*/
+    void *                                      hidapi_libusb_handle;
+    hidapi_wrapper                              hidapi_libusb_wrapper;
+#endif
+#endif
+
+    /*-----------------------------------------------------*\
+    | HID Hotplug handles                                   |
+    \*-----------------------------------------------------*/
+#if(HID_HOTPLUG_ENABLED)
+    hid_hotplug_callback_handle                 hotplug_callback_handle;
+    hid_hotplug_callback_handle                 unplug_callback_handle;
+#ifdef __linux__
+#ifdef __GLIBC__
+    hid_hotplug_callback_handle                 libusb_hotplug_callback_handle;
+    hid_hotplug_callback_handle                 libusb_unplug_callback_handle;
+#endif
+#endif
+#endif
+
+    /*-----------------------------------------------------*\
+    | Detection Callbacks                                   |
+    \*-----------------------------------------------------*/
+    std::vector<DetectionCallback>              DetectionCallbacks;
+    std::vector<void *>                         DetectionCallbackArgs;
+    std::mutex                                  DetectionCallbackMutex;
+
+    /*-----------------------------------------------------*\
+    | Detection State Variables                             |
+    \*-----------------------------------------------------*/
+    std::mutex                                  DetectDevicesMutex;
+    std::atomic<unsigned int>                   detection_percent;
+    unsigned int                                detection_percent_hid_count;
+    unsigned int                                detection_percent_i2c_count;
+    unsigned int                                detection_percent_i2c_dram_count;
+    unsigned int                                detection_percent_i2c_pci_count;
+    unsigned int                                detection_percent_other_count;
+    unsigned int                                detection_percent_denominator;
+    std::string                                 detection_string;
+    bool                                        dynamic_detectors_processed;
+    bool                                        initial_detection;
+    bool                                        i2c_interface_fail;
+
+    /*-----------------------------------------------------*\
+    | Background Thread Variables                           |
+    \*-----------------------------------------------------*/
+    std::thread *                               BackgroundThread;
+    std::function<void()>                       BackgroundThreadScheduledFunction;
+    std::condition_variable                     BackgroundThreadScheduledFunctionStart;
+    std::mutex                                  BackgroundThreadStateMutex;
+
+    std::atomic<bool>                           background_thread_running;
+    std::atomic<bool>                           detection_in_progress;
+
+    /*-----------------------------------------------------*\
+    | Background Thread Functions                           |
+    \*-----------------------------------------------------*/
+    void BackgroundThreadFunction();
+    void RunInBackgroundThread(std::function<void()>);
+
+    /*-----------------------------------------------------*\
+    | Functions that must be run in the background thread   |
+    \*-----------------------------------------------------*/
+    void BackgroundDetectDevices();
+    void BackgroundDetectHIDDevices(hid_device_info* hid_devices, json& detector_settings);
+    void BackgroundDetectHIDDevicesSafe(json& detector_settings);
+#ifdef __linux__
+#ifdef __GLIBC__
+    void BackgroundDetectHIDDevicesWrapped(hid_device_info* hid_devices, json& detector_settings);
+#endif
+#endif
+    void BackgroundDetectI2CBuses();
+    void BackgroundDetectI2CDevices(json& detector_settings);
+    void BackgroundDetectI2CDRAMDevices(json& detector_settings);
+    void BackgroundDetectI2CPCIDevices(json& detector_settings);
+    void BackgroundDetectOtherDevices(json& detector_settings);
+    void BackgroundHIDExit();
+    void BackgroundHIDInit();
+
+    /*-----------------------------------------------------*\
+    | Functions to run detectors                            |
+    \*-----------------------------------------------------*/
+    void RunHIDDetector(hid_device_info* current_hid_device, json& detector_settings);
+    void RunHIDWrappedDetector(const hidapi_wrapper* wrapper, hid_device_info* current_hid_device, json& detector_settings);
+
+    /*-----------------------------------------------------*\
+    | Detection processing functions                        |
+    \*-----------------------------------------------------*/
+    void ProcessCleanup();
+    void ProcessDynamicDetectors();
+    bool ProcessPreDetection();
+    void ProcessPreDetectionHooks();
+    void UpdateDetectorSettings();
+
+#if(HID_HOTPLUG_ENABLED)
+    /*-----------------------------------------------------*\
+    | HID hotplug management functions                      |
+    \*-----------------------------------------------------*/
+    void StartHIDHotplug();
+    void StopHIDHotplug();
+
+    /*-----------------------------------------------------*\
+    | HID hotplug callback functions                        |
+    \*-----------------------------------------------------*/
+    static int HotplugCallbackFunction(hid_hotplug_callback_handle callback_handle, hid_device_info *device, hid_hotplug_event event, void *user_data);
+    static int UnplugCallbackFunction(hid_hotplug_callback_handle callback_handle, hid_device_info *device, hid_hotplug_event event, void *user_data);
+
+#ifdef __linux__
+#ifdef __GLIBC__
+    static int WrappedHotplugCallbackFunction(hid_hotplug_callback_handle callback_handle, hid_device_info *device, hid_hotplug_event event, void *user_data);
+#endif
+#endif
+#endif
+
+    /*-----------------------------------------------------*\
+    | Function for signalling DetectionManager updates to   |
+    | registered callbacks                                  |
+    \*-----------------------------------------------------*/
+    void SignalUpdate(unsigned int update_reason);
+
+    bool IsAnyDimmDetectorEnabled(json &detector_settings);
+};
+
+/*---------------------------------------------------------*\
+| Detector Types                                            |
+\*---------------------------------------------------------*/
+class DeviceDetector
+{
+public:
+    DeviceDetector(std::string name, DeviceDetectorFunction detector, bool enabled_by_default = true)
+	{
+        DetectionManager::get()->RegisterDeviceDetector(name, detector, enabled_by_default);
+	}
+};
+
+class I2CDeviceDetector
+{
+public:
+    I2CDeviceDetector(std::string name, I2CDeviceDetectorFunction detector, bool enabled_by_default = true)
+	{
+        DetectionManager::get()->RegisterI2CDeviceDetector(name, detector, enabled_by_default);
+	}
+};
+
+class I2CDRAMDeviceDetector
+{
+public:
+    I2CDRAMDeviceDetector(std::string name, I2CDRAMDeviceDetectorFunction detector, uint16_t jedec_id, uint8_t dram_type, bool enabled_by_default = true)
+	{
+        DetectionManager::get()->RegisterI2CDRAMDeviceDetector(name, detector, jedec_id, dram_type, enabled_by_default);
+	}
+};
+
+class I2CPCIDeviceDetector
+{
+public:
+    I2CPCIDeviceDetector(std::string name, I2CPCIDeviceDetectorFunction detector, uint16_t ven_id, uint16_t dev_id, uint16_t subven_id, uint16_t subdev_id, uint8_t i2c_addr, bool enabled_by_default = true)
+    {
+        DetectionManager::get()->RegisterI2CPCIDeviceDetector(name, detector, ven_id, dev_id, subven_id, subdev_id, i2c_addr, enabled_by_default);
+    }
+};
+
+class I2CBusDetector
+{
+public:
+    I2CBusDetector(I2CBusDetectorFunction detector)
+    {
+        DetectionManager::get()->RegisterI2CBusDetector(detector);
+    }
+};
+
+class HIDDeviceDetector
+{
+public:
+    HIDDeviceDetector(std::string name, HIDDeviceDetectorFunction detector, int vid, int pid, int interface, int usage_page, int usage, bool enabled_by_default = true, int bus = HID_BUS_ANY)
+    {
+        DetectionManager::get()->RegisterHIDDeviceDetector(name, detector, vid, pid, interface, usage_page, usage, enabled_by_default, bus);
+    }
+};
+
+class HIDWrappedDeviceDetector
+{
+public:
+    HIDWrappedDeviceDetector(std::string name, HIDWrappedDeviceDetectorFunction detector, int vid, int pid, int interface, int usage_page, int usage, bool enabled_by_default = true, int bus = HID_BUS_ANY)
+    {
+        DetectionManager::get()->RegisterHIDWrappedDeviceDetector(name, detector, vid, pid, interface, usage_page, usage, enabled_by_default, bus);
+    }
+};
+
+class DynamicDetector
+{
+public:
+    DynamicDetector(std::string name, DynamicDetectorFunction detector)
+    {
+        DetectionManager::get()->RegisterDynamicDetector(name, detector);
+    }
+};
+
+class PreDetectionHook
+{
+public:
+    PreDetectionHook(PreDetectionHookFunction hook)
+    {
+        DetectionManager::get()->RegisterPreDetectionHook(hook);
+    }
+};
+
+class CustomUdevRule
+{
+public:
+    CustomUdevRule(std::string name, std::string rule)
+    {
+#ifdef __linux__
+        DetectionManager::get()->RegisterCustomUdevRule(name, rule);
+#else
+        (void)name;
+        (void)rule;
+#endif
+    }
+};
+
+/*---------------------------------------------------------*\
+| Detector Registration Macros                              |
+\*---------------------------------------------------------*/
+#define REGISTER_DETECTOR(name, func)                                                               static DeviceDetector           device_detector_obj_##func(name, func)
+#define REGISTER_DETECTOR_DISABLED(name, func)                                                      static DeviceDetector           device_detector_obj_##func(name, func, false)
+#define REGISTER_I2C_DETECTOR(name, func)                                                           static I2CDeviceDetector        device_detector_obj_##func(name, func)
+#define REGISTER_I2C_DETECTOR_DISABLED(name, func)                                                  static I2CDeviceDetector        device_detector_obj_##func(name, func, false)
+#define REGISTER_I2C_DRAM_DETECTOR(name, func, jedec_id, dram_type)                                 static I2CDRAMDeviceDetector    device_detector_obj_##func##jedec_id(name, func, jedec_id, dram_type)
+#define REGISTER_I2C_DRAM_DETECTOR_DISABLED(name, func, jedec_id, dram_type)                        static I2CDRAMDeviceDetector    device_detector_obj_##func##jedec_id(name, func, jedec_id, dram_type, false)
+#define REGISTER_I2C_PCI_DETECTOR(name, func, ven, dev, subven, subdev, addr)                       static I2CPCIDeviceDetector     device_detector_obj_##ven##dev##subven##subdev##addr##func(name, func, ven, dev, subven, subdev, addr)
+#define REGISTER_I2C_PCI_DETECTOR_DISABLED(name, func, ven, dev, subven, subdev, addr)              static I2CPCIDeviceDetector     device_detector_obj_##ven##dev##subven##subdev##addr##func(name, func, ven, dev, subven, subdev, addr, false)
+#define REGISTER_I2C_BUS_DETECTOR(func)                                                             static I2CBusDetector           device_detector_obj_##func(func)
+#define REGISTER_HID_DETECTOR(name, func, vid, pid)                                                 static HIDDeviceDetector        device_detector_obj_##vid##pid(name, func, vid, pid, HID_INTERFACE_ANY, HID_USAGE_PAGE_ANY, HID_USAGE_ANY)
+#define REGISTER_HID_DETECTOR_DISABLED(name, func, vid, pid)                                        static HIDDeviceDetector        device_detector_obj_##vid##pid(name, func, vid, pid, HID_INTERFACE_ANY, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, false)
+#define REGISTER_HID_DETECTOR_I(name, func, vid, pid, interface)                                    static HIDDeviceDetector        device_detector_obj_##vid##pid##_##interface(name, func, vid, pid, interface, HID_USAGE_PAGE_ANY, HID_USAGE_ANY)
+#define REGISTER_HID_DETECTOR_I_DISABLED(name, func, vid, pid, interface)                           static HIDDeviceDetector        device_detector_obj_##vid##pid##_##interface(name, func, vid, pid, interface, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, false)
+#define REGISTER_HID_DETECTOR_IP(name, func, vid, pid, interface, page)                             static HIDDeviceDetector        device_detector_obj_##vid##pid##_##interface##_##page(name, func, vid, pid, interface, page, HID_USAGE_ANY)
+#define REGISTER_HID_DETECTOR_IP_DISABLED(name, func, vid, pid, interface, page)                    static HIDDeviceDetector        device_detector_obj_##vid##pid##_##interface##_##page(name, func, vid, pid, interface, page, HID_USAGE_ANY, false)
+#define REGISTER_HID_DETECTOR_IPU(name, func, vid, pid, interface, page, usage)                     static HIDDeviceDetector        device_detector_obj_##vid##pid##_##interface##_##page##_##usage(name, func, vid, pid, interface, page, usage)
+#define REGISTER_HID_DETECTOR_IPU_DISABLED(name, func, vid, pid, interface, page, usage)            static HIDDeviceDetector        device_detector_obj_##vid##pid##_##interface##_##page##_##usage(name, func, vid, pid, interface, page, usage, false)
+#define REGISTER_HID_DETECTOR_P(name, func, vid, pid, page)                                         static HIDDeviceDetector        device_detector_obj_##vid##pid##__##page(name, func, vid, pid, HID_INTERFACE_ANY, page, HID_USAGE_ANY)
+#define REGISTER_HID_DETECTOR_P_DISABLED(name, func, vid, pid, page)                                static HIDDeviceDetector        device_detector_obj_##vid##pid##__##page(name, func, vid, pid, HID_INTERFACE_ANY, page, HID_USAGE_ANY, false)
+#define REGISTER_HID_DETECTOR_PU(name, func, vid, pid, page, usage)                                 static HIDDeviceDetector        device_detector_obj_##vid##pid##__##page##_##usage(name, func, vid, pid, HID_INTERFACE_ANY, page, usage)
+#define REGISTER_HID_DETECTOR_PU_DISABLED(name, func, vid, pid, page, usage)                        static HIDDeviceDetector        device_detector_obj_##vid##pid##__##page##_##usage(name, func, vid, pid, HID_INTERFACE_ANY, page, usage, false)
+#define REGISTER_HID_DETECTOR_I_ONLY(name, func, interface)                                         static HIDDeviceDetector        device_detector_obj_##interface(name, func, HID_VID_ANY, HID_PID_ANY, interface, HID_USAGE_PAGE_ANY, HID_USAGE_ANY)
+#define REGISTER_HID_DETECTOR_I_ONLY_DISABLED(name, func, interface)                                static HIDDeviceDetector        device_detector_obj_##interface(name, func, HID_VID_ANY, HID_PID_ANY, interface, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, false)
+#define REGISTER_HID_DETECTOR_IP_ONLY(name, func, interface, page)                                  static HIDDeviceDetector        device_detector_obj_##interface##_##page(name, func, HID_VID_ANY, HID_PID_ANY, interface, page, HID_USAGE_ANY)
+#define REGISTER_HID_DETECTOR_IP_ONLY_DISABLED(name, func, interface, page)                         static HIDDeviceDetector        device_detector_obj_##interface##_##page(name, func, HID_VID_ANY, HID_PID_ANY, interface, page, HID_USAGE_ANY, false)
+#define REGISTER_HID_DETECTOR_IPU_ONLY(name, func, interface, page, usage)                          static HIDDeviceDetector        device_detector_obj_##interface##_##page##_##usage(name, func, HID_VID_ANY, HID_PID_ANY, interface, page, usage)
+#define REGISTER_HID_DETECTOR_IPU_ONLY_DISABLED(name, func, interface, page, usage)                 static HIDDeviceDetector        device_detector_obj_##interface##_##page##_##usage(name, func, HID_VID_ANY, HID_PID_ANY, interface, page, usage, false)
+#define REGISTER_HID_DETECTOR_P_ONLY(name, func, page)                                              static HIDDeviceDetector        device_detector_obj__##page(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, HID_USAGE_ANY)
+#define REGISTER_HID_DETECTOR_P_ONLY_DISABLED(name, func, page)                                     static HIDDeviceDetector        device_detector_obj__##page(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, HID_USAGE_ANY, false)
+#define REGISTER_HID_DETECTOR_PU_ONLY(name, func, page, usage)                                      static HIDDeviceDetector        device_detector_obj__##page##_##usage(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, usage)
+#define REGISTER_HID_DETECTOR_PU_ONLY_DISABLED(name, func, page, usage)                             static HIDDeviceDetector        device_detector_obj__##page##_##usage(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, usage, false)
+#define REGISTER_HID_DETECTOR_B(name, func, vid, pid, bus)                                          static HIDDeviceDetector        device_detector_obj_##vid##pid##_##bus(name, func, vid, pid, HID_INTERFACE_ANY, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, true, bus)
+#define REGISTER_HID_DETECTOR_BP(name, func, vid, pid, bus, page)                                   static HIDDeviceDetector        device_detector_obj_##vid##pid##_##bus##__##page(name, func, vid, pid, HID_INTERFACE_ANY, page, HID_USAGE_ANY, true, bus)
+#define REGISTER_HID_DETECTOR_BPU(name, func, vid, pid, bus, page, usage)                           static HIDDeviceDetector        device_detector_obj_##vid##pid##_##bus##__##page##_##usage(name, func, vid, pid, HID_INTERFACE_ANY, page, usage, true, bus)
+#define REGISTER_HID_DETECTOR_B_ONLY(name, func, bus)                                               static HIDDeviceDetector        device_detector_obj_##bus(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, true, bus)
+#define REGISTER_HID_DETECTOR_BP_ONLY(name, func, bus, page)                                        static HIDDeviceDetector        device_detector_obj_##bus##__##page(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, HID_USAGE_ANY, true, bus)
+#define REGISTER_HID_DETECTOR_BPU_ONLY(name, func, bus, page, usage)                                static HIDDeviceDetector        device_detector_obj_##bus##__##page##_##usage(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, usage, true, bus)
+#define REGISTER_HID_DETECTOR_B_DISABLED(name, func, vid, pid, bus)                                 static HIDDeviceDetector        device_detector_obj_##vid##pid##_##bus(name, func, vid, pid, HID_INTERFACE_ANY, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, false, bus)
+#define REGISTER_HID_DETECTOR_BP_DISABLED(name, func, vid, pid, bus, page)                          static HIDDeviceDetector        device_detector_obj_##vid##pid##_##bus##__##page(name, func, vid, pid, HID_INTERFACE_ANY, page, HID_USAGE_ANY, false, bus)
+#define REGISTER_HID_DETECTOR_BPU_DISABLED(name, func, vid, pid, bus, page, usage)                  static HIDDeviceDetector        device_detector_obj_##vid##pid##_##bus##__##page##_##usage(name, func, vid, pid, HID_INTERFACE_ANY, page, usage, false, bus)
+#define REGISTER_HID_DETECTOR_B_ONLY_DISABLED(name, func, bus)                                      static HIDDeviceDetector        device_detector_obj_##bus(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, false, bus)
+#define REGISTER_HID_DETECTOR_BP_ONLY_DISABLED(name, func, bus, page)                               static HIDDeviceDetector        device_detector_obj_##bus##__##page(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, HID_USAGE_ANY, false, bus)
+#define REGISTER_HID_DETECTOR_BPU_ONLY_DISABLED(name, func, bus, page, usage)                       static HIDDeviceDetector        device_detector_obj_##bus##__##page##_##usage(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, usage, false, bus)
+#define REGISTER_HID_WRAPPED_DETECTOR(name, func, vid, pid)                                         static HIDWrappedDeviceDetector device_detector_obj_##vid##pid(name, func, vid, pid, HID_INTERFACE_ANY, HID_USAGE_PAGE_ANY, HID_USAGE_ANY)
+#define REGISTER_HID_WRAPPED_DETECTOR_DISABLED(name, func, vid, pid)                                static HIDWrappedDeviceDetector device_detector_obj_##vid##pid(name, func, vid, pid, HID_INTERFACE_ANY, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, false)
+#define REGISTER_HID_WRAPPED_DETECTOR_I(name, func, vid, pid, interface)                            static HIDWrappedDeviceDetector device_detector_obj_##vid##pid##_##interface(name, func, vid, pid, interface, HID_USAGE_PAGE_ANY, HID_USAGE_ANY)
+#define REGISTER_HID_WRAPPED_DETECTOR_I_DISABLED(name, func, vid, pid, interface)                   static HIDWrappedDeviceDetector device_detector_obj_##vid##pid##_##interface(name, func, vid, pid, interface, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, false)
+#define REGISTER_HID_WRAPPED_DETECTOR_IPU(name, func, vid, pid, interface, page, usage)             static HIDWrappedDeviceDetector device_detector_obj_##vid##pid##_##interface##_##page##_##usage(name, func, vid, pid, interface, page, usage)
+#define REGISTER_HID_WRAPPED_DETECTOR_IPU_DISABLED(name, func, vid, pid, interface, page, usage)    static HIDWrappedDeviceDetector device_detector_obj_##vid##pid##_##interface##_##page##_##usage(name, func, vid, pid, interface, page, usage, false)
+#define REGISTER_HID_WRAPPED_DETECTOR_PU(name, func, vid, pid, page, usage)                         static HIDWrappedDeviceDetector device_detector_obj_##vid##pid##__##page##_##usage(name, func, vid, pid, HID_INTERFACE_ANY, page, usage)
+#define REGISTER_HID_WRAPPED_DETECTOR_PU_DISABLED(name, func, vid, pid, page, usage)                static HIDWrappedDeviceDetector device_detector_obj_##vid##pid##__##page##_##usage(name, func, vid, pid, HID_INTERFACE_ANY, page, usage, false)
+#define REGISTER_HID_WRAPPED_DETECTOR_I_ONLY(name, func, interface)                                 static HIDWrappedDeviceDetector device_detector_obj_##interface(name, func, HID_VID_ANY, HID_PID_ANY, interface, HID_USAGE_PAGE_ANY, HID_USAGE_ANY)
+#define REGISTER_HID_WRAPPED_DETECTOR_I_ONLY_DISABLED(name, func, interface)                        static HIDWrappedDeviceDetector device_detector_obj_##interface(name, func, HID_VID_ANY, HID_PID_ANY, interface, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, false)
+#define REGISTER_HID_WRAPPED_DETECTOR_IP_ONLY(name, func, interface, page)                          static HIDWrappedDeviceDetector device_detector_obj_##interface##_##page(name, func, HID_VID_ANY, HID_PID_ANY, interface, page, HID_USAGE_ANY)
+#define REGISTER_HID_WRAPPED_DETECTOR_IP_ONLY_DISABLED(name, func, interface, page)                 static HIDWrappedDeviceDetector device_detector_obj_##interface##_##page(name, func, HID_VID_ANY, HID_PID_ANY, interface, page, HID_USAGE_ANY, false)
+#define REGISTER_HID_WRAPPED_DETECTOR_IPU_ONLY(name, func, interface, page, usage)                  static HIDWrappedDeviceDetector device_detector_obj_##interface##_##page##_##usage(name, func, HID_VID_ANY, HID_PID_ANY, interface, page, usage)
+#define REGISTER_HID_WRAPPED_DETECTOR_IPU_ONLY_DISABLED(name, func, interface, page, usage)         static HIDWrappedDeviceDetector device_detector_obj_##interface##_##page##_##usage(name, func, HID_VID_ANY, HID_PID_ANY, interface, page, usage, false)
+#define REGISTER_HID_WRAPPED_DETECTOR_P_ONLY(name, func, page)                                      static HIDWrappedDeviceDetector device_detector_obj__##page(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, HID_USAGE_ANY)
+#define REGISTER_HID_WRAPPED_DETECTOR_P_ONLY_DISABLED(name, func, page)                             static HIDWrappedDeviceDetector device_detector_obj__##page(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, HID_USAGE_ANY, false)
+#define REGISTER_HID_WRAPPED_DETECTOR_PU_ONLY(name, func, page, usage)                              static HIDWrappedDeviceDetector device_detector_obj__##page##_##usage(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, usage)
+#define REGISTER_HID_WRAPPED_DETECTOR_PU_ONLY_DISABLED(name, func, page, usage)                     static HIDWrappedDeviceDetector device_detector_obj__##page##_##usage(name, func, HID_VID_ANY, HID_PID_ANY, HID_INTERFACE_ANY, page, usage, false)
+#define REGISTER_DYNAMIC_DETECTOR(name, func)                                                       static DynamicDetector          device_detector_obj_##func(name, func)
+#define REGISTER_PRE_DETECTION_HOOK(func)                                                           static PreDetectionHook         device_detector_obj_##func(func)
+
+#define REGISTER_DYNAMIC_I2C_DETECTOR(name, func)                                                   I2CDeviceDetector               device_detector_obj_##func(name, func)
+#define REGISTER_DYNAMIC_I2C_DETECTOR_DISABLED(name, func)                                          I2CDeviceDetector               device_detector_obj_##func(name, func, false)
+#define REGISTER_DYNAMIC_I2C_DRAM_DETECTOR(name, func, jedec_id, dram_type)                         I2CDRAMDeviceDetector           device_detector_obj_##func(name, func, jedec_id, dram_type)
+#define REGISTER_DYNAMIC_I2C_DRAM_DETECTOR_DISABLED(name, func, jedec_id, dram_type)                I2CDRAMDeviceDetector           device_detector_obj_##func(name, func, jedec_id, dram_type, false)
+#define REGISTER_DYNAMIC_I2C_PCI_DETECTOR(name, func, ven, dev, subven, subdev, addr)               I2CPCIDeviceDetector            device_detector_obj_##ven##dev##subven##subdev##addr##func(name, func, ven, dev, subven, subdev, addr)
+#define REGISTER_DYNAMIC_I2C_PCI_DETECTOR_DISABLED(name, func, ven, dev, subven, subdev, addr)      I2CPCIDeviceDetector            device_detector_obj_##ven##dev##subven##subdev##addr##func(name, func, ven, dev, subven, subdev, addr, false)
+#define REGISTER_DYNAMIC_I2C_BUS_DETECTOR(func)                                                     I2CBusDetector                  device_detector_obj_##func(func)
+#define REGISTER_DYNAMIC_HID_DETECTOR(name, func, vid, pid)                                         HIDDeviceDetector               device_detector_obj_##vid##pid(name, func, vid, pid, HID_INTERFACE_ANY, HID_USAGE_PAGE_ANY, HID_USAGE_ANY)
+#define REGISTER_DYNAMIC_HID_DETECTOR_DISABLED(name, func, vid, pid)                                HIDDeviceDetector               device_detector_obj_##vid##pid(name, func, vid, pid, HID_INTERFACE_ANY, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, false)
+#define REGISTER_DYNAMIC_HID_DETECTOR_I(name, func, vid, pid, interface)                            HIDDeviceDetector               device_detector_obj_##vid##pid##_##interface(name, func, vid, pid, interface, HID_USAGE_PAGE_ANY, HID_USAGE_ANY)
+#define REGISTER_DYNAMIC_HID_DETECTOR_I_DISABLED(name, func, vid, pid, interface)                   HIDDeviceDetector               device_detector_obj_##vid##pid##_##interface(name, func, vid, pid, interface, HID_USAGE_PAGE_ANY, HID_USAGE_ANY, false)
+#define REGISTER_DYNAMIC_HID_DETECTOR_IP(name, func, vid, pid, interface, page)                     HIDDeviceDetector               device_detector_obj_##vid##pid##_##interface##_##page(name, func, vid, pid, interface, page, HID_USAGE_ANY)
+#define REGISTER_DYNAMIC_HID_DETECTOR_IP_DISABLED(name, func, vid, pid, interface, page)            HIDDeviceDetector               device_detector_obj_##vid##pid##_##interface##_##page(name, func, vid, pid, interface, page, HID_USAGE_ANY, false)
+#define REGISTER_DYNAMIC_HID_DETECTOR_IPU(name, func, vid, pid, interface, page, usage)             HIDDeviceDetector               device_detector_obj_##vid##pid##_##interface##_##page##_##usage(name, func, vid, pid, interface, page, usage)
+#define REGISTER_DYNAMIC_HID_DETECTOR_IPU_DISABLED(name, func, vid, pid, interface, page, usage)    HIDDeviceDetector               device_detector_obj_##vid##pid##_##interface##_##page##_##usage(name, func, vid, pid, interface, page, usage, false)
+#define REGISTER_DYNAMIC_HID_DETECTOR_P(name, func, vid, pid, page)                                 HIDDeviceDetector               device_detector_obj_##vid##pid##__##page(name, func, vid, pid, HID_INTERFACE_ANY, page, HID_USAGE_ANY)
+#define REGISTER_DYNAMIC_HID_DETECTOR_P_DISABLED(name, func, vid, pid, page)                        HIDDeviceDetector               device_detector_obj_##vid##pid##__##page(name, func, vid, pid, HID_INTERFACE_ANY, page, HID_USAGE_ANY, false)
+#define REGISTER_DYNAMIC_HID_DETECTOR_PU(name, func, vid, pid, page, usage)                         HIDDeviceDetector               device_detector_obj_##vid##pid##__##page##_##usage(name, func, vid, pid, HID_INTERFACE_ANY, page, usage)
+#define REGISTER_DYNAMIC_HID_DETECTOR_PU_DISABLED(name, func, vid, pid, page, usage)                HIDDeviceDetector               device_detector_obj_##vid##pid##__##page##_##usage(name, func, vid, pid, HID_INTERFACE_ANY, page, usage, false)
+
+#define REGISTER_CUSTOM_UDEV_RULE(id, name, rule)                                                   static CustomUdevRule           device_detector_obj_##id(name, rule)

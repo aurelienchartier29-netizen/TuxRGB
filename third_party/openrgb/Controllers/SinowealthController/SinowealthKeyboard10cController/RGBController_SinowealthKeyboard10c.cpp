@@ -1,0 +1,191 @@
+/*---------------------------------------------------------*\
+| RGBController_SinowealthKeyboard10c.cpp                   |
+|                                                           |
+|   RGBController for Sinowealth Keyboards with PID 010C    |
+|                                                           |
+|   Rodrigo Tavares                             27 Nov 2025 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#include "KeyboardLayoutManager.h"
+#include "RGBControllerKeyNames.h"
+#include "SinowealthKeyboard10cController.h"
+#include "SinowealthKeyboard10cDevices.h"
+#include "RGBController_SinowealthKeyboard10c.h"
+
+using namespace kbd10c;
+using namespace std::chrono_literals;
+
+/**------------------------------------------------------------------*\
+    @name Sinowealth Keyboard
+    @category Keyboard
+    @type USB
+    @save :x:
+    @direct :white_check_mark:
+    @effects :x:
+    @detectors DetectSinowealthKeyboard10c
+    @comment
+\*-------------------------------------------------------------------*/
+
+RGBController_SinowealthKeyboard10c::RGBController_SinowealthKeyboard10c(SinowealthKeyboard10cController* controller_ptr, unsigned char model_id, std::function<void ()> callback)
+    : model_id(model_id)
+{
+    controller        = controller_ptr;
+    shutdown_callback = callback;
+
+    name        = controller->GetName();
+    type        = DEVICE_TYPE_KEYBOARD;
+    vendor      = "Sinowealth";
+    description = "Sinowealth Keyboard Device";
+    location    = controller->GetLocation();
+    serial      = controller->GetSerialString();
+
+    mode Off;
+    Off.name       = "Off";
+    Off.flags      = 0;
+    Off.color_mode = MODE_COLORS_NONE;
+    Off.value      = MODE_OFF;
+    modes.push_back(Off);
+
+    mode Direct;
+    Direct.name       = "Direct";
+    Direct.flags      = MODE_FLAG_HAS_PER_LED_COLOR;
+    Direct.color_mode = MODE_COLORS_PER_LED;
+    Direct.value      = MODE_DIRECT;
+    modes.push_back(Direct);
+
+    active_mode = MODE_DIRECT;
+
+    SetupZones();
+
+    /*---------------------------------------------------------*\
+    | The Sinowealth 010C Keyboard requires a steady stream     |
+    | of packets in order to not revert out of direct mode.     |
+    | Start a thread to continuously refresh the device         |
+    \*---------------------------------------------------------*/
+    keepalive_thread_run = true;
+    keepalive_thread     = new std::thread(&RGBController_SinowealthKeyboard10c::KeepaliveThreadFunction, this);
+}
+
+RGBController_SinowealthKeyboard10c::~RGBController_SinowealthKeyboard10c()
+{
+    Shutdown();
+
+    keepalive_thread_run = false;
+    keepalive_thread->join();
+    delete keepalive_thread;
+    delete controller;
+
+    if(shutdown_callback)
+    {
+        shutdown_callback();
+    }
+}
+
+void RGBController_SinowealthKeyboard10c::SetupZones()
+{
+    /*---------------------------------------------------------*\
+    | Create the keyboard zone usiung Keyboard Layout Manager   |
+    \*---------------------------------------------------------*/
+    zone new_zone;
+    new_zone.name = ZONE_EN_KEYBOARD;
+    new_zone.type = ZONE_TYPE_MATRIX;
+
+    sinowealth_device device = sinowealth_10c_keyboards.at(model_id);
+
+    KeyboardLayoutManager new_kb(KEYBOARD_LAYOUT_ANSI_QWERTY, device.keyboard_layout.base_size,
+                                 device.keyboard_layout.key_values);
+    new_kb.ChangeKeys(device.keyboard_layout.edit_keys);
+
+    /*---------------------------------------------------------*\
+    | These keyboards use sparse LED indexes — for example, a   |
+    | 99-key board might use LED indexes 0–112, leaving some    |
+    | numbers unused. Empty positions are marked 0xFFFFFFFF.    |
+    |                                                           |
+    | We map each key to its actual LED index, filling the      |
+    | `leds` vector by those indexes and leaving gaps where no  |
+    | LED exists.                                               |
+    |                                                           |
+    | The LED buffer must be sized to (max index + 1), not      |
+    | rows*cols. On 75% boards the matrix can be 6x15 (90)      |
+    | while hardware indices still go to 90+ (ex: Cyberlynx     |
+    | RX75).                                                    |
+    \*---------------------------------------------------------*/
+
+    new_zone.matrix_map = new_kb.GetKeyMap(KEYBOARD_MAP_FILL_TYPE_VALUE);
+
+    unsigned int max_led_count = 0;
+
+    for(unsigned int i = 0; i < new_zone.matrix_map.map.size(); i++)
+    {
+        if(new_zone.matrix_map.map[i] == 0xFFFFFFFF)
+        {
+            continue;
+        }
+
+        unsigned int led_idx = new_zone.matrix_map.map[i] + 1;
+
+        max_led_count = (led_idx > max_led_count) ? led_idx : max_led_count;
+    }
+
+    new_zone.leds_count = max_led_count;
+    new_zone.leds_min   = new_zone.leds_count;
+    new_zone.leds_max   = new_zone.leds_count;
+
+    leds.resize(new_zone.leds_count);
+
+    for(unsigned int i = 0, j = 0; i < new_zone.matrix_map.map.size(); i++)
+    {
+        if(new_zone.matrix_map.map[i] == 0xFFFFFFFF)
+        {
+            continue;
+        }
+
+        led new_led;
+
+        new_led.name  = new_kb.GetKeyNameAt(j);
+        new_led.value = new_kb.GetKeyValueAt(j);
+
+        leds[new_zone.matrix_map.map[i]] = new_led;
+
+        j++;
+    }
+
+    zones.push_back(new_zone);
+
+    SetupColors();
+}
+
+void RGBController_SinowealthKeyboard10c::DeviceUpdateLEDs()
+{
+    last_update_time = std::chrono::steady_clock::now();
+    controller->SetLEDsDirect(colors);
+}
+
+void RGBController_SinowealthKeyboard10c::DeviceUpdateZoneLEDs(int /*zone*/)
+{
+    DeviceUpdateLEDs();
+}
+
+void RGBController_SinowealthKeyboard10c::DeviceUpdateSingleLED(int /*led*/)
+{
+    DeviceUpdateLEDs();
+}
+
+void RGBController_SinowealthKeyboard10c::DeviceUpdateMode()
+{
+}
+
+void RGBController_SinowealthKeyboard10c::KeepaliveThreadFunction()
+{
+    while(keepalive_thread_run.load())
+    {
+        if(active_mode == MODE_DIRECT && (std::chrono::steady_clock::now() - last_update_time) > 1s)
+        {
+            UpdateLEDsInternal();
+        }
+        std::this_thread::sleep_for(500ms);
+    }
+}

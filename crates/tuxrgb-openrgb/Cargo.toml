@@ -1,0 +1,21 @@
+[package]
+name = "tuxrgb-openrgb"
+description = "TuxRGB hardware backend: supervises the embedded OpenRGB 1.0 server and streams frames over the SDK (protocol v6)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tuxrgb-core.workspace = true
+openrgb2.workspace = true
+tokio.workspace = true
+futures.workspace = true
+tracing.workspace = true
+libc.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber.workspace = true

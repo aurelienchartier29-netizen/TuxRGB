@@ -1,0 +1,329 @@
+/*---------------------------------------------------------*\
+| OpenRGBPluginAPI.cpp                                      |
+|                                                           |
+|   Interface for OpenRGB plugins to call OpenRGB functions |
+|                                                           |
+|   Adam Honse (CalcProgrammer1)                08 Feb 2026 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#include "OpenRGBPluginAPI.h"
+#include "RGBController_Dummy.h"
+#include "RGBController_Virtual.h"
+
+OpenRGBPluginAPI::OpenRGBPluginAPI()
+{
+    log_manager         = ResourceManager::get()->GetLogManager();
+    plugin_manager      = ResourceManager::get()->GetPluginManager();
+    profile_manager     = ResourceManager::get()->GetProfileManager();
+    resource_manager    = ResourceManager::get();
+    settings_manager    = ResourceManager::get()->GetSettingsManager();
+}
+
+/*---------------------------------------------------------*\
+| LogManager APIs                                           |
+\*---------------------------------------------------------*/
+void OpenRGBPluginAPI::LogEntry(const char* filename, int line, unsigned int level, const char* fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+
+    log_manager->LogEntry_va(filename, line, level, fmt, va);
+
+    va_end(va);
+}
+
+/*---------------------------------------------------------*\
+| PluginManager APIs                                        |
+\*---------------------------------------------------------*/
+RGBControllerInterface* OpenRGBPluginAPI::CreateVirtualRGBController(RGBController_Setup* setup)
+{
+    RGBController_Virtual* rgb_controller = new RGBController_Virtual(setup);
+
+    /*-----------------------------------------------------*\
+    | Add the new controller to the list of created         |
+    | controllers                                           |
+    \*-----------------------------------------------------*/
+    created_controllers.push_back((RGBController*)rgb_controller);
+
+    return(rgb_controller);
+}
+
+static void CallRegisterVirtualRGBController(OpenRGBPluginAPI* this_ptr, RGBControllerInterface* rgb_controller)
+{
+    this_ptr->RegisterVirtualRGBController(rgb_controller);
+}
+
+void OpenRGBPluginAPI::RegisterVirtualRGBControllerInThread(RGBControllerInterface* rgb_controller)
+{
+    /*-----------------------------------------------------*\
+    | To avoid deadlocks if this is called from a UI thread |
+    | run the register operation in a background thread.    |
+    \*-----------------------------------------------------*/
+    std::thread register_thread(CallRegisterVirtualRGBController, this, rgb_controller);
+    register_thread.detach();
+}
+
+void OpenRGBPluginAPI::RegisterVirtualRGBController(RGBControllerInterface* rgb_controller)
+{
+    LOG_INFO("[PluginManager] Registering RGB controller %s", rgb_controller->GetName().c_str());
+
+    /*-----------------------------------------------------*\
+    | Ensure the pointer given is a pointer to a valid      |
+    | virtual controller                                    |
+    \*-----------------------------------------------------*/
+    bool found = false;
+
+    for(std::size_t controller_idx = 0; controller_idx < created_controllers.size(); controller_idx++)
+    {
+        if(created_controllers[controller_idx] == rgb_controller)
+        {
+            found = true;
+            break;
+        }
+    }
+
+    if(!found)
+    {
+        LOG_ERROR("[PluginManager] Attempted to register an RGBController that was not created by this plugin API instance.");
+        return;
+    }
+
+    /*-----------------------------------------------------*\
+    | Mark this controller as locally owned                 |
+    \*-----------------------------------------------------*/
+    ((RGBController*)rgb_controller)->flags &= ~CONTROLLER_FLAG_REMOTE;
+    ((RGBController*)rgb_controller)->flags |= CONTROLLER_FLAG_LOCAL;
+
+    /*-----------------------------------------------------*\
+    | Add the new controller to the list                    |
+    \*-----------------------------------------------------*/
+    rgb_controllers.push_back((RGBController*)rgb_controller);
+
+    /*-----------------------------------------------------*\
+    | Signal device list update in ResourceManager          |
+    \*-----------------------------------------------------*/
+    ResourceManager::get()->UpdateDeviceList();
+}
+
+static void CallUnregisterVirtualRGBController(OpenRGBPluginAPI* this_ptr, RGBControllerInterface* rgb_controller)
+{
+    this_ptr->UnregisterVirtualRGBController(rgb_controller);
+}
+
+void OpenRGBPluginAPI::UnregisterVirtualRGBController(RGBControllerInterface* rgb_controller)
+{
+    LOG_INFO("[PluginManager] Unregistering RGB controller %s", rgb_controller->GetName().c_str());
+
+    /*-----------------------------------------------------*\
+    | Clear callbacks from the controller before removal    |
+    \*-----------------------------------------------------*/
+    rgb_controller->ClearCallbacks();
+
+    /*-----------------------------------------------------*\
+    | Find the controller to remove and remove it from the  |
+    | master list                                           |
+    \*-----------------------------------------------------*/
+    std::vector<RGBController*>::iterator rgb_it = std::find(rgb_controllers.begin(), rgb_controllers.end(), (RGBController*)rgb_controller);
+
+    if(rgb_it != rgb_controllers.end())
+    {
+        rgb_controllers.erase(rgb_it);
+    }
+
+    /*-----------------------------------------------------*\
+    | Signal device list update in ResourceManager          |
+    \*-----------------------------------------------------*/
+    ResourceManager::get()->UpdateDeviceList();
+}
+
+void OpenRGBPluginAPI::UnregisterVirtualRGBControllerInThread(RGBControllerInterface* rgb_controller)
+{
+    /*-----------------------------------------------------*\
+    | To avoid deadlocks if this is called from a UI thread |
+    | run the unregister operation in a background thread.  |
+    \*-----------------------------------------------------*/
+    std::thread unregister_thread(CallUnregisterVirtualRGBController, this, rgb_controller);
+    unregister_thread.detach();
+}
+
+void OpenRGBPluginAPI::UpdateVirtualRGBController(RGBControllerInterface* rgb_controller, RGBController_Setup* setup)
+{
+    if(rgb_controller)
+    {
+        ((RGBController_Virtual*)rgb_controller)->UpdateVirtualController(setup);
+    }
+}
+
+void OpenRGBPluginAPI::DeleteVirtualRGBController(RGBControllerInterface* rgb_controller)
+{
+    /*-----------------------------------------------------*\
+    | Remove the controller from the list of created        |
+    | controllers                                           |
+    \*-----------------------------------------------------*/
+    created_controllers.erase(std::remove(created_controllers.begin(), created_controllers.end(), (RGBController*)rgb_controller), created_controllers.end());
+
+    delete (RGBController*)rgb_controller;
+}
+
+/*---------------------------------------------------------*\
+| ProfileManager APIs                                       |
+\*---------------------------------------------------------*/
+void OpenRGBPluginAPI::ClearActiveProfile()
+{
+    profile_manager->ClearActiveProfile();
+}
+
+std::vector<std::string> OpenRGBPluginAPI::GetProfileList()
+{
+    return(profile_manager->GetProfileList());
+}
+
+bool OpenRGBPluginAPI::LoadProfile(std::string profile_name)
+{
+    return(profile_manager->LoadProfile(profile_name));
+}
+
+bool OpenRGBPluginAPI::SaveProfileFromPlugin(std::string profile_name, std::string plugin_name, nlohmann::json plugin_data)
+{
+    return(profile_manager->SaveProfileFromPlugin(profile_name, plugin_name, plugin_data));
+}
+
+/*---------------------------------------------------------*\
+| ResourceManager APIs                                      |
+\*---------------------------------------------------------*/
+filesystem::path OpenRGBPluginAPI::GetConfigurationDirectory()
+{
+    return(resource_manager->GetConfigurationDirectory());
+}
+
+bool OpenRGBPluginAPI::GetDetectionEnabled()
+{
+    return(resource_manager->GetDetectionEnabled());
+}
+
+unsigned int OpenRGBPluginAPI::GetDetectionPercent()
+{
+    return(resource_manager->GetDetectionPercent());
+}
+
+std::string OpenRGBPluginAPI::GetDetectionString()
+{
+    return(resource_manager->GetDetectionString());
+}
+
+void OpenRGBPluginAPI::RescanDevices()
+{
+    resource_manager->RescanDevices();
+}
+
+void OpenRGBPluginAPI::WaitForDetection()
+{
+    resource_manager->WaitForDetection();
+}
+
+std::vector<RGBControllerInterface*> OpenRGBPluginAPI::GetRGBControllers()
+{
+    return(resource_manager->GetRGBControllerInterfaces());
+}
+
+/*---------------------------------------------------------*\
+| RGBController APIs                                        |
+\*---------------------------------------------------------*/
+nlohmann::json OpenRGBPluginAPI::GetDeviceDescriptionJSON(RGBControllerInterface* controller)
+{
+    return(RGBController::GetDeviceDescriptionJSON((RGBController*)controller));
+}
+
+nlohmann::json OpenRGBPluginAPI::GetLEDDescriptionJSON(led led)
+{
+    return(RGBController::GetLEDDescriptionJSON(led));
+}
+
+nlohmann::json OpenRGBPluginAPI::GetMatrixMapDescriptionJSON(matrix_map_type matrix_map)
+{
+    return(RGBController::GetMatrixMapDescriptionJSON(matrix_map));
+}
+
+nlohmann::json OpenRGBPluginAPI::GetModeDescriptionJSON(mode mode)
+{
+    return(RGBController::GetModeDescriptionJSON(mode));
+}
+
+nlohmann::json OpenRGBPluginAPI::GetSegmentDescriptionJSON(segment segment)
+{
+    return(RGBController::GetSegmentDescriptionJSON(segment));
+}
+
+nlohmann::json OpenRGBPluginAPI::GetZoneDescriptionJSON(zone zone)
+{
+    return(RGBController::GetZoneDescriptionJSON(zone));
+}
+
+RGBControllerInterface* OpenRGBPluginAPI::SetDeviceDescriptionJSON(nlohmann::json controller_json)
+{
+    RGBController_Dummy* new_controller = new RGBController_Dummy();
+    RGBController::SetDeviceDescriptionJSON(controller_json, (RGBController*)new_controller);
+
+    return(new_controller);
+}
+
+led OpenRGBPluginAPI::SetLEDDescriptionJSON(nlohmann::json led_json)
+{
+    return(RGBController::SetLEDDescriptionJSON(led_json));
+}
+
+matrix_map_type OpenRGBPluginAPI::SetMatrixMapDescriptionJSON(nlohmann::json matrix_map_json)
+{
+    return(RGBController::SetMatrixMapDescriptionJSON(matrix_map_json));
+}
+
+mode OpenRGBPluginAPI::SetModeDescriptionJSON(nlohmann::json mode_json)
+{
+    return(RGBController::SetModeDescriptionJSON(mode_json));
+}
+
+segment OpenRGBPluginAPI::SetSegmentDescriptionJSON(nlohmann::json segment_json)
+{
+    return(RGBController::SetSegmentDescriptionJSON(segment_json));
+}
+
+zone OpenRGBPluginAPI::SetZoneDescriptionJSON(nlohmann::json zone_json)
+{
+    return(RGBController::SetZoneDescriptionJSON(zone_json));
+}
+
+bool OpenRGBPluginAPI::CompareControllers(RGBControllerInterface* controller_1, RGBControllerInterface* controller_2)
+{
+    return(RGBController::CompareControllers((RGBController*)controller_1, (RGBController*)controller_2));
+}
+
+std::string OpenRGBPluginAPI::DeviceTypeToString(device_type type)
+{
+    return(RGBController::DeviceTypeToString(type));
+}
+
+bool OpenRGBPluginAPI::SetModeValuesFromMode(mode& destination, mode& source)
+{
+    return(RGBController::SetModeValuesFromMode(destination, source));
+}
+
+/*---------------------------------------------------------*\
+| SettingsManager APIs                                      |
+\*---------------------------------------------------------*/
+nlohmann::json OpenRGBPluginAPI::GetSettings(std::string settings_key)
+{
+    return(settings_manager->GetSettings(settings_key));
+}
+
+void OpenRGBPluginAPI::SaveSettings()
+{
+    settings_manager->SaveSettings();
+}
+
+void OpenRGBPluginAPI::SetSettings(std::string settings_key, nlohmann::json new_settings)
+{
+    settings_manager->SetSettings(settings_key, new_settings);
+}
