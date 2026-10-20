@@ -1,0 +1,84 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/tuxrgb",
+    "crates/tuxrgb-core",
+    "crates/tuxrgb-openrgb",
+    "crates/tuxrgb-capture",
+    "crates/tuxrgb-helper",
+]
+default-members = ["crates/tuxrgb", "crates/tuxrgb-helper"]
+
+[workspace.package]
+version = "2.0.7"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-2.0-or-later"
+authors = ["TuxRGB contributors"]
+homepage = "https://github.com/aurelienchartier29-netizen/TuxRGB"
+repository = "https://github.com/aurelienchartier29-netizen/TuxRGB"
+
+[workspace.dependencies]
+tuxrgb-core = { path = "crates/tuxrgb-core" }
+tuxrgb-openrgb = { path = "crates/tuxrgb-openrgb" }
+tuxrgb-capture = { path = "crates/tuxrgb-capture" }
+
+# GUI: iced 0.14, Wayland only (no x11 feature), wgpu with tiny-skia software fallback.
+iced = { version = "0.14", default-features = false, features = [
+    "wgpu",
+    "tiny-skia",
+    "wayland",
+    "tokio",
+    "canvas",
+    "advanced",
+    "crisp",
+    "image-without-codecs",
+] }
+ksni = { version = "0.3.6", default-features = false, features = ["tokio"] }
+ashpd = { version = "0.13.13", default-features = false, features = ["tokio", "settings", "screencast", "background"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+pipewire = "0.10.1"
+openrgb2 = "0.4.1"
+material-colors = "0.5"
+realfft = "3.5"
+tokio = { version = "1.40", features = ["rt", "rt-multi-thread", "net", "sync", "time", "macros", "process", "io-util", "fs", "signal"] }
+crossbeam-channel = "0.5"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+directories = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+anyhow = "1"
+thiserror = "2"
+libc = "0.2"
+rust-ini = "0.21"
+# Windows build only (already used by wgpu on Windows: no new crate).
+windows = "0.58"
+# Updates from the GitHub releases: HTTPS (rustls + Mozilla roots, nothing
+# from the system), SHA-256 of the download, version comparison.
+ureq = { version = "2.12", default-features = false, features = ["tls", "proxy-from-env"] }
+sha2 = "0.10"
+semver = "1"
+# GLSL shader effect: off-screen rendering with the same wgpu as iced.
+wgpu = { version = "27", features = ["glsl", "naga-ir"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+debug = false
+# Unwinding is kept on purpose: a panic inside a background task (device I/O,
+# capture) must not take the whole lighting daemon down.
+panic = "unwind"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+# openrgb2 0.4.1 rejects OpenRGB 1.0 final data (new flag bits, device types
+# 14-21). The vendored copy carries a small compatibility patch, see
+# vendor/openrgb2/CHANGELOG.md. Drop this once upstream releases a fix.
+[patch.crates-io]
+openrgb2 = { path = "vendor/openrgb2" }

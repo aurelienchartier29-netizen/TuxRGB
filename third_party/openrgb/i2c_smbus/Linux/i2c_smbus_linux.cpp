@@ -1,0 +1,335 @@
+/*---------------------------------------------------------*\
+| i2c_smbus_linux.cpp                                       |
+|                                                           |
+|   Linux i2c/smbus driver                                  |
+|                                                           |
+|   Adam Honse (CalcProgrammer1)                14 Feb 2019 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#include <linux/i2c-dev.h>
+#include <linux/i2c.h>
+#include <sys/ioctl.h>
+#include <cstring>
+#include "LogManager.h"
+#include "i2c_smbus.h"
+#include "i2c_smbus_linux.h"
+
+s32 i2c_smbus_linux::i2c_smbus_xfer(u8 addr, char read_write, u8 command, int size, union i2c_smbus_data* data)
+{
+
+    struct i2c_smbus_ioctl_data args;
+
+    //Tell I2C host which slave address to transfer to
+    ioctl(handle, I2C_SLAVE, addr);
+
+    args.read_write = read_write;
+    args.command = command;
+    args.size = size;
+    args.data = data;
+
+    return ioctl(handle, I2C_SMBUS, &args);
+}
+
+s32 i2c_smbus_linux::i2c_xfer(u8 addr, char read_write, int* size, u8* data)
+{
+    i2c_rdwr_ioctl_data rdwr;
+    i2c_msg msg;
+    s32 ret_val;
+
+    msg.addr  = addr;
+    msg.flags = read_write;
+    msg.len   = *size;
+    msg.buf   = (u8*)malloc(*size);
+    memcpy(msg.buf, data, *size);
+
+    rdwr.msgs  = &msg;
+    rdwr.nmsgs = 1;
+
+    ret_val = ioctl(handle, I2C_RDWR, &rdwr);
+
+    /*-------------------------------------------------*\
+    | If operation was a read, copy read data and size  |
+    \*-------------------------------------------------*/
+    if(read_write == I2C_SMBUS_READ)
+    {
+        *size = msg.len;
+        memcpy(data, msg.buf, *size);
+    }
+
+    free(msg.buf);
+
+    return ret_val;
+}
+
+#include "DetectionManager.h"
+#include <fcntl.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <string.h>
+#include <linux/limits.h>
+
+bool i2c_smbus_linux_detect()
+{
+    i2c_smbus_linux *       bus;
+    char                    device_string[PATH_MAX];
+    char                    device_path[PATH_MAX];
+    DIR *                   dir;
+    char                    driver_path[PATH_MAX];
+    struct dirent *         ent;
+    int                     test_fd;
+    int                     ret = true;
+    char path[PATH_MAX];
+    char buff[64];
+    unsigned short pci_device, pci_vendor, pci_subsystem_device, pci_subsystem_vendor;
+    unsigned short port_id, bus_id;
+    char *ptr;
+
+    // Start looking for I2C adapters in /sys/bus/i2c/devices/
+    strcpy(driver_path, "/sys/bus/i2c/devices/");
+    dir = opendir(driver_path);
+
+    if(dir == NULL)
+    {
+        return(false);
+    }
+
+    // Loop through all entries in i2c-adapter list
+    while((ent = readdir(dir)) != NULL)
+    {
+        if(ent->d_type == DT_DIR || ent->d_type == DT_LNK)
+        {
+            if((strncmp(ent->d_name, "i2c-", 4) == 0) && (ent->d_name[4] != '\0') && (strspn(ent->d_name + 4, "0123456789") == strlen(ent->d_name + 4)))
+            {
+                strncpy(device_string, driver_path, sizeof(device_string) - 1);
+                device_string[sizeof(device_string) - 1] = '\0';
+                strncat(device_string, ent->d_name, sizeof(device_string) - strlen(device_string) - 1);
+                device_string[sizeof(device_string) - 1] = '\0';
+                strncat(device_string, "/name", sizeof(device_string) - strlen(device_string) - 1);
+                device_string[sizeof(device_string) - 1] = '\0';
+                test_fd = open(device_string, O_RDONLY);
+
+                if(test_fd)
+                {
+                    memset(device_string, 0x00, sizeof(device_string));
+                    memset(device_path, 0x00, sizeof(device_path));
+
+                    if(read(test_fd, device_string, sizeof(device_string)) < 0)
+                    {
+                        LOG_WARNING("[i2c_smbus_linux] Failed to read i2c device name");
+                    }
+
+                    if(strlen(device_string) > 0 && strlen(device_string) < sizeof(device_string))
+                    {
+                        device_string[strlen(device_string) - 1] = 0x00;
+                    }
+
+                    close(test_fd);
+
+                    // Clear PCI Information
+                    pci_vendor              = 0;
+                    pci_device              = 0;
+                    pci_subsystem_vendor    = 0;
+                    pci_subsystem_device    = 0;
+                    port_id                 = 0;
+                    bus_id                  = 0;
+
+                    // Get port ID for AMD GPU aux bus
+                    sscanf(device_string, "AMDGPU DM aux hw bus %hu", &port_id);
+
+                    // Get port ID for Nvidia GPUs
+                    sscanf(device_string, "NVIDIA i2c adapter %hu at", &port_id);
+
+                    // Get port ID for PIIX4 SMBus
+                    sscanf(device_string, "SMBus PIIX4 adapter port %hu at", &port_id);
+
+                    // Get the Linux Bus ID
+                    sscanf(ent->d_name, "i2c-%hu", &bus_id);
+
+                    /*-----------------------------------------------------*\
+                    | DPMST adapters are created by AMD GPUs for DisplayPort|
+                    | MST (Multi-Stream Transport).  These are removable    |
+                    | devices and we don't have hotplug detection for i2c   |
+                    | interfaces, so we should ignore them.                 |
+                    \*-----------------------------------------------------*/
+                    if(strcmp(device_string, "DPMST") == 0)
+                    {
+                        LOG_INFO("[%s] Skipping DPMST i2c device", ent->d_name);
+                        continue;
+                    }
+
+                    // Get device path
+                    strncpy(path, driver_path, sizeof(path) - 1);
+                    path[sizeof(path) - 1] = '\0';
+                    strncat(path, ent->d_name, sizeof(path) - strlen(path) - 1);
+                    path[sizeof(path) - 1] = '\0';
+                    if(ent->d_type == DT_LNK || ent->d_type == DT_UNKNOWN)
+                    {
+                        ptr = realpath(path, NULL);
+                        if(ptr == NULL)
+                            continue;
+
+                        strncpy(path, ptr, sizeof(path) - 1);
+                        path[sizeof(path) - 1] = '\0';
+                        free(ptr);
+
+                        /*-----------------------------------------------------*\
+                        | Walk up sysfs to the nearest PCI device.              |
+                        | Some I2C adapters sit below an intermediate device.    |
+                        \*-----------------------------------------------------*/
+                        while(true)
+                        {
+                            char pci_vendor_path[PATH_MAX];
+                            char pci_device_path[PATH_MAX];
+
+                            snprintf(pci_vendor_path, sizeof(pci_vendor_path), "%s/vendor", path);
+                            snprintf(pci_device_path, sizeof(pci_device_path), "%s/device", path);
+
+                            if(access(pci_vendor_path, R_OK) == 0 && access(pci_device_path, R_OK) == 0)
+                            {
+                                break;
+                            }
+
+                            char* last_slash = strrchr(path, '/');
+
+                            if(last_slash == NULL || last_slash == path)
+                            {
+                                path[0] = '\0';
+                                break;
+                            }
+
+                            *last_slash = '\0';
+                        }
+
+                        if(path[0] == '\0')
+                        {
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        strncat(path, "/device", sizeof(path) - strlen(path) - 1);
+                        path[sizeof(path) - 1] = '\0';
+                    }
+                    ptr = path + strlen(path);
+
+                    // Get PCI Vendor
+                    strcpy(ptr, "/vendor");
+                    test_fd = open(path, O_RDONLY);
+                    if (test_fd >= 0)
+                    {
+                        memset(buff, 0x00, sizeof(buff));
+
+                        if(read(test_fd, buff, sizeof(buff)) < 0)
+                        {
+                            LOG_INFO("[i2c_smbus_linux] Failed to read i2c device PCI vendor ID");
+                        }
+
+                        if(strlen(buff) > 0 && strlen(buff) < sizeof(buff))
+                        {
+                            buff[strlen(buff) - 1] = 0x00;
+                        }
+                        pci_vendor = strtoul(buff, NULL, 16);
+                        close(test_fd);
+                    }
+
+                    // Get PCI Device
+                    strcpy(ptr, "/device");
+                    test_fd = open(path, O_RDONLY);
+                    if (test_fd >= 0)
+                    {
+                        memset(buff, 0x00, sizeof(buff));
+
+                        if(read(test_fd, buff, sizeof(buff)) < 0)
+                        {
+                            LOG_INFO("[i2c_smbus_linux] Failed to read i2c device PCI device ID");
+                        }
+
+                        if(strlen(buff) > 0 && strlen(buff) < sizeof(buff))
+                        {
+                            buff[strlen(buff) - 1] = 0x00;
+                        }
+                        pci_device = strtoul(buff, NULL, 16);
+                        close(test_fd);
+                    }
+
+                    // Get PCI Subsystem Vendor
+                    strcpy(ptr, "/subsystem_vendor");
+                    test_fd = open(path, O_RDONLY);
+                    if (test_fd >= 0)
+                    {
+                        memset(buff, 0x00, sizeof(buff));
+
+                        if(read(test_fd, buff, sizeof(buff)) < 0)
+                        {
+                            LOG_INFO("[i2c_smbus_linux] Failed to read i2c device PCI subvendor ID");
+                        }
+
+                        if(strlen(buff) > 0 && strlen(buff) < sizeof(buff))
+                        {
+                            buff[strlen(buff) - 1] = 0x00;
+                        }
+                        pci_subsystem_vendor = strtoul(buff, NULL, 16);
+                        close(test_fd);
+                    }
+
+                    // Get PCI Subsystem Device
+                    strcpy(ptr, "/subsystem_device");
+                    test_fd = open(path, O_RDONLY);
+                    if(test_fd >= 0)
+                    {
+                        memset(buff, 0x00, sizeof(buff));
+
+                        if(read(test_fd, buff, sizeof(buff)) < 0)
+                        {
+                            LOG_INFO("[i2c_smbus_linux] Failed to read i2c device PCI subdevice ID");
+                        }
+
+                        if(strlen(buff) > 0 && strlen(buff) < sizeof(buff))
+                        {
+                            buff[strlen(buff) - 1] = 0x00;
+                        }
+                        pci_subsystem_device = strtoul(buff, NULL, 16);
+                        close(test_fd);
+                    }
+
+                    strncpy(device_path, "/dev/", sizeof(device_path) - 1);
+                    device_path[sizeof(device_path) - 1] = '\0';
+                    strncat(device_path, ent->d_name, sizeof(device_path) - strlen(device_path) - 1);
+                    device_path[sizeof(device_path) - 1] = '\0';
+                    test_fd = open(device_path, O_RDWR);
+
+                    if(test_fd < 0)
+                    {
+                        LOG_INFO("[i2c_smbus_linux] Failed to open %s", device_path);
+                        ret = false;
+                        continue;
+                    }
+
+                    bus = new i2c_smbus_linux();
+                    snprintf(bus->info.device_name, sizeof(bus->info.device_name), "%s (%s)", device_string, device_path);
+                    bus->handle                     = test_fd;
+                    bus->info.pci_device            = pci_device;
+                    bus->info.pci_vendor            = pci_vendor;
+                    bus->info.pci_subsystem_device  = pci_subsystem_device;
+                    bus->info.pci_subsystem_vendor  = pci_subsystem_vendor;
+                    bus->info.port_id               = port_id;
+                    bus->info.bus_id                = bus_id;
+                    DetectionManager::get()->RegisterI2CBus(bus);
+                }
+                else
+                {
+                    LOG_INFO("[i2c_smbus_linux] Failed to open %s", device_string);
+                    ret = false;
+                }
+            }
+        }
+    }
+    closedir(dir);
+
+    return(ret);
+}
+
+REGISTER_I2C_BUS_DETECTOR(i2c_smbus_linux_detect);
