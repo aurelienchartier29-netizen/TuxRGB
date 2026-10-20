@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.tuxrgb.TuxRGB</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-or-later</project_license>
+  <name>TuxRGB</name>
+  <summary>Control the RGB lighting of your whole PC</summary>
+  <summary xml:lang="fr">Pilotez l'éclairage RGB de tout votre PC</summary>
+  <developer id="io.github.tuxrgb">
+    <name>TuxRGB contributors</name>
+  </developer>
+  <description>
+    <p>
+      TuxRGB synchronises the RGB lighting of your motherboard, RAM, graphics card,
+      fans, AIO coolers, keyboards, mice and LED strips from a single, modern interface.
+    </p>
+    <p>
+      It ships the OpenRGB hardware engine (release 1.1, with the latest upstream device support), so every device supported by OpenRGB works
+      without installing anything else. The interface is native Wayland, follows the
+      Material 3 Expressive design language, speaks English and French, and takes its
+      colours from your desktop accent (KDE Plasma, GNOME, COSMIC).
+    </p>
+    <ul>
+      <li>Visual map: place, rotate and resize your devices so effects travel across your real desk</li>
+      <li>19 effects: static, breathing, rainbow and gradient waves, aurora, plasma, fire, comet, scanner, rain, bubbles, swirl, thunderstorm, GLSL shaders…</li>
+      <li>Harmonious System Palette: multi-colour effects built from your desktop accent</li>
+      <li>Audio visualiser on every device (PipeWire) and per-LED screen sync (ScreenCast portal)</li>
+      <li>Hardware monitor: CPU / GPU temperature and load, memory, in colour</li>
+      <li>Smooth crossfades, global brightness and 0–200 % saturation</li>
+      <li>LEDs off at shutdown and sleep, exact state restored at the next start</li>
+      <li>Guided, reversible setup of hardware access (udev rules, I2C/SMBus) through Polkit, on every major distribution</li>
+      <li>Runs from the system tray with near-zero CPU usage</li>
+    </ul>
+    <p xml:lang="fr">
+      TuxRGB synchronise l'éclairage RGB de la carte mère, de la RAM, de la carte graphique,
+      des ventilateurs, du watercooling, des claviers, souris et bandes LED. Le moteur
+      OpenRGB (1.0 et ajouts récents) est intégré : rien d'autre à installer. Interface Wayland native,
+      Material 3 Expressive, en français et en anglais, couleurs reprises de l'accent du bureau
+      (KDE Plasma, GNOME, COSMIC).
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.tuxrgb.TuxRGB.desktop</launchable>
+  <url type="homepage">https://github.com/aurelienchartier29-netizen/TuxRGB</url>
+  <url type="bugtracker">https://github.com/aurelienchartier29-netizen/TuxRGB/issues</url>
+  <url type="vcs-browser">https://github.com/aurelienchartier29-netizen/TuxRGB</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Setup overview with live lighting</caption>
+      <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/02-home.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Effect gallery and settings</caption>
+      <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/04-effects-picker.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Devices and layout editor</caption>
+      <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/07-devices.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Harmonious System Palette</caption>
+      <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/05-effects-palette.png</image>
+    </screenshot>
+  </screenshots>
+  <categories>
+    <category>Settings</category>
+    <category>HardwareSettings</category>
+  </categories>
+  <keywords>
+    <keyword>RGB</keyword>
+    <keyword>LED</keyword>
+    <keyword>OpenRGB</keyword>
+    <keyword>lighting</keyword>
+  </keywords>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.0.6" date="2026-10-20">
+      <description>
+        <p>Fixes LEDs that only changed every few seconds on PCs with slow controllers.</p>
+        <ul>
+          <li>Colours go through a connection of their own: each device is updated at its own pace, so RGB memory (SMBus) or a graphics card (I2C) that takes hundreds of milliseconds per write no longer holds back the mouse, keyboard, fans or motherboard</li>
+          <li>A slow acknowledgement is no longer taken for a lost connection (which made the lighting freeze for several seconds while TuxRGB reconnected)</li>
+          <li>Turning the LEDs off (quit, shutdown, sleep) writes every device at once and waits for slow ones</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.5" date="2026-10-19">
+      <description>
+        <p>Released for Linux and Windows at the same time, with the same fixes.</p>
+        <ul>
+          <li>Built-in updates: Settings → Updates checks the GitHub releases, downloads the AppImage, verifies its SHA-256 and restarts TuxRGB</li>
+          <li>Optional automatic check at start-up, at most every 6 hours</li>
+          <li>Global saturation above 100 % now also deepens colours that are already pure (rainbow, primary colours, accent colours)</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.4" date="2026-10-19">
+      <description>
+        <p>Embedded hardware engine updated to OpenRGB 1.1. The interface is unchanged.</p>
+        <ul>
+          <li>Fixes a deadlock with ENE SMBus RAM and motherboard lighting (ASUS Aura DRAM and many RGB memory modules)</li>
+          <li>Mode changes and LED colours sent right after them are always applied in order</li>
+          <li>Hot-plug fixes in several controllers; Sinowealth mice no longer crash or lose their configuration</li>
+          <li>Cooler Master ARGB Gen2 A1 V2 fixed; MSI GeForce RTX 3070 Gaming Trio Plus and Kreo Swarm (wired) supported</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.3" date="2026-10-18">
+      <description>
+        <p>Performance and reliability. The interface is unchanged.</p>
+        <ul>
+          <li>Minimised window: the live preview slows down to a few frames per second as soon as the window is no longer drawn (about 2 % CPU instead of a full core with software rendering)</li>
+          <li>In the tray with only demo devices, the effect engine sleeps completely; the memory of a closed window is given back to the system</li>
+          <li>The soft glow behind the previews is built off the interface thread; frames, colour buffers, screen and shader captures reuse their memory instead of allocating every frame</li>
+          <li>OpenRGB: hot-plugged devices and zones resized elsewhere are noticed from the server's notifications; the device list is watched with a cheap request instead of reading every controller every ten seconds</li>
+          <li>Hot-plug safety: a frame built for an old layout of a device is never written to it; the selected device stays selected when another one appears or disappears</li>
+          <li>Settings are written in the background, flushed to disk, and read once at start-up; a crash or power cut can no longer leave an empty configuration</li>
+          <li>Tray icon registered even when TuxRGB starts before the panel at login</li>
+          <li>Time limits on the desktop portal, notifications, nvidia-smi and the kernel log; a sleeping laptop GPU is no longer woken up by the hardware monitor</li>
+          <li>Shader effect recovers from a GPU read-back failure; a crashed capture thread can no longer freeze the reactive effects</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.2" date="2026-10-18">
+      <description>
+        <ul>
+          <li>Larger, clearer live preview on the effects page, with device names</li>
+          <li>Hardware monitor, automatic sensor: devices without a sensor of their own (keyboard, mouse, mat, headset…) follow the CPU temperature, or the CPU load when it cannot be read</li>
+          <li>New setting: speed of the app animations (25 to 300 %)</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.1" date="2026-10-18">
+      <description>
+        <p>Finishing touches.</p>
+        <ul>
+          <li>New application icon (window, menu, tray)</li>
+          <li>Smooth transitions everywhere: page and wizard fade-through, dialogs, colour picker, banners, panels, selections, text fields, scrollbars and wheel scrolling</li>
+          <li>Immersive previews: the whole canvas glows with a soft, blurred rendering of the effect behind the devices</li>
+          <li>Brightness and saturation follow the sliders almost instantly; tray updates are coalesced</li>
+          <li>Single-colour SMBus devices always receive the final colour of a slider</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0" date="2026-10-18">
+      <description>
+        <p>Full release.</p>
+        <ul>
+          <li>New native effects from the OpenRGB plugins: plasma, fire, comet, scanner, rain, bubbles, swirl, thunderstorm, GLSL shaders (GPU) and hardware monitor (CPU/GPU/RAM)</li>
+          <li>Visual map: rotation, mirroring, resize handle; screen sync samples exactly the area each LED covers</li>
+          <li>Audio visualiser reaches every device ("spectrum on every device"), lower latency</li>
+          <li>Harmonious System Palette for multi-colour effects; desktop accent from KDE, GNOME or COSMIC</li>
+          <li>Crossfades between colours, effects, presets and accent changes; saturation up to 200 %</li>
+          <li>Expressive sliders (thickening track, squash and stretch handle, value bubble), squishy buttons</li>
+          <li>English and French interface, system language detected</li>
+          <li>SMBus fix on every distribution (rpm-ostree, grubby, kernelstub, GRUB, systemd-boot, rEFInd), only when needed</li>
+          <li>LEDs turned off at shutdown, logout and sleep; restored at start</li>
+          <li>Tray icon listed with applications; problem banners and desktop notifications with direct actions</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.3.0" date="2026-10-14">
+      <description>
+        <p>Hardened hardware access (uaccess only, no world-writable udev rules,
+        strictly validated privileged helper), Saturation slider for single-colour
+        effects, Material 3 Expressive refresh with animated buttons and switches,
+        maximised window from the menu and tray-only start at login.</p>
+      </description>
+    </release>
+    <release version="1.2.0" date="2026-10-14">
+      <description>
+        <p>One-click configuration of empty ARGB headers, Static and Breathing can
+        follow the KDE Plasma accent colour, every setting saved in config.json and
+        restored at login, single instance (a new launch brings the window forward),
+        maximised window, smoother page transitions, no more duplicate udev rules on
+        distributions that ship OpenRGB's, one-click SMBus fix for RAM lighting.</p>
+      </description>
+    </release>
+    <release version="1.1.0" date="2026-10-14">
+      <description>
+        <p>Latest OpenRGB device support (master, October 2026), addressable ARGB
+        headers can be sized from the Devices page, devices without a Direct mode
+        are driven through their Custom or Static mode, software brightness with a
+        perceptual curve, instant password dialog, hardware report for RAM issues.</p>
+      </description>
+    </release>
+    <release version="1.0.0" date="2026-10-14">
+      <description>
+        <p>First release: embedded OpenRGB 1.0 engine, Material 3 Expressive interface,
+        KDE accent colours, audio visualiser, screen sync, Polkit hardware setup wizard.</p>
+      </description>
+    </release>
+  </releases>
+</component>

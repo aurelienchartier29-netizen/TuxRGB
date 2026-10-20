@@ -1,0 +1,133 @@
+# Flatpak manifest for TuxRGB.
+#
+# Build locally:
+#   python3 flatpak-cargo-generator.py Cargo.lock -o packaging/flatpak/cargo-sources.json
+#   flatpak-builder --user --install --force-clean build-flatpak io.github.tuxrgb.TuxRGB.yml
+#
+# Flathub notes (see packaging/flatpak/README.md before submitting):
+#  * The app id uses the io.github.<org>.<Repo> scheme: the GitHub organisation
+#    "tuxrgb" and repository "TuxRGB" must exist and be reachable.
+#  * Flathub requires manifests to be written by humans (no AI-generated or
+#    AI-assisted manifests, disclosure does not exempt). This file is a
+#    reference for local builds: rewrite it yourself before any submission.
+#  * --talk-name=org.freedesktop.Flatpak (host pkexec for udev rules) is a
+#    sandbox escape and will be questioned during review. The app works
+#    without it if the user installs the udev rules manually (the wizard
+#    shows the commands).
+id: io.github.tuxrgb.TuxRGB
+runtime: org.kde.Platform
+runtime-version: '6.10'
+sdk: org.kde.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.llvm20
+command: tuxrgb
+finish-args:
+  # Native Wayland only – no X11 socket, no fallback-x11.
+  - --socket=wayland
+  - --share=ipc
+  - --device=dri
+  # RGB hardware: /dev/hidraw*, /dev/i2c-*, USB, serial. --device=all is the
+  # only way to reach i2c and hidraw nodes from a sandbox.
+  - --device=all
+  # Loopback TCP to the embedded OpenRGB SDK server (127.0.0.1 only).
+  - --share=network
+  # Audio visualiser (PipeWire monitor of the default output).
+  - --filesystem=xdg-run/pipewire-0:ro
+  # Accent colour fallbacks (the Settings portal is used first): KDE and
+  # COSMIC theme files.
+  - --filesystem=xdg-config/kdeglobals:ro
+  - --filesystem=xdg-config/cosmic:ro
+  # CPU / GPU temperatures for the "Hardware monitor" effect (read-only).
+  - --filesystem=/sys/class/hwmon:ro
+  # Turns the LEDs off before shutdown / sleep (logind delay inhibitor).
+  - --system-talk-name=org.freedesktop.login1
+  # Problems found while running in the tray (missing module, ARGB header).
+  - --talk-name=org.freedesktop.Notifications
+  # Read-only view of the host /etc to check installed udev rules.
+  - --filesystem=host-etc:ro
+  # System tray (StatusNotifierItem).
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # Hardware setup wizard: runs the helper on the host through pkexec.
+  - --talk-name=org.freedesktop.Flatpak
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/cmake
+  - /share/pkgconfig
+  - '*.a'
+
+modules:
+  # ---------------------------------------------------------------- hidapi
+  - name: hidapi
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DHIDAPI_WITH_LIBUSB=ON
+      - -DHIDAPI_WITH_HIDRAW=ON
+    sources:
+      - type: git
+        url: https://github.com/libusb/hidapi.git
+        tag: hidapi-0.14.0
+        commit: d3013f0af3f4029d82872c1a9487ea461a56dee4
+
+  # ---------------------------------------------------------------- mbedtls
+  - name: mbedtls
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DUSE_SHARED_MBEDTLS_LIBRARY=ON
+      - -DUSE_STATIC_MBEDTLS_LIBRARY=OFF
+      - -DENABLE_TESTING=OFF
+      - -DENABLE_PROGRAMS=OFF
+    sources:
+      - type: archive
+        url: https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.2/mbedtls-3.6.2.tar.bz2
+        sha256: 8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca
+
+  # ---------------------------------------------------------------- OpenRGB 1.1, release_1.1 8e16de2 (embedded hardware engine)
+  - name: openrgb
+    buildsystem: simple
+    build-commands:
+      - $(command -v qmake6 || command -v qmake) OpenRGB.pro CONFIG+=release
+      - make -j${FLATPAK_BUILDER_N_JOBS}
+      - install -Dm755 openrgb ${FLATPAK_DEST}/lib/tuxrgb/openrgb/openrgb
+      - install -Dm644 LICENSE ${FLATPAK_DEST}/share/licenses/tuxrgb/OpenRGB-LICENSE
+    sources:
+      - type: dir
+        path: third_party/openrgb
+
+  # ---------------------------------------------------------------- TuxRGB
+  - name: tuxrgb
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin
+      prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
+      env:
+        CARGO_HOME: /run/build/tuxrgb/cargo
+        CARGO_NET_OFFLINE: 'true'
+        LIBCLANG_PATH: /usr/lib/sdk/llvm20/lib
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --release --locked -p tuxrgb
+      # The helper runs on the HOST through `flatpak-spawn --host pkexec`:
+      # link it statically so it does not depend on the host glibc version.
+      - RUSTFLAGS="-C target-feature=+crt-static" cargo --offline build --release --locked -p tuxrgb-helper --target x86_64-unknown-linux-gnu
+      - install -Dm755 target/release/tuxrgb ${FLATPAK_DEST}/bin/tuxrgb
+      - install -Dm755 target/x86_64-unknown-linux-gnu/release/tuxrgb-helper ${FLATPAK_DEST}/libexec/tuxrgb/tuxrgb-helper
+      - install -Dm644 data/io.github.tuxrgb.TuxRGB.desktop ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 data/io.github.tuxrgb.TuxRGB.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - cp -r data/icons ${FLATPAK_DEST}/share/
+      - install -Dm644 LICENSE ${FLATPAK_DEST}/share/licenses/tuxrgb/LICENSE
+      - install -Dm644 CREDITS.md ${FLATPAK_DEST}/share/licenses/tuxrgb/CREDITS.md
+    sources:
+      - type: dir
+        path: .
+        skip:
+          - target
+          - build
+          - dist
+          - build-flatpak
+          - .flatpak-builder
+          - third_party
+      - packaging/flatpak/cargo-sources.json
