@@ -1,0 +1,34 @@
+/*---------------------------------------------------------*\
+| RGBController_Sinowealth.h                                |
+|                                                           |
+|   RGBController for Sinowealth mice, including Glorious   |
+|                                                           |
+|   Niels Westphal (crashniels)                 20 May 2020 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include "RGBController.h"
+#include "SinowealthController.h"
+
+class RGBController_Sinowealth : public RGBController
+{
+public:
+    RGBController_Sinowealth(SinowealthController* controller_ptr, std::function<void()> shutdown_callback);
+    ~RGBController_Sinowealth();
+
+    void        SetupZones();
+
+    void        DeviceUpdateLEDs();
+    void        DeviceUpdateZoneLEDs(int zone);
+    void        DeviceUpdateSingleLED(int led);
+
+    void        DeviceUpdateMode();
+
+private:
+    SinowealthController* controller;
+    std::function<void()> shutdown_callback;
+};

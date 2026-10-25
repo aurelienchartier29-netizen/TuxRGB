@@ -1,0 +1,39 @@
+/*---------------------------------------------------------*\
+| RGBController_LianLiUniHub_AL.h                           |
+|                                                           |
+|   RGBController for Lian Li AL Uni Hub                    |
+|                                                           |
+|   Oliver P                                    26 Apr 2022 |
+|   Credit to Luca Lovisa for original work                 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include <cstdint>
+#include <vector>
+#include "LianLiUniHubALController.h"
+#include "RGBController.h"
+
+class RGBController_LianLiUniHubAL : public RGBController
+{
+public:
+    RGBController_LianLiUniHubAL(LianLiUniHubALController* controller_ptr);
+    ~RGBController_LianLiUniHubAL();
+
+    void SetupZones();
+
+    void DeviceConfigureZone(int zone_idx);
+
+    void DeviceUpdateLEDs();
+    void DeviceUpdateZoneLEDs(int zone);
+    void DeviceUpdateSingleLED(int led);
+
+    void DeviceUpdateMode();
+
+private:
+    LianLiUniHubALController* controller;
+    bool                    initializedMode;
+};

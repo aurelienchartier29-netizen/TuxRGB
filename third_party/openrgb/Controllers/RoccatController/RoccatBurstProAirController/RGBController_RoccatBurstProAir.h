@@ -1,0 +1,33 @@
+/*---------------------------------------------------------*\
+| RGBController_RoccatBurstProAir.h                         |
+|                                                           |
+|   RGBController for Roccat Burst Pro Air                  |
+|                                                           |
+|   Morgan Guimard (morg)                       16 Jun 2022 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include "RGBController.h"
+#include "RoccatBurstProAirController.h"
+
+class RGBController_RoccatBurstProAir : public RGBController
+{
+public:
+    RGBController_RoccatBurstProAir(RoccatBurstProAirController* controller_ptr);
+    ~RGBController_RoccatBurstProAir();
+
+    void        SetupZones();
+
+    void        DeviceUpdateLEDs();
+    void        DeviceUpdateZoneLEDs(int zone);
+    void        DeviceUpdateSingleLED(int led);
+
+    void        DeviceUpdateMode();
+
+private:
+    RoccatBurstProAirController* controller;
+};
