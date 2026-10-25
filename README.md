@@ -63,13 +63,13 @@ cd dist
 ```
 
 Gear Lever (préinstallé sur Bazzite) peut aussi intégrer
-`TuxRGB-3.1.0-x86_64.AppImage` au menu.
+`TuxRGB-3.1.1-x86_64.AppImage` au menu.
 
 ### Autres distributions
 
 ```sh
-chmod +x dist/TuxRGB-3.1.0-x86_64.AppImage
-./dist/TuxRGB-3.1.0-x86_64.AppImage
+chmod +x dist/TuxRGB-3.1.1-x86_64.AppImage
+./dist/TuxRGB-3.1.1-x86_64.AppImage
 ```
 
 L'AppImage nécessite glibc ≥ 2.39 (Fedora 40+, Ubuntu 24.04+, Debian 13,
@@ -181,19 +181,21 @@ l'état du premier lancement et relance l'assistant (utile après un changement
 de carte mère, de RAM ou de périphérique). Même chose en ligne de commande :
 `tuxrgb --reset-hardware`.
 
-## Windows — `TuxRGB-3.1.0-Windows-Setup.exe`
+## Windows — `TuxRGB-3.1.1-Windows-Setup.exe`
 
 La version Windows (10 / 11, 64 bits) est publiée **en même temps que Linux,
 dans la même release**, avec les mêmes correctifs.
 
-**Installation** : télécharger `TuxRGB-3.1.0-Windows-Setup.exe` (page
+**Installation** : télécharger `TuxRGB-3.1.1-Windows-Setup.exe` (page
 Releases), double-cliquer, suivre l'installateur. Il installe TuxRGB dans
-`C:\Program Files\TuxRGB`, crée les raccourcis, puis **télécharge depuis
-leurs sources officielles** :
+`C:\Program Files\TuxRGB`, crée les raccourcis, puis :
 
-* **OpenRGB 1.1** pour Windows (Codeberg / openrgb.org), le même moteur que
-  celui embarqué dans l'AppImage, lancé par TuxRGB en serveur SDK privé ;
-* le pilote **PawnIO** (accès SMBus : carte mère, RAM) — facultatif ;
+* fait télécharger par TuxRGB lui-même (HTTPS, sans aucun script) **OpenRGB
+  1.1** pour Windows depuis sa source officielle (Codeberg / openrgb.org), le
+  même moteur que celui embarqué dans l'AppImage, lancé par TuxRGB en serveur
+  SDK privé ;
+* installe le pilote **PawnIO** (accès SMBus : carte mère, RAM — facultatif),
+  dont l'installateur officiel, signé par son auteur, est inclus ;
 * et configure le **mode administrateur** (facultatif) : une tâche planifiée
   relance TuxRGB avec les droits administrateur, sans invite UAC à chaque
   démarrage, condition imposée par Windows pour lire le SMBus.
@@ -231,7 +233,7 @@ Compiler la version Windows :
 
 ```sh
 # Depuis Linux (compilation croisée) : mingw-w64 + nsis
-bash scripts/windows/build-windows.sh    # → dist/TuxRGB-3.1.0-Windows-Setup.exe
+bash scripts/windows/build-windows.sh    # → dist/TuxRGB-3.1.1-Windows-Setup.exe
 ```
 
 ```powershell
@@ -404,7 +406,7 @@ vendor/openrgb2/              client SDK openrgb2 0.4.1 + correctif de compatibi
 third_party/openrgb/          sources complètes d'OpenRGB 1.1 (non modifiées)
 data/                         .desktop, metainfo AppStream, action Polkit, icônes, règles udev de référence
 packaging/                    build-appimage.sh, AppRun, run-tuxrgb.sh, cargo-sources.json (Flatpak),
-                              windows/ (installateur NSIS, icône .ico, manifeste, téléchargement OpenRGB / PawnIO)
+                              windows/ (installateur NSIS, icône .ico, manifeste, installateur PawnIO signé dans vendor/)
 dist/                         AppImage pré-compilée + lanceur Bazzite/Aurora
 scripts/                      génération des icônes, de la liste des licences, de l'archive,
                               windows/ (compilation Windows depuis Linux ou sous Windows)

@@ -2,9 +2,9 @@
 ;
 ; Built by scripts/windows/build-windows.sh (from Linux) or
 ; scripts/windows/build-windows.ps1 (on Windows):
-;   makensis -DVERSION=3.1.0 -DSTAGE=<dir> -DOUTFILE=<setup.exe> tuxrgb.nsi
+;   makensis -DVERSION=3.1.1 -DSTAGE=<dir> -DOUTFILE=<setup.exe> tuxrgb.nsi
 ;
-; <STAGE> holds tuxrgb.exe, tuxrgb.ico, installer-side.bmp, fetch.ps1, LICENSE.txt,
+; <STAGE> holds tuxrgb.exe, tuxrgb.ico, installer-side.bmp, PawnIO_setup.exe, LICENSE.txt,
 ; LIRE-MOI-Windows.txt and licenses\.
 ;
 ; OpenRGB and the PawnIO driver are downloaded from their official sources
@@ -20,10 +20,10 @@ SetCompressor /SOLID lzma
 ManifestDPIAware true
 
 !ifndef VERSION
-  !define VERSION "3.1.0"
+  !define VERSION "3.1.1"
 !endif
 !ifndef VERSION_NUM
-  !define VERSION_NUM "3.1.0.0"
+  !define VERSION_NUM "3.1.1.0"
 !endif
 !ifndef STAGE
   !define STAGE "stage"
@@ -180,10 +180,10 @@ Section "TuxRGB" SecCore
 SectionEnd
 
 Section "OpenRGB 1.1" SecOpenRGB
-  InitPluginsDir
-  File "/oname=$PLUGINSDIR\fetch.ps1" "${STAGE}\fetch.ps1"
+  ; Downloaded by tuxrgb.exe itself (HTTPS, official Codeberg release):
+  ; no script, no PowerShell in this installer.
   DetailPrint "OpenRGB 1.1…"
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\fetch.ps1" -What openrgb -Dest "$INSTDIR\openrgb"'
+  nsExec::ExecToLog '"$INSTDIR\tuxrgb.exe" --fetch-openrgb "$INSTDIR\openrgb"'
   Pop $0
   ; The exit code alone is not trusted: the engine must really be there.
   ${If} $0 != 0
@@ -197,19 +197,16 @@ Section "OpenRGB 1.1" SecOpenRGB
 SectionEnd
 
 Section "PawnIO (carte mère, RAM)" SecPawnIO
-  InitPluginsDir
-  File "/oname=$PLUGINSDIR\fetch.ps1" "${STAGE}\fetch.ps1"
   ReadRegStr $1 HKLM "SYSTEM\CurrentControlSet\Services\PawnIO" "ImagePath"
   ${If} $1 != ""
     DetailPrint "PawnIO : déjà installé"
   ${Else}
     DetailPrint "PawnIO…"
-    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\fetch.ps1" -What pawnio -Dest "$INSTDIR\pawnio"'
-    Pop $0
-    ${If} $0 == 0
-    ${AndIf} ${FileExists} "$INSTDIR\pawnio\PawnIO_setup.exe"
-      ExecWait '"$INSTDIR\pawnio\PawnIO_setup.exe" -install -silent' $0
-    ${EndIf}
+    ; Official setup, signed by its author, carried in this installer.
+    SetOutPath "$INSTDIR\pawnio"
+    File "${STAGE}\PawnIO_setup.exe"
+    SetOutPath "$INSTDIR"
+    ExecWait '"$INSTDIR\pawnio\PawnIO_setup.exe" -install -silent' $0
     ReadRegStr $1 HKLM "SYSTEM\CurrentControlSet\Services\PawnIO" "ImagePath"
     ${If} $0 != 0
     ${OrIf} $1 == ""

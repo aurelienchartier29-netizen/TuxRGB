@@ -96,6 +96,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.1.1" date="2026-10-25">
+      <description>
+        <p>Windows installer without any script, so that Windows Defender no longer flags it.</p>
+        <ul>
+          <li>The installer no longer starts a PowerShell script to download OpenRGB and PawnIO: TuxRGB fetches OpenRGB itself over HTTPS and the signed PawnIO setup is carried in the installer</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.1.0" date="2026-10-25">
       <description>
         <p>Global or per component effects, free rotation on the canvas and a new Displays page.</p>

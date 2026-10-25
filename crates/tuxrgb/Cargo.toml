@@ -38,6 +38,9 @@ semver.workspace = true
 tiny-skia = "0.11"
 ab_glyph = "0.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
+# Windows: OpenRGB 1.1 is fetched by tuxrgb.exe itself at install time
+# (`--fetch-openrgb`), no PowerShell script in the installer.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # Linux (reference platform): tray, portals, D-Bus, desktop files.
 [target.'cfg(target_os = "linux")'.dependencies]

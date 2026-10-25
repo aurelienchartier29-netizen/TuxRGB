@@ -69,7 +69,12 @@ STAGE="build/windows/stage"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/licenses" dist
 cp "$EXE" "$STAGE/tuxrgb.exe"
-cp packaging/windows/tuxrgb.ico packaging/windows/installer-side.bmp packaging/windows/fetch.ps1 "$STAGE/"
+cp packaging/windows/tuxrgb.ico packaging/windows/installer-side.bmp "$STAGE/"
+# PawnIO: the official setup, signed by its author, shipped in the installer
+# (no download, no script at install time).
+echo "1f519a22e47187f70a1379a48ca604981c4fcf694f4e65b734aaa74a9fba3032  packaging/windows/vendor/PawnIO_setup.exe" \
+  | sha256sum -c --quiet || erreur "packaging/windows/vendor/PawnIO_setup.exe : somme SHA-256 inattendue."
+cp packaging/windows/vendor/PawnIO_setup.exe "$STAGE/"
 # Text files with Windows line endings (Notepad).
 sed 's/\r\{0,1\}$/\r/' LICENSE > "$STAGE/LICENSE.txt"
 sed 's/\r\{0,1\}$/\r/' packaging/windows/LIRE-MOI-Windows.txt > "$STAGE/LIRE-MOI-Windows.txt"

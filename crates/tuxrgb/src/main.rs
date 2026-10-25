@@ -25,6 +25,7 @@ mod displays;
 mod instance;
 #[cfg_attr(windows, path = "win/integration.rs")]
 mod integration;
+mod openrgb_fetch;
 mod paths;
 mod privileges;
 mod services;
@@ -270,6 +271,11 @@ fn main() -> iced::Result {
     #[cfg(windows)]
     {
         let argv: Vec<String> = std::env::args().collect();
+        if argv.get(1).map(String::as_str) == Some("--fetch-openrgb")
+            && let Some(dest) = argv.get(2)
+        {
+            std::process::exit(openrgb_fetch::main(std::path::Path::new(dest)));
+        }
         if argv.get(1).map(String::as_str) == Some("--windows-setup") {
             let action = argv.get(2).map(String::as_str).unwrap_or("status");
             let report = argv.get(3).map(std::path::Path::new);

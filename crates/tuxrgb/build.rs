@@ -28,7 +28,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=RC");
 
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    // The manifest carries the numeric version (3.1.0.0).
+    // The manifest carries the numeric version (3.1.1.0).
     let numeric = format!(
         "{}.{}.{}.0",
         std::env::var("CARGO_PKG_VERSION_MAJOR").unwrap_or_default(),

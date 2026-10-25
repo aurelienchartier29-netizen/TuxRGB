@@ -1,4 +1,4 @@
-TuxRGB 3.1.0 pour Windows
+TuxRGB 3.1.1 pour Windows
 =========================
 
 FRANÇAIS
@@ -40,6 +40,14 @@ nouvel installateur depuis GitHub, vérifie sa somme SHA-256, l'exécute
 (confirmation Windows) puis redémarre tout seul ; les réglages, OpenRGB,
 PawnIO et le mode administrateur sont conservés. La vérification peut aussi
 se faire automatiquement au démarrage (au plus toutes les 6 heures).
+
+Antivirus / SmartScreen : TuxRGB n'est pas encore signé numériquement.
+  - SmartScreen (« Windows a protégé votre ordinateur ») : Informations
+    complémentaires → Exécuter quand même.
+  - Si Windows Defender signale TuxRGB, c'est une fausse alerte (le code
+    source complet est public). Vous pouvez la signaler à Microsoft :
+    https://www.microsoft.com/wdsi/filesubmission (« Software developer »
+    ou « Home customer », fichier concerné, « Incorrectly detected »).
 
 Fichiers :
   - Réglages : %APPDATA%\tuxrgb
