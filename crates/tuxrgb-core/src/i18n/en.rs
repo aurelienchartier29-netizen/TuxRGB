@@ -361,6 +361,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "X11 session not supported: TuxRGB is a native Wayland application. Open a Wayland session (Plasma, GNOME, COSMIC…) to use TuxRGB.",
     ),
     ("Extinction de l'éclairage RGB", "Turning RGB lighting off"),
+    (
+        "Extinction de l'éclairage RGB…",
+        "Turning RGB lighting off…",
+    ),
     ("Tonale", "Tonal"),
     ("Vive", "Vibrant"),
     ("Fidèle", "Fidelity"),
@@ -748,8 +752,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Luminosité globale", "Global brightness"),
     ("Saturation globale", "Global saturation"),
     (
-        "0 % = blanc · 100 % = couleurs d'origine · 200 % = ultra-vives",
-        "0 % = white · 100 % = original colours · 200 % = ultra vivid",
+        "0 % = blanc · 100 % = couleurs d'origine · 200 % = plus vives, même teinte",
+        "0 % = white · 100 % = original colours · 200 % = more vivid, same hue",
     ),
     ("Effets", "Effects"),
     (
@@ -1328,4 +1332,95 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "L'installation de la mise à jour a été annulée.",
         "The update installation was cancelled.",
     ),
+    // TuxRGB 3.0 – per zone / per fan lighting
+    ("Éteint", "Off"),
+    ("Tout l'appareil", "Whole device"),
+    (
+        "Une seule couleur pour tout l'appareil (limite du contrôleur).",
+        "One colour for the whole device (controller limitation).",
+    ),
+    (
+        "Même réglage pour toutes les zones et tous les ventilateurs.",
+        "Same setting for every zone and every fan.",
+    ),
+    ("Ventilateurs sur ce connecteur", "Fans on this header"),
+    (
+        "Chaque ventilateur peut suivre l'effet, garder sa couleur ou rester éteint.",
+        "Each fan can follow the effect, keep its own colour or stay off.",
+    ),
+    ("Ventilateur {}", "Fan {}"),
+    ("LED {} à {}", "LEDs {} to {}"),
+    ("1 zone personnalisée", "1 custom zone"),
+    ("{} zones personnalisées", "{} custom zones"),
+    // TuxRGB 3.0 – canvas items, hardware effects, network lights
+    ("WLED « {} » · {} LED", "WLED “{}” · {} LEDs"),
+    ("Adresse invalide", "Invalid address"),
+    ("WLED introuvable : {}", "WLED not found: {}"),
+    (
+        "Indiquez l'adresse du contrôleur et son nombre de LED (bouton Détecter).",
+        "Enter the controller's address and its LED count (Detect button).",
+    ),
+    (
+        "« {} » ajouté : le moteur redémarre…",
+        "“{}” added: the engine restarts…",
+    ),
+    (
+        "Ampoule WiZ {} ajoutée : le moteur redémarre…",
+        "WiZ bulb {} added: the engine restarts…",
+    ),
+    ("effet matériel", "hardware effect"),
+    ("Effet matériel : {}", "Hardware effect: {}"),
+    ("Masqué sur le canvas", "Hidden on the canvas"),
+    ("Effets TuxRGB", "TuxRGB effects"),
+    ("Effet de l'appareil", "Device effect"),
+    (
+        "L'appareil joue son propre effet (réactions aux touches…) : TuxRGB n'y envoie plus de couleurs, mais l'éteint toujours à l'arrêt du PC.",
+        "The device plays its own effect (key reactions…): TuxRGB sends it no colours, but still turns it off when the PC shuts down.",
+    ),
+    (
+        "Suit les effets de TuxRGB. Choisissez un effet intégré pour laisser l'appareil le jouer lui-même.",
+        "Follows TuxRGB's effects. Pick a built-in effect to let the device play it by itself.",
+    ),
+    ("LED", "LEDs"),
+    (
+        "Les contrôleurs WLED (protocole DDP) et les ampoules Philips WiZ deviennent des appareils comme les autres : canvas, effets, couleur par zone et extinction à l'arrêt du PC.",
+        "WLED controllers (DDP protocol) and Philips WiZ bulbs become devices like any other: canvas, effects, per-zone colour and turned off when the PC shuts down.",
+    ),
+    (
+        "Serveur OpenRGB externe : ajoutez ces lumières dans OpenRGB lui-même (DDP, Philips Wiz).",
+        "External OpenRGB server: add these lights in OpenRGB itself (DDP, Philips Wiz).",
+    ),
+    ("WLED · {} · {} LED", "WLED · {} · {} LEDs"),
+    ("Adresse IP de WLED", "WLED IP address"),
+    ("Détection…", "Detecting…"),
+    ("Détecter", "Detect"),
+    ("Ajouter", "Add"),
+    ("Ajouter un contrôleur WLED", "Add a WLED controller"),
+    (
+        "Même réseau local. « Détecter » lit son nom et son nombre de LED.",
+        "Same local network. “Detect” reads its name and LED count.",
+    ),
+    ("Recherche…", "Searching…"),
+    ("Rechercher sur le réseau", "Search the network"),
+    ("Adresse IP de l'ampoule", "Bulb IP address"),
+    ("Ajouter une ampoule Philips WiZ", "Add a Philips WiZ bulb"),
+    (
+        "Ses propres scènes (Océan, Feu de cheminée…) deviennent ses effets matériels dans Appareils.",
+        "Its own scenes (Ocean, Fireplace…) become its hardware effects in Devices.",
+    ),
+    ("Ampoule WiZ trouvée : {}", "WiZ bulb found: {}"),
+    ("Ampoule WiZ trouvée : {} ({})", "WiZ bulb found: {} ({})"),
+    (
+        "Aucune nouvelle ampoule WiZ n'a répondu sur ce réseau.",
+        "No new WiZ bulb answered on this network.",
+    ),
+    (
+        "Lumières réseau (WLED, Philips WiZ)",
+        "Network lights (WLED, Philips WiZ)",
+    ),
+    ("adresse invalide", "invalid address"),
+    ("adresse introuvable", "address not found"),
+    ("réponse trop longue", "answer too long"),
+    ("réponse HTTP invalide", "invalid HTTP answer"),
+    ("pas un contrôleur WLED", "not a WLED controller"),
 ];

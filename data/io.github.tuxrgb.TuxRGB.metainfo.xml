@@ -60,6 +60,14 @@
       <caption>Harmonious System Palette</caption>
       <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/05-effects-palette.png</image>
     </screenshot>
+    <screenshot>
+      <caption>Per fan per header: every fan of an ARGB header on the canvas</caption>
+      <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/10-devices-fans.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Network lights: WLED and Philips WiZ</caption>
+      <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/12-network.png</image>
+    </screenshot>
   </screenshots>
   <categories>
     <category>Settings</category>
@@ -80,6 +88,19 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.0.0" date="2026-10-25">
+      <description>
+        <p>Per fan per header, network lights, hardware effects and a new saturation.</p>
+        <ul>
+          <li>An ARGB header can be split into fans, like OpenRGB segments, each with its own LED count: every fan is an item of the canvas, placed, turned and resized on its own, and follows the effect, keeps its colour or stays off</li>
+          <li>Canvas items can be hidden while staying connected and lit; the selected item comes to the front; orientation 0°, 90°, 180° or 270°</li>
+          <li>Keyboards, mice and WiZ bulbs can play their own built-in effect instead of TuxRGB's</li>
+          <li>WLED controllers (DDP, LED count detected) and Philips WiZ bulbs (network search) become devices like any other</li>
+          <li>Perceptual saturation (Okhsv): no hue drift, no clipping, brightness unchanged, applied to the hardware on the next frame</li>
+          <li>Every LED, motherboard and fans included, is turned off at shutdown, logout and sleep within a strict 400 ms limit: the system is never slowed down</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.7" date="2026-10-20">
       <description>
         <p>Fixes a device that sometimes stayed lit at shutdown or sleep.</p>

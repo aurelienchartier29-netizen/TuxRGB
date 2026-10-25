@@ -5,10 +5,11 @@
 //! `Arc<Frame>`, so slow consumers never block rendering: they simply pick up
 //! the latest frame when they are ready.
 
-use crate::color::Rgb;
+use crate::color::{Rgb, SaturationCache};
 use crate::device::DeviceKind;
 use crate::effects::{self, EffectKind, EffectParams, EffectState, FrameContext};
 use crate::layout::{LedPoint, Scene};
+use crate::lighting::PartLighting;
 use crate::signal::SharedInputs;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, bounded};
 use std::sync::Arc;
@@ -89,10 +90,10 @@ impl BackdropRender {
 }
 
 /// Global saturation (0–200 %), then brightness, in software.
-fn grade(buffer: &mut [Rgb], saturation: f32, level: f32) {
+fn grade(buffer: &mut [Rgb], saturation: f32, level: f32, cache: &mut SaturationCache) {
     if (saturation - 1.0).abs() > 0.005 {
         for c in buffer.iter_mut() {
-            *c = boost(*c, saturation);
+            *c = cache.saturate(*c, saturation);
         }
     }
     if level < 0.999 {
@@ -142,10 +143,32 @@ pub struct EngineScene {
     pub kinds: Vec<DeviceKind>,
     /// Only LEDs of enabled + controllable devices.
     pub leds: Vec<LedPoint>,
+    /// Per-zone / per-fan settings, one per entry of `leds`; empty when
+    /// every LED follows the effect.
+    pub lighting: Vec<PartLighting>,
 }
 
 impl EngineScene {
     pub fn from_scene(scene: &Scene) -> Self {
+        let leds = scene.led_points();
+        let per_device: Vec<Vec<PartLighting>> = scene
+            .devices
+            .iter()
+            .map(|d| crate::lighting::led_lighting(&d.info, Some(&d.lighting)))
+            .collect();
+        let lighting = if per_device.iter().all(|l| l.is_empty()) {
+            Vec::new()
+        } else {
+            leds.iter()
+                .map(|p| {
+                    per_device
+                        .get(p.device)
+                        .and_then(|l| l.get(p.led))
+                        .copied()
+                        .unwrap_or_default()
+                })
+                .collect()
+        };
         Self {
             devices: scene
                 .devices
@@ -153,7 +176,19 @@ impl EngineScene {
                 .map(|d| (d.info.id, d.info.led_count))
                 .collect(),
             kinds: scene.devices.iter().map(|d| d.info.kind).collect(),
-            leds: scene.led_points(),
+            leds,
+            lighting,
+        }
+    }
+}
+
+/// Fixed colours and dark parts over the effect (see [`crate::lighting`]).
+fn apply_lighting(buffer: &mut [Rgb], lighting: &[PartLighting]) {
+    for (c, l) in buffer.iter_mut().zip(lighting) {
+        match l {
+            PartLighting::Effect => {}
+            PartLighting::Color { color } => *c = *color,
+            PartLighting::Off => *c = Rgb::BLACK,
         }
     }
 }
@@ -180,6 +215,11 @@ pub enum EngineCommand {
     SetTransitions(f32),
     /// Flash a device in white for ~1.5 s so the user can find it.
     Identify(u32),
+    /// Flash some LEDs of a device (one zone, one fan of a header).
+    IdentifyLeds {
+        device: u32,
+        leds: std::ops::Range<usize>,
+    },
     /// Also render the effect over the whole canvas ([`Frame::backdrop`]):
     /// on while a window shows previews, off in the tray (no extra cost).
     SetBackdrop(bool),
@@ -291,11 +331,12 @@ pub mod fades {
     pub const SCENE: Duration = Duration::from_millis(450);
 }
 
-/// Brightness / saturation follow the slider through an exponential
-/// smoothing with this time constant (before the user's multiplier): the
-/// first frame already moves a third of the way, ~95 % is reached in
-/// 0.1 s, and a new value mid-way simply retargets (no fade restarted from
-/// scratch, so dragging never lags behind the finger).
+/// Brightness follows the slider through an exponential smoothing with
+/// this time constant (before the user's multiplier): the first frame
+/// already moves a third of the way, ~95 % is reached in 0.1 s, and a new
+/// value mid-way simply retargets (no fade restarted from scratch, so
+/// dragging never lags behind the finger). The saturation is applied as is,
+/// on the very next frame (rendered at once, see [`Engine::urgent`]).
 pub const LEVEL_TAU: f32 = 0.035;
 
 /// Smooth start and end (sine in-out): no visible step at either end.
@@ -317,11 +358,15 @@ struct Fade {
 struct Engine {
     effect: EffectKind,
     params: Arc<EffectParams>,
-    /// Applied (smoothed) levels and the values asked for.
+    /// Applied (smoothed) brightness and the value asked for.
     brightness: f32,
-    saturation: f32,
     brightness_target: f32,
-    saturation_target: f32,
+    /// Global saturation, applied at once.
+    saturation: f32,
+    /// Memo of the saturation of the colours of the last frames.
+    saturation_cache: SaturationCache,
+    /// A slider moved: render now instead of at the next frame tick.
+    urgent: bool,
     fps: u32,
     accent: Rgb,
     output_enabled: bool,
@@ -336,7 +381,7 @@ struct Engine {
     last_frame: Instant,
     seq: u64,
     dirty: bool,
-    identify: Option<(u32, Instant)>,
+    identify: Option<(u32, Option<std::ops::Range<usize>>, Instant)>,
     last_published: Option<Arc<Frame>>,
     /// Colours currently shown, per LED of `scene` (before the identify
     /// overlay), in floating point so fades never band.
@@ -364,9 +409,10 @@ impl Engine {
             effect: config.effect,
             params: config.params,
             brightness: config.brightness.clamp(0.0, 1.0),
-            saturation: config.saturation.clamp(0.0, 2.0),
             brightness_target: config.brightness.clamp(0.0, 1.0),
-            saturation_target: config.saturation.clamp(0.0, 2.0),
+            saturation: config.saturation.clamp(0.0, 2.0),
+            saturation_cache: SaturationCache::default(),
+            urgent: false,
             fps: config.fps.clamp(1, 240),
             accent: config.accent,
             output_enabled: true,
@@ -401,7 +447,7 @@ impl Engine {
     }
 
     fn levels_moving(&self) -> bool {
-        self.brightness != self.brightness_target || self.saturation != self.saturation_target
+        self.brightness != self.brightness_target
     }
 
     /// Moves the applied brightness / saturation towards the requested ones.
@@ -419,7 +465,6 @@ impl Engine {
             }
         };
         approach(&mut self.brightness, self.brightness_target, 0.002);
-        approach(&mut self.saturation, self.saturation_target, 0.004);
     }
 
     /// Starts (or extends) a crossfade from what the LEDs show right now.
@@ -518,8 +563,15 @@ impl Engine {
                 self.params = params;
             }
             // No crossfade: the level itself is smoothed (see LEVEL_TAU).
-            EngineCommand::SetBrightness(b) => self.brightness_target = b.clamp(0.0, 1.0),
-            EngineCommand::SetSaturation(s) => self.saturation_target = s.clamp(0.0, 2.0),
+            EngineCommand::SetBrightness(b) => {
+                self.brightness_target = b.clamp(0.0, 1.0);
+                self.urgent = true;
+            }
+            // Zero latency: the frame rendered right away shows it.
+            EngineCommand::SetSaturation(s) => {
+                self.saturation = s.clamp(0.0, 2.0);
+                self.urgent = true;
+            }
             EngineCommand::SetFps(fps) => {
                 self.fps = fps.clamp(1, 240);
                 self.stats.fps_target.store(self.fps, Ordering::Relaxed);
@@ -543,7 +595,10 @@ impl Engine {
                 self.transitions = k.clamp(0.0, 4.0);
                 return true;
             }
-            EngineCommand::Identify(id) => self.identify = Some((id, Instant::now())),
+            EngineCommand::Identify(id) => self.identify = Some((id, None, Instant::now())),
+            EngineCommand::IdentifyLeds { device, leds } => {
+                self.identify = Some((device, Some(leds), Instant::now()))
+            }
             EngineCommand::SetBackdrop(on) => {
                 if on == self.backdrop.is_some() {
                     return true;
@@ -597,6 +652,13 @@ impl Engine {
                         if !self.apply(cmd) || !self.drain(&rx) {
                             break;
                         }
+                        // A slider moved: show it now rather than at the
+                        // next tick (at most twice the frame rate).
+                        if std::mem::take(&mut self.urgent) {
+                            let period = Duration::from_secs_f64(1.0 / self.fps as f64);
+                            let soonest = self.last_frame + period / 2;
+                            next = next.min(soonest.max(Instant::now()));
+                        }
                     }
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => break,
@@ -612,6 +674,7 @@ impl Engine {
                         if !self.apply(cmd) || !self.drain(&rx) {
                             break;
                         }
+                        self.urgent = false;
                         next = Instant::now();
                     }
                     Err(RecvTimeoutError::Timeout) => {
@@ -675,8 +738,15 @@ impl Engine {
             // entering Direct mode). RAM, fan hubs, mice, keyboards and
             // motherboards all react the same way, including those without
             // a brightness setting.
+            // Fixed colours / dark parts replace the effect where set.
+            apply_lighting(&mut self.buffer, &self.scene.lighting);
             let level = perceived_level(self.brightness);
-            grade(&mut self.buffer, self.saturation, level);
+            grade(
+                &mut self.buffer,
+                self.saturation,
+                level,
+                &mut self.saturation_cache,
+            );
             if let Some(b) = &mut self.backdrop {
                 // No device kinds: per-device choices use their defaults.
                 let ctx = FrameContext {
@@ -691,7 +761,12 @@ impl Engine {
                     &b.points,
                     &mut b.buffer,
                 );
-                grade(&mut b.buffer, self.saturation, level);
+                grade(
+                    &mut b.buffer,
+                    self.saturation,
+                    level,
+                    &mut self.saturation_cache,
+                );
             }
         } else if let Some(b) = &mut self.backdrop {
             b.buffer.fill(Rgb::BLACK);
@@ -758,14 +833,16 @@ impl Engine {
 
         if self.output_enabled || self.identify.is_some() {
             // Identify overlay (never part of a fade).
-            if let Some((id, since)) = self.identify {
+            if let Some((id, range, since)) = self.identify.clone() {
                 let elapsed = since.elapsed();
                 if elapsed >= IDENTIFY_DURATION {
                     self.identify = None;
                 } else {
                     let blink = ((elapsed.as_secs_f32() * 6.0).fract() < 0.5) as u8 as f32;
                     for (c, p) in self.buffer.iter_mut().zip(leds) {
-                        if self.scene.devices.get(p.device).map(|d| d.0) == Some(id) {
+                        if self.scene.devices.get(p.device).map(|d| d.0) == Some(id)
+                            && range.as_ref().is_none_or(|r| r.contains(&p.led))
+                        {
                             *c = Rgb::WHITE.scale(0.25 + 0.75 * blink);
                         }
                     }
@@ -823,30 +900,6 @@ impl Engine {
         );
         self.stats.frames.fetch_add(1, Ordering::Relaxed);
     }
-}
-
-/// Global saturation of one colour (see [`grade`]). Past 100 %, the part
-/// of the boost the HSV saturation cannot give any more (the colour is
-/// already pure: an accent such as #0078D4, a rainbow, a primary colour)
-/// deepens the colour instead: every channel is raised to a power relative
-/// to the strongest one (up to ², at 200 % on a pure colour). The strongest
-/// channel, white, greys and the pure primaries / secondaries stay as they
-/// are; a colour the HSV saturation can still boost gets the HSV result.
-fn boost(original: Rgb, saturation: f32) -> Rgb {
-    let boosted = original.saturate(saturation);
-    let (_, s, _) = original.to_hsv();
-    let unused = saturation * s;
-    if unused <= 1.0 {
-        return boosted;
-    }
-    let gamma = 1.0 + unused.log2().min(1.0);
-    let [r, g, b] = boosted.to_f32();
-    let m = r.max(g).max(b);
-    if m <= 0.0 {
-        return boosted;
-    }
-    let deepen = |x: f32| ((x / m).powf(gamma) * m * 255.0).round().clamp(0.0, 255.0) as u8;
-    Rgb::new(deepen(r), deepen(g), deepen(b))
 }
 
 #[cfg(test)]
@@ -1166,38 +1219,65 @@ mod tests {
         engine.send(EngineCommand::SetTransitions(0.0));
         engine.send(EngineCommand::SetScene(scene()));
         std::thread::sleep(Duration::from_millis(150));
-        assert_eq!(first_led(&frames), Rgb::new(255, 0, 0));
+        assert_eq!(first_led(&frames), Rgb::new(255, 127, 127).saturate(2.0));
+        assert_ne!(first_led(&frames), Rgb::new(255, 127, 127));
     }
 
-    /// 100–200 % keeps changing a colour that is already pure (the default
-    /// Windows accent), progressively; the rest is unchanged.
+    /// Zero latency: the frame that follows a saturation change already
+    /// has the final value (no smoothing ramp), whether the engine sleeps
+    /// (static colour) or an animated effect waits for its next tick at a
+    /// low frame rate.
     #[test]
-    fn boost_past_pure_colours_deepens_them() {
-        let grade_one = |c: Rgb, s: f32| {
+    fn saturation_change_shows_on_the_next_frame() {
+        for (effect, params) in [
+            (EffectKind::Static, static_params(Rgb::new(255, 127, 127))),
+            (EffectKind::RainbowWave, Arc::default()),
+        ] {
+            let (frames, sink) = collect();
+            let engine = spawn(
+                EngineConfig {
+                    effect,
+                    params,
+                    brightness: 1.0,
+                    saturation: 1.0,
+                    fps: 8,
+                    accent: Rgb::WHITE,
+                },
+                SharedInputs::default(),
+                vec![sink],
+            );
+            engine.send(EngineCommand::SetTransitions(1.0));
+            engine.send(EngineCommand::SetScene(scene()));
+            std::thread::sleep(Duration::from_millis(800));
+            let before = frames.lock().unwrap().len();
+            engine.send(EngineCommand::SetSaturation(0.0));
+            std::thread::sleep(Duration::from_millis(40));
+            let got = frames.lock().unwrap();
+            assert!(got.len() > before, "{effect:?}: no frame within 40 ms");
+            for d in &got[before].devices {
+                for c in &d.colors {
+                    assert!(c.r == c.g && c.g == c.b, "{effect:?}: {c:?} still coloured");
+                }
+            }
+        }
+    }
+
+    /// The grade applies the perceptual saturation, then the brightness,
+    /// and leaves the colours alone at 100 %.
+    #[test]
+    fn grade_applies_saturation_then_brightness() {
+        let mut cache = SaturationCache::default();
+        let mut grade_one = |c: Rgb, s: f32, level: f32| {
             let mut b = [c];
-            grade(&mut b, s, 1.0);
+            grade(&mut b, s, level, &mut cache);
             b[0]
         };
-        let accent = Rgb::new(0, 120, 212);
-        assert_eq!(grade_one(accent, 1.0), accent);
-        let mid = grade_one(accent, 1.5);
-        let full = grade_one(accent, 2.0);
-        assert!(mid.g < 110 && mid.g > full.g, "{mid:?} {full:?}");
-        assert_eq!(full, Rgb::new(0, 68, 212));
-        for fixed in [
-            Rgb::new(255, 0, 0),
-            Rgb::new(255, 255, 0),
-            Rgb::WHITE,
-            Rgb::new(90, 90, 90),
-        ] {
-            assert_eq!(grade_one(fixed, 2.0), fixed);
-        }
-        // Still room for the HSV saturation: plain HSV result.
-        assert_eq!(grade_one(Rgb::new(255, 127, 127), 2.0), Rgb::new(255, 0, 0));
-        assert_eq!(
-            grade_one(Rgb::new(200, 180, 160), 1.5),
-            Rgb::new(200, 180, 160).saturate(1.5)
-        );
+        let pastel = Rgb::new(200, 150, 150);
+        assert_eq!(grade_one(pastel, 1.0, 1.0), pastel);
+        assert_ne!(grade_one(pastel, 2.0, 1.0), pastel);
+        assert_eq!(grade_one(pastel, 2.0, 1.0), pastel.saturate(2.0));
+        assert_eq!(grade_one(pastel, 2.0, 0.5), pastel.saturate(2.0).dim(0.5));
+        assert_eq!(grade_one(Rgb::WHITE, 2.0, 1.0), Rgb::WHITE);
     }
 
     /// Frames nobody holds any more are refilled in place: after warm-up the

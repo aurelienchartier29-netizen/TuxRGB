@@ -42,11 +42,11 @@ const WM_DWMCOLORIZATIONCOLORCHANGED: u32 = 0x0320;
 /// Highest shutdown level of applications (0x100–0x3FF; default 0x280).
 const SHUTDOWN_LEVEL: u32 = 0x3FF;
 
-/// Time Windows is asked to wait for the LEDs at shutdown (it shows its
-/// "apps are preventing shutdown" screen after about five seconds).
-const END_SESSION_BUDGET: Duration = Duration::from_millis(4000);
-/// Sleep: Windows gives an application about two seconds.
-const SUSPEND_BUDGET: Duration = Duration::from_millis(1800);
+/// Longest time Windows waits for the LEDs at shutdown, restart, logoff
+/// and sleep: the blackout's strict limit plus the messages (Windows itself
+/// would allow about five seconds, and two for sleep).
+const END_SESSION_BUDGET: Duration = Duration::from_millis(600);
+const SUSPEND_BUDGET: Duration = Duration::from_millis(600);
 
 /// Shutdown / sleep notifications for the service loop.
 pub enum PowerSignal {
@@ -209,9 +209,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
     match msg {
         WM_QUERYENDSESSION => {
             tracing::info!(flags = lparam.0, "session ending: turning the LEDs off");
-            // SAFETY: valid window, constant string.
-            let _ =
-                unsafe { ShutdownBlockReasonCreate(hwnd, w!("Extinction de l'éclairage RGB…")) };
+            // Only shown if Windows had to wait (it never does that long).
+            let reason =
+                windows::core::HSTRING::from(crate::i18n::t("Extinction de l'éclairage RGB…"));
+            // SAFETY: valid window, NUL-terminated string alive for the call.
+            let _ = unsafe { ShutdownBlockReasonCreate(hwnd, PCWSTR(reason.as_ptr())) };
             power_round_trip(PowerSignal::EndSession, END_SESSION_BUDGET);
             // SAFETY: valid window.
             let _ = unsafe { ShutdownBlockReasonDestroy(hwnd) };

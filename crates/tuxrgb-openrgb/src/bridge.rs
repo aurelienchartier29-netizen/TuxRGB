@@ -32,6 +32,13 @@ pub struct BridgeConfig {
     pub log_path: PathBuf,
     pub client_name: String,
     pub disabled: BTreeSet<DeviceKey>,
+    /// Devices left to one of their own (hardware) effects, by mode name:
+    /// TuxRGB sets that mode once and sends them no colours (until the
+    /// blackout of a shutdown, which still turns them off).
+    pub hardware_modes: BTreeMap<DeviceKey, String>,
+    /// WLED and Philips WiZ lights, written into the embedded server's
+    /// settings before it starts (see [`crate::network`]).
+    pub network: crate::network::NetworkLights,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -73,6 +80,10 @@ pub enum BridgeCommand {
     /// Drop the connection (and restart the embedded server).
     Restart,
     SetDisabled(BTreeSet<DeviceKey>),
+    /// See [`BridgeConfig::hardware_modes`].
+    SetHardwareModes(BTreeMap<DeviceKey, String>),
+    /// New network lights: the embedded server restarts with them.
+    SetNetwork(crate::network::NetworkLights),
     SetMode(ServerMode),
     /// Sets the number of LEDs of resizable zones (ARGB headers / channels),
     /// then reloads the devices once. OpenRGB stores the sizes in its
@@ -171,6 +182,13 @@ pub async fn run(
                                 Ok(Some(BridgeCommand::Shutdown { .. })) | Ok(None) => break 'outer,
                                 Ok(Some(BridgeCommand::SetMode(m))) => config.mode = m,
                                 Ok(Some(BridgeCommand::SetDisabled(d))) => config.disabled = d,
+                                Ok(Some(BridgeCommand::SetHardwareModes(h))) => {
+                                    config.hardware_modes = h
+                                }
+                                Ok(Some(BridgeCommand::SetNetwork(n))) => config.network = n,
+                                // No engine, no LED driven: dark already, the
+                                // system must not wait for it.
+                                Ok(Some(BridgeCommand::Blackout(Some(n)))) => n.notify_one(),
                                 _ => {}
                             }
                             continue 'outer;
@@ -222,6 +240,15 @@ pub async fn run(
                     Some(BridgeCommand::Restart) => { server = None; continue 'outer; }
                     Some(BridgeCommand::SetMode(m)) => { config.mode = m; server = None; continue 'outer; }
                     Some(BridgeCommand::SetDisabled(d)) => config.disabled = d,
+                    Some(BridgeCommand::SetHardwareModes(h)) => config.hardware_modes = h,
+                    Some(BridgeCommand::SetNetwork(n)) => {
+                        let changed = n != config.network;
+                        config.network = n;
+                        if changed && matches!(config.mode, ServerMode::Embedded) {
+                            server = None;
+                            continue 'outer;
+                        }
+                    }
                     Some(BridgeCommand::Blackout(done)) => {
                         if let Some(n) = done {
                             n.notify_one();
@@ -273,6 +300,16 @@ fn spawn_embedded(config: &BridgeConfig) -> Result<EmbeddedServer, BridgeStatus>
     let Some(found) = locate::find_openrgb() else {
         return Err(BridgeStatus::NoServerBinary);
     };
+    // Network lights: OpenRGB reads them from its settings at start-up.
+    match crate::network::write_settings(&config.openrgb_config_dir, &config.network) {
+        Ok(true) => tracing::info!(
+            wled = config.network.wled.len(),
+            wiz = config.network.wiz.len(),
+            "network lights written to the OpenRGB settings"
+        ),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("cannot write the network lights to the OpenRGB settings: {e}"),
+    }
     if found.origin == Origin::System {
         tracing::info!(
             "bundled OpenRGB not found, using system binary {}",
@@ -308,40 +345,41 @@ enum Drive {
     },
 }
 
-/// Every managed LED to black. Requests share one SDK connection, so they
-/// go one after the other; each is bounded to 500 ms and the whole to 3 s:
-/// a stuck SMBus device must never hold a system shutdown back.
-async fn blackout(managed: &Managed) {
+/// Strict time limit of a blackout (system shutdown, restart, sleep,
+/// logout, quitting): every managed LED is sent black at once, and what is
+/// not confirmed by then is left to the server – the system is never held
+/// back longer than this.
+pub const BLACKOUT_BUDGET: Duration = Duration::from_millis(400);
+
+/// Every managed LED to black without the colour connection (SDK < 6, no
+/// acknowledges): one request after the other on the SDK connection, each
+/// bounded, all of them within `budget`.
+async fn blackout(managed: &Managed, budget: Duration) {
     let started = Instant::now();
+    let deadline = started + budget;
     for c in managed.group.iter() {
-        if !managed.active.contains_key(&(c.id() as u32)) {
+        let id = c.id() as u32;
+        let hardware = managed.hardware.contains_key(&id);
+        if !managed.active.contains_key(&id) && !hardware {
             continue;
         }
-        if started.elapsed() > Duration::from_secs(3) {
-            tracing::warn!("blackout budget exceeded, remaining devices skipped");
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            tracing::warn!("blackout time limit reached, remaining devices skipped");
             break;
         }
-        let _ = tokio::time::timeout(Duration::from_millis(500), c.turn_off_leds()).await;
+        let off = async {
+            if hardware {
+                c.set_controllable_mode().await?;
+            }
+            c.turn_off_leds().await
+        };
+        let _ = tokio::time::timeout(left.min(Duration::from_millis(150)), off).await;
     }
     tracing::info!(
         ms = started.elapsed().as_millis() as u64,
         "all LEDs turned off"
     );
-}
-
-/// Windows: OpenRGB cannot be asked to quit (no Ctrl+C for a program
-/// without console), it is ended right after the last frame. Before that,
-/// a request answered after the blackout proves the server has handled it,
-/// and its device threads get a moment to write black to the hardware
-/// (otherwise the LEDs kept their colours when quitting). On Linux the
-/// server stops gracefully (SIGINT) and nothing waits here.
-#[cfg_attr(not(windows), allow(unused_variables))]
-async fn settle(client: &mut OpenRgbClient, protocol: u32, managed: &Managed) {
-    #[cfg(windows)]
-    {
-        // Black written twice, see `windows_settle`.
-        windows_settle(client, protocol, managed).await;
-    }
 }
 
 /// Device list watch once the start-up detection is over (a cheap probe,
@@ -358,12 +396,29 @@ struct Managed {
     group: ControllerGroup,
     /// SDK ids of controllers TuxRGB drives, and how.
     active: BTreeMap<u32, Target>,
+    /// Controllers running one of their own effects (see
+    /// [`BridgeConfig::hardware_modes`]).
+    hardware: BTreeMap<u32, HardwareTarget>,
     /// Colours last written to each per-LED device (buffers reused).
     last_sent: Vec<(u32, Vec<openrgb2::Color>)>,
     /// A single-colour device has a newer colour waiting for its rate cap.
     deferred_until: Option<Instant>,
     /// Frame devices to write this frame (indices, reused buffer).
     pending: Vec<usize>,
+}
+
+/// A controller left to a hardware effect.
+struct HardwareTarget {
+    /// The mode it runs.
+    mode: String,
+    leds: usize,
+    /// Its direct mode, to turn it off at shutdown (`None`: it has none).
+    direct: Option<DirectMode>,
+}
+
+struct DirectMode {
+    mode: ModeData,
+    drive: Drive,
 }
 
 /// A controller TuxRGB drives.
@@ -556,47 +611,115 @@ async fn next_ack(pipeline: &mut Option<Pipeline>) -> Option<openrgb2::OpenRgbRe
     }
 }
 
-/// Every managed LED to black through the colour connection: all the
-/// controllers at once (behind the colours already in flight, in order),
-/// each acknowledged after its write in progress.
-async fn blackout_pipe(managed: &mut Managed, p: &mut Pipeline) {
-    let started = Instant::now();
+/// Black for one controller, as it takes its colours.
+async fn send_black(
+    p: &mut Pipeline,
+    id: u32,
+    drive: &mut Drive,
+    leds: usize,
+) -> Result<(), String> {
     let black = openrgb2::Color { r: 0, g: 0, b: 0 };
+    match drive {
+        Drive::PerLed => p.send_leds(id, &vec![black; leds]).await,
+        Drive::ModeColor { mode, last } => {
+            mode.set_colors(&[black]);
+            *last = Some(Instant::now());
+            p.send_mode(id, mode).await
+        }
+    }
+}
+
+/// Every managed LED to black through the colour connection, within
+/// `budget` (see [`BLACKOUT_BUDGET`]).
+///
+/// Every controller – motherboard and its ARGB fans, RAM, graphics card,
+/// devices left to a hardware effect (switched to their direct mode first)
+/// – is sent black at once, behind the colours already in flight. An
+/// acknowledge only says the server took the colours, the controller's own
+/// thread writes them afterwards: a slow controller (often the motherboard)
+/// could keep its colours if the system powered off right then. So each
+/// controller gets a second black the moment its first is confirmed: the
+/// server confirms that one only after the write in progress, the first
+/// black, is done on the hardware. Fast controllers are done in a few
+/// milliseconds; whatever is still unconfirmed at the deadline stays queued
+/// on the server, which keeps running until TuxRGB stops it.
+async fn blackout_pipe(managed: &mut Managed, p: &mut Pipeline, budget: Duration) {
+    let started = Instant::now();
+    let deadline = tokio::time::Instant::now() + budget;
+    // Controller → black passes sent so far.
+    let mut passes: BTreeMap<u32, u8> = BTreeMap::new();
+    let mut failed = false;
     for (id, target) in managed.active.iter_mut() {
-        let sent = match &mut target.drive {
-            Drive::PerLed => p.send_leds(*id, &vec![black; target.leds]).await,
-            Drive::ModeColor { mode, last } => {
-                mode.set_colors(&[black]);
-                *last = Some(Instant::now());
-                p.send_mode(*id, mode).await
+        if let Err(e) = send_black(p, *id, &mut target.drive, target.leds).await {
+            tracing::warn!("blackout: {e}");
+            failed = true;
+            break;
+        }
+        passes.insert(*id, 1);
+    }
+    if !failed {
+        for (id, hw) in managed.hardware.iter_mut() {
+            let Some(direct) = hw.direct.as_mut() else {
+                continue;
+            };
+            p.note_sent(*id);
+            if let Err(e) = p.pipe.update_mode(*id, &direct.mode).await {
+                tracing::warn!("blackout: {e}");
+                break;
             }
+            if let Err(e) = send_black(p, *id, &mut direct.drive, hw.leds).await {
+                tracing::warn!("blackout: {e}");
+                break;
+            }
+            passes.insert(*id, 1);
+        }
+    }
+    // Second pass, controller by controller, as soon as the first is done.
+    while !p.in_flight.is_empty() {
+        let ack = match tokio::time::timeout_at(deadline, p.pipe.next_ack()).await {
+            Ok(Some(Ok(ack))) => ack,
+            Ok(_) => break,
+            Err(_) => {
+                tracing::warn!(
+                    pending = p.in_flight.len(),
+                    ms = started.elapsed().as_millis() as u64,
+                    "blackout time limit reached: the rest is left to the server"
+                );
+                break;
+            }
+        };
+        let id = ack.controller_id;
+        p.acked(ack);
+        if p.in_flight.contains_key(&id) || passes.get(&id) != Some(&1) {
+            continue;
+        }
+        passes.insert(id, 2);
+        let sent = if let Some(t) = managed.active.get_mut(&id) {
+            send_black(p, id, &mut t.drive, t.leds).await
+        } else if let Some(d) = managed.hardware.get_mut(&id).and_then(|h| {
+            let leds = h.leds;
+            h.direct.as_mut().map(|d| (d, leds))
+        }) {
+            send_black(p, id, &mut d.0.drive, d.1).await
+        } else {
+            Ok(())
         };
         if let Err(e) = sent {
             tracing::warn!("blackout: {e}");
             break;
         }
     }
-    p.drain(Duration::from_millis(3500)).await;
+    // Unconfirmed packets are the server's now; acknowledges arriving
+    // later are ignored.
+    p.in_flight.clear();
+    p.dirty.clear();
     managed.last_sent.clear();
+    managed.deferred_until = None;
     tracing::info!(
         ms = started.elapsed().as_millis() as u64,
+        devices = passes.len(),
         "all LEDs turned off"
     );
-}
-
-/// An acknowledge only says the server took the colours: the controller's
-/// own thread writes them to the hardware afterwards. Right after a
-/// blackout the system may sleep or power off (Linux and Windows), or
-/// OpenRGB be ended (Windows): a slow controller – often the motherboard
-/// with its ARGB fans – could keep its colours. Black is written a second
-/// time, once the controller threads have picked up the first one: the
-/// server acknowledges it only after their write in progress, so every
-/// first black write is done when the second pass is confirmed.
-async fn settle_pipe(managed: &mut Managed, p: &mut Pipeline) {
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    blackout_pipe(managed, p).await;
-    #[cfg(windows)]
-    tokio::time::sleep(Duration::from_millis(150)).await;
 }
 
 /// Frame to the controllers through the colour connection (`only`: one
@@ -721,28 +844,16 @@ fn session<'a>(
                     Some(BridgeCommand::Shutdown { turn_off }) => {
                         if turn_off {
                             match pipeline.as_mut() {
-                                Some(p) => {
-                                    blackout_pipe(&mut managed, p).await;
-                                    settle_pipe(&mut managed, p).await;
-                                }
-                                None => {
-                                    blackout(&managed).await;
-                                    settle(&mut client, protocol, &managed).await;
-                                }
+                                Some(p) => blackout_pipe(&mut managed, p, BLACKOUT_BUDGET).await,
+                                None => blackout(&managed, BLACKOUT_BUDGET).await,
                             }
                         }
                         return SessionEnd::Shutdown;
                     }
                     Some(BridgeCommand::Blackout(done)) => {
                         match pipeline.as_mut() {
-                            Some(p) => {
-                                blackout_pipe(&mut managed, p).await;
-                                settle_pipe(&mut managed, p).await;
-                            }
-                            None => {
-                                blackout(&managed).await;
-                                settle(&mut client, protocol, &managed).await;
-                            }
+                            Some(p) => blackout_pipe(&mut managed, p, BLACKOUT_BUDGET).await,
+                            None => blackout(&managed, BLACKOUT_BUDGET).await,
                         }
                         managed.last_sent.clear();
                         managed.deferred_until = None;
@@ -762,6 +873,15 @@ fn session<'a>(
                         frames.mark_changed();
                     }
                     Some(BridgeCommand::Restart) => return SessionEnd::Restart,
+                    Some(BridgeCommand::SetNetwork(n)) => {
+                        let changed = n != config.network;
+                        config.network = n;
+                        if changed && matches!(config.mode, ServerMode::Embedded) {
+                            tracing::info!("network lights changed: restarting the engine");
+                            if let Some(p) = pipeline.as_mut() { p.drain(DRAIN).await; }
+                            return SessionEnd::Restart;
+                        }
+                    }
                     Some(BridgeCommand::SetMode(m)) => {
                         config.mode = m;
                         return SessionEnd::Restart;
@@ -777,6 +897,16 @@ fn session<'a>(
                             Err(e) => return SessionEnd::Lost(e),
                         };
                         last_print = fingerprint(&managed.group);
+                        publish_devices(&managed, config, protocol, server_label, send);
+                        frames.mark_changed();
+                    }
+                    Some(BridgeCommand::SetHardwareModes(h)) => {
+                        config.hardware_modes = h;
+                        if let Some(p) = pipeline.as_mut() { p.drain(DRAIN).await; }
+                        managed = match load(&client, config).await {
+                            Ok(m) => m,
+                            Err(e) => return SessionEnd::Lost(e),
+                        };
                         publish_devices(&managed, config, protocol, server_label, send);
                         frames.mark_changed();
                     }
@@ -939,11 +1069,64 @@ fn load<'a>(
             .map_err(|_| "délai dépassé pendant la lecture des périphériques".to_owned())?
             .map_err(|e| e.to_string())?;
         let mut active = BTreeMap::new();
+        let mut hardware = BTreeMap::new();
         for c in group.iter() {
             let key = device_key(c);
             log_controller(c);
             if config.disabled.contains(&key) || c.num_leds() == 0 {
                 continue;
+            }
+            // Left to one of its own effects: set it once, send no colours.
+            if let Some(wanted) = config.hardware_modes.get(&key)
+                && let Some(mode) = c
+                    .modes()
+                    .iter()
+                    .find(|m| m.name().eq_ignore_ascii_case(wanted))
+                    .cloned()
+            {
+                let applied = AssertUnwindSafe(tokio::time::timeout(
+                    Duration::from_secs(3),
+                    c.apply_mode(&mode),
+                ))
+                .catch_unwind()
+                .await;
+                match applied {
+                    Ok(Ok(Ok(()))) => {
+                        tracing::info!("{}: hardware effect \"{}\"", c.name(), mode.name());
+                        let direct = c.controllable_mode().cloned().map(|m| {
+                            let mut data = m;
+                            if let Some(max) = data.brightness_max() {
+                                data.set_brightness(max);
+                            }
+                            let drive = if data.color_mode() == ColorMode::ModeSpecific
+                                && !data.colors().is_empty()
+                            {
+                                Drive::ModeColor {
+                                    mode: data.clone(),
+                                    last: None,
+                                }
+                            } else {
+                                Drive::PerLed
+                            };
+                            DirectMode { mode: data, drive }
+                        });
+                        hardware.insert(
+                            c.id() as u32,
+                            HardwareTarget {
+                                mode: mode.name().to_owned(),
+                                leds: c.num_leds(),
+                                direct,
+                            },
+                        );
+                        continue;
+                    }
+                    Ok(Ok(Err(e))) => {
+                        tracing::warn!("{}: mode {} refused: {e}", c.name(), mode.name())
+                    }
+                    Ok(Err(_)) => tracing::warn!("{}: mode {}: no answer", c.name(), mode.name()),
+                    Err(_) => tracing::warn!("{}: invalid mode data, skipped", c.name()),
+                }
+                // Not applied: TuxRGB drives it as usual.
             }
             let Some(mode) = c.controllable_mode().cloned() else {
                 continue;
@@ -981,6 +1164,7 @@ fn load<'a>(
         Ok(Managed {
             group,
             active,
+            hardware,
             last_sent: Vec::new(),
             deferred_until: None,
             pending: Vec::new(),
@@ -1054,10 +1238,25 @@ fn convert(c: &Controller, managed: &Managed) -> DeviceInfo {
             matrix: None,
             leds_min: z.leds_min(),
             leds_max: z.leds_max(),
+            segments: z.segment_sizes(),
         })
         .collect();
     let id = c.id() as u32;
     let mode = c.controllable_mode();
+    // The controller's own effects: everything but the modes TuxRGB drives
+    // it with.
+    let hardware_modes: Vec<String> = c
+        .modes()
+        .iter()
+        .map(|m| m.name())
+        .filter(|n| {
+            !["direct", "custom"]
+                .iter()
+                .any(|d| n.eq_ignore_ascii_case(d))
+                && mode.is_none_or(|m| !m.name().eq_ignore_ascii_case(n))
+        })
+        .map(str::to_owned)
+        .collect();
     DeviceInfo {
         id: c.id() as u32,
         key: device_key(c),
@@ -1100,6 +1299,8 @@ fn convert(c: &Controller, managed: &Managed) -> DeviceInfo {
         },
         mode: mode.map(|m| m.name().to_owned()).unwrap_or_default(),
         is_virtual: false,
+        hardware_modes,
+        hardware_mode: managed.hardware.get(&id).map(|h| h.mode.clone()),
     }
 }
 
@@ -1268,18 +1469,4 @@ fn to_color(c: Rgb) -> openrgb2::Color {
         g: c.g,
         b: c.b,
     }
-}
-
-/// See [`settle`] (Windows build). Black is written a second time:
-/// some controllers (SMBus RAM, motherboards) ignore colours that arrive
-/// right after the switch to their direct mode, and a PC shutdown gives no
-/// second chance. Kept at the end of the file so that no line of the code
-/// shared with Linux moves.
-#[cfg(windows)]
-async fn windows_settle(client: &mut OpenRgbClient, protocol: u32, managed: &Managed) {
-    let _ = tokio::time::timeout(Duration::from_millis(800), probe_list(client, protocol)).await;
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    blackout(managed).await;
-    let _ = tokio::time::timeout(Duration::from_millis(800), probe_list(client, protocol)).await;
-    tokio::time::sleep(Duration::from_millis(350)).await;
 }

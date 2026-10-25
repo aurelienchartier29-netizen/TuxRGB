@@ -302,7 +302,7 @@ pub fn issue_banner(app: &App, issue: crate::app::Issue) -> Element<'_, Message>
     .into()
 }
 
-/// Home banners (chosen by `App::home_issues`): each one expands and fades
+/// Home banners (chosen by `App::home_issues_of`): each one expands and fades
 /// in when it appears, collapses and fades out when it no longer applies.
 fn banners(app: &App) -> Element<'_, Message> {
     let bg = app.roles.surface;
@@ -354,6 +354,7 @@ fn canvas_card(app: &App) -> Element<'_, Message> {
                     frame: app.preview.as_ref(),
                     roles: *r,
                     selected: None,
+                    hidden: &app.config.hidden_on_canvas,
                     editable: false,
                     show_labels: true,
                     screen_hint: app.config.effect == tuxrgb_core::EffectKind::ScreenSync,

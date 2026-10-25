@@ -133,6 +133,10 @@ pub struct ZoneInfo {
     pub leds_min: usize,
     #[serde(default)]
     pub leds_max: usize,
+    /// LED count of each segment defined in OpenRGB (its own "per fan"
+    /// split of a header), empty when there is none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub segments: Vec<usize>,
 }
 
 impl ZoneInfo {
@@ -174,6 +178,15 @@ pub struct DeviceInfo {
     pub mode: String,
     /// Demo device shown when no hardware is available.
     pub is_virtual: bool,
+    /// The controller's own effects (OpenRGB modes other than the ones
+    /// TuxRGB drives: "Rainbow wave", "Reactive"…), by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hardware_modes: Vec<String>,
+    /// The hardware effect it runs instead of TuxRGB's, when the user chose
+    /// one (keyboards, mice: typing reactions…). TuxRGB then leaves it
+    /// alone until it is turned back to "TuxRGB effects".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hardware_mode: Option<String>,
 }
 
 impl DeviceInfo {
@@ -211,6 +224,14 @@ pub fn demo_devices() -> Vec<DeviceInfo> {
             single_color: false,
             mode: "Direct".to_owned(),
             is_virtual: true,
+            hardware_modes: match kind {
+                DeviceKind::Keyboard => {
+                    vec!["Rainbow Wave".into(), "Reactive".into(), "Breathing".into()]
+                }
+                DeviceKind::Mouse => vec!["Spectrum Cycle".into(), "Breathing".into()],
+                _ => Vec::new(),
+            },
+            hardware_mode: None,
         }
     }
     fn zone(name: &str, kind: ZoneKind, led_count: usize) -> ZoneInfo {
@@ -221,6 +242,7 @@ pub fn demo_devices() -> Vec<DeviceInfo> {
             matrix: None,
             leds_min: led_count,
             leds_max: led_count,
+            segments: Vec::new(),
         }
     }
     vec![
@@ -279,6 +301,7 @@ pub fn demo_devices() -> Vec<DeviceInfo> {
                 matrix: Some((22, 6)),
                 leds_min: 22 * 6,
                 leds_max: 22 * 6,
+                segments: Vec::new(),
             }],
         ),
         dev(

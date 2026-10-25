@@ -792,6 +792,184 @@ fn engine(app: &App) -> Element<'_, Message> {
     )
 }
 
+/// WLED controllers (DDP) and Philips WiZ lights, driven by the embedded
+/// OpenRGB like any device.
+fn network(app: &App) -> Element<'_, Message> {
+    use iced::widget::{text, text_input};
+    let r = &app.roles;
+    let net = &app.net;
+    let external = app.config.server.kind == ServerKind::External;
+    let mut rows: Vec<Element<'_, Message>> = vec![
+        muted(
+            "Les contrôleurs WLED (protocole DDP) et les ampoules Philips WiZ deviennent des appareils comme les autres : canvas, effets, couleur par zone et extinction à l'arrêt du PC.",
+            r,
+        )
+        .size(13.0)
+        .into(),
+    ];
+    if external {
+        rows.push(
+            badge(
+                small("Serveur OpenRGB externe : ajoutez ces lumières dans OpenRGB lui-même (DDP, Philips Wiz)."),
+                r,
+                Surface::Tertiary,
+            ),
+        );
+    }
+    // What is configured.
+    for (i, l) in app.config.network.wled.iter().enumerate() {
+        rows.push(setting_row(
+            icons::LINEAR_SCALE,
+            l.name.as_str(),
+            trf!("WLED · {} · {} LED", l.host, l.leds),
+            widgets::round_icon_button(icons::CLOSE, r, false, Some(Message::NetRemoveWled(i))),
+            r,
+        ));
+    }
+    for (i, l) in app.config.network.wiz.iter().enumerate() {
+        rows.push(setting_row(
+            icons::LIGHTBULB,
+            "Philips WiZ",
+            l.host.clone(),
+            widgets::round_icon_button(icons::CLOSE, r, false, Some(Message::NetRemoveWiz(i))),
+            r,
+        ));
+    }
+    // Add a WLED controller: its address, then "Detect" fills the LED count.
+    let field = |placeholder: &'static str, value: &str, width: f32, on: fn(String) -> Message| {
+        super::transition::text_field(
+            text_input(crate::i18n::t(placeholder), value)
+                .on_input(on)
+                .padding(10)
+                .size(14.0)
+                .width(Length::Fixed(width)),
+            r,
+        )
+    };
+    let can_add = !external;
+    let wled_row = row![
+        field(
+            "Adresse IP de WLED",
+            &net.wled_host,
+            190.0,
+            Message::NetWledHost
+        ),
+        widgets::text_button(
+            if net.wled_probing {
+                "Détection…"
+            } else {
+                "Détecter"
+            },
+            ButtonKind::Tonal,
+            r,
+            (!net.wled_probing && !net.wled_host.trim().is_empty())
+                .then_some(Message::NetWledProbe),
+        ),
+        field("LED", &net.wled_leds, 76.0, Message::NetWledLeds),
+        widgets::icon_label_button(
+            icons::ADD,
+            "Ajouter",
+            ButtonKind::Filled,
+            r,
+            can_add.then_some(Message::NetAddWled),
+        ),
+    ]
+    .spacing(space::S)
+    .align_y(Alignment::Center);
+    rows.push(setting_row(
+        icons::LINEAR_SCALE,
+        "Ajouter un contrôleur WLED",
+        "Même réseau local. « Détecter » lit son nom et son nombre de LED.",
+        wled_row,
+        r,
+    ));
+    if let Some(status) = &net.wled_status {
+        let (txt, color) = match status {
+            Ok(t) => (t.clone(), r.primary),
+            Err(t) => (t.clone(), r.error),
+        };
+        rows.push(
+            container(text(txt).size(13.0).color(color))
+                .padding(Padding {
+                    left: 56.0,
+                    ..Padding::ZERO
+                })
+                .into(),
+        );
+    }
+    // Add a WiZ bulb: search the network, or type its address.
+    let wiz_row = row![
+        widgets::text_button(
+            if net.wiz_searching {
+                "Recherche…"
+            } else {
+                "Rechercher sur le réseau"
+            },
+            ButtonKind::Tonal,
+            r,
+            (!net.wiz_searching).then_some(Message::NetWizSearch),
+        ),
+        field(
+            "Adresse IP de l'ampoule",
+            &net.wiz_host,
+            190.0,
+            Message::NetWizHost
+        ),
+        widgets::icon_label_button(
+            icons::ADD,
+            "Ajouter",
+            ButtonKind::Filled,
+            r,
+            (can_add && !net.wiz_host.trim().is_empty())
+                .then(|| Message::NetAddWiz(net.wiz_host.clone())),
+        ),
+    ]
+    .spacing(space::S)
+    .align_y(Alignment::Center);
+    rows.push(setting_row(
+        icons::LIGHTBULB,
+        "Ajouter une ampoule Philips WiZ",
+        "Ses propres scènes (Océan, Feu de cheminée…) deviennent ses effets matériels dans Appareils.",
+        wiz_row,
+        r,
+    ));
+    for f in &net.wiz_found {
+        rows.push(
+            row![
+                Space::new().width(56.0),
+                small(if f.mac.is_empty() {
+                    trf!("Ampoule WiZ trouvée : {}", f.host)
+                } else {
+                    trf!("Ampoule WiZ trouvée : {} ({})", f.host, f.mac)
+                })
+                .width(Length::Fill),
+                widgets::text_button(
+                    "Ajouter",
+                    ButtonKind::Tonal,
+                    r,
+                    can_add.then(|| Message::NetAddWiz(f.host.clone())),
+                ),
+            ]
+            .spacing(space::S)
+            .align_y(Alignment::Center)
+            .into(),
+        );
+    }
+    if net.wiz_searched && net.wiz_found.is_empty() && !net.wiz_searching {
+        rows.push(
+            container(
+                muted("Aucune nouvelle ampoule WiZ n'a répondu sur ce réseau.", r).size(13.0),
+            )
+            .padding(Padding {
+                left: 56.0,
+                ..Padding::ZERO
+            })
+            .into(),
+        );
+    }
+    group(app, icons::HUB, "Lumières réseau (WLED, Philips WiZ)", rows)
+}
+
 /// New versions from the GitHub releases (see `update.rs`).
 fn updates(app: &App) -> Element<'_, Message> {
     use crate::update::{Method, Ready, State};
@@ -1067,6 +1245,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         appearance(app),
         hardware(app),
         engine(app),
+        network(app),
         startup(app),
         performance(app),
         updates(app),

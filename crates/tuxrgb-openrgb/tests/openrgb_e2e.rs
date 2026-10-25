@@ -52,6 +52,8 @@ async fn streams_frames_to_a_real_openrgb_server() {
         log_path: tmp.join("server.log"),
         client_name: "TuxRGB e2e".into(),
         disabled: BTreeSet::new(),
+        hardware_modes: Default::default(),
+        network: Default::default(),
     };
     // Same entry point as the app: dedicated I/O thread + current-thread runtime.
     let thread = tuxrgb_openrgb::bridge::spawn_thread(config, frame_rx, cmd_rx, ev_tx)
@@ -261,13 +263,27 @@ async fn streams_frames_to_a_real_openrgb_server() {
         started.elapsed()
     );
 
+    // Debug devices only have a direct mode: no hardware effect to offer.
+    assert!(
+        devices
+            .iter()
+            .all(|d| d.hardware_modes.is_empty() && d.hardware_mode.is_none())
+    );
+
     // Blackout (sleep, shutdown): every LED of every device to black,
-    // confirmed once written.
+    // confirmed within the strict budget.
     let done = Arc::new(tokio::sync::Notify::new());
+    let started = Instant::now();
     let _ = cmd_tx.send(BridgeCommand::Blackout(Some(done.clone())));
     tokio::time::timeout(Duration::from_secs(10), done.notified())
         .await
         .expect("blackout confirmed");
+    let took = started.elapsed();
+    eprintln!("blackout confirmed in {took:?}");
+    assert!(
+        took <= tuxrgb_openrgb::bridge::BLACKOUT_BUDGET + Duration::from_millis(100),
+        "blackout took {took:?}"
+    );
     let third = openrgb2::OpenRgbClient::connect_to(("127.0.0.1", port), 6)
         .await
         .expect("third client");
@@ -321,8 +337,11 @@ async fn streams_frames_to_a_real_openrgb_server() {
         "devices not lit again after the resume"
     );
 
-    let _ = cmd_tx.send(BridgeCommand::Shutdown { turn_off: false });
+    // Quitting with "turn the LEDs off": within the budget as well.
+    let started = Instant::now();
+    let _ = cmd_tx.send(BridgeCommand::Shutdown { turn_off: true });
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge).await;
+    eprintln!("quit (blackout + server stop) in {:?}", started.elapsed());
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
@@ -384,4 +403,259 @@ fn embedded_server_outlives_sigterm() {
     assert!(!server.is_running());
     eprintln!("stopped in {:?}", started.elapsed());
     let _ = std::fs::remove_dir_all(tmp);
+}
+
+/// Network lights through the real OpenRGB: a simulated WLED controller
+/// (DDP receiver) and a simulated Philips WiZ bulb (JSON over UDP), both on
+/// the loopback. Colours, the bulb's own scene (hardware effect) and the
+/// blackout must reach them.
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "needs an OpenRGB 1.0 binary (TUXRGB_OPENRGB)"]
+async fn network_lights_through_openrgb() {
+    use std::sync::Mutex;
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
+    assert!(
+        tuxrgb_openrgb::locate::find_openrgb().is_some(),
+        "set TUXRGB_OPENRGB"
+    );
+    let tmp = std::env::temp_dir().join(format!("tuxrgb-net-e2e-{}", std::process::id()));
+    std::fs::create_dir_all(tmp.join("openrgb")).unwrap();
+
+    // Simulated WLED: every DDP packet received.
+    let ddp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    ddp.set_read_timeout(Some(Duration::from_millis(100)))
+        .unwrap();
+    let ddp_port = ddp.local_addr().unwrap().port();
+    let ddp_packets: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let (packets, stop) = (ddp_packets.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 2048];
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Ok((n, _)) = ddp.recv_from(&mut buf) {
+                    packets.lock().unwrap().push(buf[..n].to_vec());
+                }
+            }
+        });
+    }
+    // Simulated WiZ bulb (fixed port 38899): answers like a real RGB bulb.
+    let wiz =
+        std::net::UdpSocket::bind("127.0.0.1:38899").expect("port 38899 free for the WiZ bulb");
+    wiz.set_read_timeout(Some(Duration::from_millis(100)))
+        .unwrap();
+    let wiz_msgs: Arc<Mutex<Vec<serde_json::Value>>> = Arc::default();
+    {
+        let (msgs, stop) = (wiz_msgs.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 2048];
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let Ok((n, from)) = wiz.recv_from(&mut buf) else {
+                    continue;
+                };
+                let text = String::from_utf8_lossy(&buf[..n])
+                    .trim_end_matches('\0')
+                    .to_owned();
+                let Ok(msg) = serde_json::from_str::<serde_json::Value>(&text) else {
+                    continue;
+                };
+                let method = msg["method"].as_str().unwrap_or_default().to_owned();
+                let reply = match method.as_str() {
+                    "getSystemConfig" => {
+                        serde_json::json!({"method": "getSystemConfig", "env": "pro", "result": {
+                        "mac": "a8bb50e5f1c2", "homeId": 1, "roomId": 1,
+                        "moduleName": "ESP01_SHRGB1C_31", "fwVersion": "1.25.0"}})
+                    }
+                    _ => {
+                        serde_json::json!({"method": method, "env": "pro", "result": {"success": true}})
+                    }
+                };
+                let _ = wiz.send_to(reply.to_string().as_bytes(), from);
+                msgs.lock().unwrap().push(msg);
+            }
+        });
+    }
+
+    let (frame_tx, frame_rx) = watch::channel(Arc::new(Frame::default()));
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel();
+    let config = BridgeConfig {
+        mode: ServerMode::Embedded,
+        openrgb_config_dir: tmp.join("openrgb"),
+        log_path: tmp.join("server.log"),
+        client_name: "TuxRGB e2e".into(),
+        disabled: BTreeSet::new(),
+        hardware_modes: Default::default(),
+        network: tuxrgb_openrgb::NetworkLights {
+            wled: vec![tuxrgb_openrgb::WledLight {
+                name: "WLED bureau".into(),
+                host: "127.0.0.1".into(),
+                port: ddp_port,
+                leds: 30,
+            }],
+            wiz: vec![tuxrgb_openrgb::WizLight {
+                host: "127.0.0.1".into(),
+                warm_white: false,
+            }],
+        },
+    };
+    let thread = tuxrgb_openrgb::bridge::spawn_thread(config, frame_rx, cmd_rx, ev_tx)
+        .expect("bridge thread");
+    let bridge = tokio::task::spawn_blocking(move || {
+        let _ = thread.join();
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut devices = Vec::new();
+    while Instant::now() < deadline && devices.len() < 2 {
+        if let Ok(Some(BridgeEvent::Devices(d))) =
+            tokio::time::timeout(Duration::from_secs(5), ev_rx.recv()).await
+        {
+            devices = d;
+        }
+    }
+    eprintln!(
+        "{:#?}",
+        devices
+            .iter()
+            .map(|d| (&d.name, d.kind, d.led_count, &d.hardware_modes))
+            .collect::<Vec<_>>()
+    );
+    let strip = devices
+        .iter()
+        .find(|d| d.led_count == 30 && d.kind == tuxrgb_core::DeviceKind::LedStrip)
+        .expect("WLED controller detected")
+        .clone();
+    let bulb = devices
+        .iter()
+        .find(|d| d.kind == tuxrgb_core::DeviceKind::Light)
+        .expect("WiZ bulb detected")
+        .clone();
+    assert_eq!(strip.name, "WLED bureau");
+    assert!(strip.controllable && bulb.controllable);
+    assert!(
+        bulb.hardware_modes.iter().any(|m| m == "Ocean"),
+        "{:?}",
+        bulb.hardware_modes
+    );
+
+    // Colours: the strip red, the bulb blue.
+    frame_tx.send_replace(Arc::new(Frame {
+        seq: 1,
+        devices: vec![
+            DeviceFrame {
+                id: strip.id,
+                colors: vec![Rgb::new(255, 0, 0); 30],
+            },
+            DeviceFrame {
+                id: bulb.id,
+                colors: vec![Rgb::new(0, 0, 255)],
+            },
+        ],
+        backdrop: None,
+    }));
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let last_ddp = |packets: &Mutex<Vec<Vec<u8>>>| {
+        packets.lock().unwrap().last().cloned().expect("DDP packet")
+    };
+    let p = last_ddp(&ddp_packets);
+    assert_eq!(p[0] & 0xC0, 0x40, "DDP version 1");
+    assert_eq!(u32::from_be_bytes([p[4], p[5], p[6], p[7]]), 0, "offset");
+    assert_eq!(u16::from_be_bytes([p[8], p[9]]) as usize, 90, "length");
+    assert!(
+        p[10..].chunks(3).all(|c| c == [255, 0, 0]),
+        "{:?}",
+        &p[10..16]
+    );
+    let pilot = |msgs: &Mutex<Vec<serde_json::Value>>| -> Option<serde_json::Value> {
+        msgs.lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|m| m["method"] == "setPilot")
+            .cloned()
+    };
+    let lit = pilot(&wiz_msgs).expect("setPilot sent to the bulb");
+    assert_eq!(
+        (
+            lit["params"]["r"].as_u64(),
+            lit["params"]["g"].as_u64(),
+            lit["params"]["b"].as_u64()
+        ),
+        (Some(0), Some(0), Some(255)),
+        "{lit}"
+    );
+    assert_eq!(lit["params"]["state"], serde_json::json!(true));
+
+    // The bulb's own scene: TuxRGB lets go of it.
+    let mut modes = std::collections::BTreeMap::new();
+    modes.insert(bulb.key.clone(), "Ocean".to_owned());
+    let _ = cmd_tx.send(BridgeCommand::SetHardwareModes(modes));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut applied = false;
+    while Instant::now() < deadline && !applied {
+        if let Ok(Some(BridgeEvent::Devices(d))) =
+            tokio::time::timeout(Duration::from_secs(5), ev_rx.recv()).await
+        {
+            applied = d
+                .iter()
+                .any(|d| d.key == bulb.key && d.hardware_mode.as_deref() == Some("Ocean"));
+        }
+    }
+    assert!(applied, "hardware effect not reported");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let scene = pilot(&wiz_msgs).expect("scene sent");
+    assert!(scene["params"]["sceneId"].as_u64().is_some(), "{scene}");
+    let count = wiz_msgs.lock().unwrap().len();
+    frame_tx.send_replace(Arc::new(Frame {
+        seq: 2,
+        devices: vec![
+            DeviceFrame {
+                id: strip.id,
+                colors: vec![Rgb::new(0, 255, 0); 30],
+            },
+            DeviceFrame {
+                id: bulb.id,
+                colors: vec![Rgb::new(255, 255, 0)],
+            },
+        ],
+        backdrop: None,
+    }));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        wiz_msgs.lock().unwrap()[count..]
+            .iter()
+            .all(|m| m["method"] != "setPilot"),
+        "colours sent to a bulb playing its own scene"
+    );
+    assert!(
+        last_ddp(&ddp_packets)[10..]
+            .chunks(3)
+            .all(|c| c == [0, 255, 0])
+    );
+
+    // Blackout: both dark, the bulb in its scene too, within the budget.
+    let done = Arc::new(tokio::sync::Notify::new());
+    let started = Instant::now();
+    let _ = cmd_tx.send(BridgeCommand::Blackout(Some(done.clone())));
+    tokio::time::timeout(Duration::from_secs(5), done.notified())
+        .await
+        .expect("blackout");
+    let took = started.elapsed();
+    eprintln!("network blackout in {took:?}");
+    assert!(took <= tuxrgb_openrgb::bridge::BLACKOUT_BUDGET + Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        last_ddp(&ddp_packets)[10..].iter().all(|b| *b == 0),
+        "strip not dark"
+    );
+    let off = pilot(&wiz_msgs).expect("bulb turned off");
+    assert_eq!(off["params"]["state"], serde_json::json!(false), "{off}");
+
+    let _ = cmd_tx.send(BridgeCommand::Shutdown { turn_off: false });
+    let _ = tokio::time::timeout(Duration::from_secs(5), bridge).await;
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = std::fs::remove_dir_all(&tmp);
 }

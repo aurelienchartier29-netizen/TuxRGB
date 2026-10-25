@@ -203,6 +203,17 @@ pub struct Config {
     /// Information banners the user dismissed (desktop / distribution notes).
     pub dismissed_notices: BTreeSet<String>,
     pub updates: UpdatePrefs,
+    /// Per-zone / per-fan lighting (fixed colours, dark parts, fans per
+    /// header), by device. Empty: every LED follows the effect.
+    pub lighting: tuxrgb_core::LightingMap,
+    /// Canvas items (devices, fans of split headers) hidden on the canvas:
+    /// still connected and lit by the effect, just not shown there.
+    pub hidden_on_canvas: BTreeSet<DeviceKey>,
+    /// Devices left to one of their own (hardware) effects, by mode name
+    /// (keyboards, mice: typing reactions, built-in animations).
+    pub hardware_modes: BTreeMap<DeviceKey, String>,
+    /// WLED controllers (DDP) and Philips WiZ lights on the local network.
+    pub network: tuxrgb_openrgb::NetworkLights,
 }
 
 /// Updates from the GitHub releases (see `update.rs`).
@@ -269,6 +280,10 @@ impl Default for Config {
             layout: BTreeMap::new(),
             zone_sizes: Vec::new(),
             updates: UpdatePrefs::default(),
+            lighting: Default::default(),
+            hidden_on_canvas: BTreeSet::new(),
+            hardware_modes: BTreeMap::new(),
+            network: Default::default(),
             dismissed_notices: BTreeSet::new(),
         }
     }
@@ -474,6 +489,22 @@ mod tests {
         c.set_zone_size(&DeviceKey("Gigabyte|B650|HID|".into()), 0, "ARGB_V2_1", 24);
         c.set_zone_size(&DeviceKey("Gigabyte|B650|HID|".into()), 0, "ARGB_V2_1", 30);
         assert_eq!(c.zone_sizes.len(), 1);
+        // Per-zone / per-fan lighting (3.0).
+        let mut fans = tuxrgb_core::ZoneLighting {
+            parts: 3,
+            ..Default::default()
+        };
+        fans.set_part(
+            1,
+            tuxrgb_core::PartLighting::Color {
+                color: Rgb::new(255, 0, 0),
+            },
+        );
+        fans.set_part(2, tuxrgb_core::PartLighting::Off);
+        c.lighting
+            .entry(DeviceKey("Gigabyte|B650|HID|".into()))
+            .or_default()
+            .insert(2, fans);
         let s = serde_json::to_string_pretty(&c).unwrap();
         let back: Config = serde_json::from_str(&s).unwrap();
         assert_eq!(back, c);

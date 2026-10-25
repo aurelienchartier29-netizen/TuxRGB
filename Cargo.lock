@@ -3723,7 +3723,7 @@ dependencies = [
 
 [[package]]
 name = "tuxrgb"
-version = "2.0.7"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "ashpd",
@@ -3753,7 +3753,7 @@ dependencies = [
 
 [[package]]
 name = "tuxrgb-capture"
-version = "2.0.7"
+version = "3.0.0"
 dependencies = [
  "ashpd",
  "crossbeam-channel",
@@ -3769,25 +3769,28 @@ dependencies = [
 
 [[package]]
 name = "tuxrgb-core"
-version = "2.0.7"
+version = "3.0.0"
 dependencies = [
  "crossbeam-channel",
  "serde",
+ "serde_json",
  "toml",
  "tracing",
 ]
 
 [[package]]
 name = "tuxrgb-helper"
-version = "2.0.7"
+version = "3.0.0"
 
 [[package]]
 name = "tuxrgb-openrgb"
-version = "2.0.7"
+version = "3.0.0"
 dependencies = [
  "futures",
  "libc",
  "openrgb2",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

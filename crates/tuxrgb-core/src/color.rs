@@ -150,13 +150,20 @@ impl Rgb {
         )
     }
 
-    /// Scales the HSV saturation by `amount` (`1.0` leaves the colour
-    /// unchanged, `0.0` gives white at the same intensity, `2.0` doubles it,
-    /// up to the pure hue). Greys and white have no saturation and stay as
-    /// they are, so a boost never tints them.
+    /// Global saturation of a colour (`amount`: `1.0` leaves it as it is,
+    /// `0.0` gives white / grey of the same value, `2.0` = 200 %).
+    ///
+    /// Computed in Okhsv (see [`crate::oklab`]): the perceptual hue and the
+    /// value never move, nothing is clipped (two different colours stay
+    /// different, gradients stay gradients), and colours that are already
+    /// pure – the most saturated the LEDs can show for that hue – stay as
+    /// they are above 100 %. Greys, white and black never get tinted.
     pub fn saturate(self, amount: f32) -> Self {
-        let (h, s, v) = self.to_hsv();
-        Self::from_hsv(h, (s * amount).clamp(0.0, 1.0), v)
+        if (amount - 1.0).abs() < 1e-3 || (self.r == self.g && self.g == self.b) {
+            return self;
+        }
+        let [r, g, b] = crate::oklab::saturate(self.r, self.g, self.b, amount);
+        Self::new(r, g, b)
     }
 
     /// Floating-point interpolation, rounded once (used by crossfades).
@@ -287,20 +294,193 @@ impl Palette {
     }
 }
 
+/// Memo of the global saturation for one slider value: a frame repeats a
+/// handful of colours (a static colour, a palette, a gradient), so each
+/// distinct colour is converted once instead of once per LED. Direct-mapped,
+/// 4096 slots (32 KiB), emptied when the slider moves.
+pub struct SaturationCache {
+    amount: f32,
+    slots: Box<[(u32, [u8; 3])]>,
+}
+
+impl Default for SaturationCache {
+    fn default() -> Self {
+        Self {
+            amount: 1.0,
+            slots: vec![(0, [0; 3]); 4096].into_boxed_slice(),
+        }
+    }
+}
+
+impl SaturationCache {
+    /// `c.saturate(amount)`, remembered.
+    #[inline]
+    pub fn saturate(&mut self, c: Rgb, amount: f32) -> Rgb {
+        if amount.to_bits() != self.amount.to_bits() {
+            self.slots.fill((0, [0; 3]));
+            self.amount = amount;
+        }
+        let key = 1 << 24 | (c.r as u32) << 16 | (c.g as u32) << 8 | c.b as u32;
+        let slot = &mut self.slots[(key.wrapping_mul(0x9E37_79B1) >> 20) as usize];
+        if slot.0 == key {
+            return Rgb::new(slot.1[0], slot.1[1], slot.1[2]);
+        }
+        let out = c.saturate(amount);
+        *slot = (key, [out.r, out.g, out.b]);
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn saturation_boost_keeps_white_and_greys() {
-        assert_eq!(Rgb::WHITE.saturate(2.0), Rgb::WHITE);
-        assert_eq!(Rgb::new(90, 90, 90).saturate(2.0), Rgb::new(90, 90, 90));
-        // 50 % saturated red → 100 % at "200 %".
-        let c = Rgb::new(255, 127, 127).saturate(2.0);
-        assert_eq!(c, Rgb::new(255, 0, 0));
-        // 25 % → 50 %.
-        let (_, s, _) = Rgb::new(200, 150, 150).saturate(2.0).to_hsv();
-        assert!((s - 0.5).abs() < 0.02, "{s}");
+        for amount in [0.0, 0.5, 1.5, 2.0] {
+            assert_eq!(Rgb::WHITE.saturate(amount), Rgb::WHITE);
+            assert_eq!(Rgb::new(90, 90, 90).saturate(amount), Rgb::new(90, 90, 90));
+            assert_eq!(Rgb::BLACK.saturate(amount), Rgb::BLACK);
+        }
+        // 0 %: white for bright colours, a grey of the same value otherwise.
+        for c in [
+            Rgb::new(255, 0, 0),
+            Rgb::new(255, 128, 0),
+            Rgb::new(128, 128, 255),
+        ] {
+            assert_eq!(c.saturate(0.0), Rgb::WHITE, "{c:?}");
+        }
+        let grey = Rgb::new(0, 120, 212).saturate(0.0);
+        assert!(
+            grey.r == grey.g && grey.g == grey.b && (190..=225).contains(&grey.r),
+            "{grey:?}"
+        );
+        // 50 %: half-way, same hue.
+        let half = Rgb::new(0, 120, 212).saturate(0.5);
+        assert!(hue_drift(Rgb::new(0, 120, 212), half) < 1.0, "{half:?}");
+        assert!(half.r > 60 && half.r < 160 && half.b >= 205, "{half:?}");
+    }
+
+    /// Hue difference in degrees, OKLCH.
+    fn hue_drift(a: Rgb, b: Rgb) -> f32 {
+        let (Some(h1), Some(h2)) = (
+            crate::oklab::hue_of(a.r, a.g, a.b),
+            crate::oklab::hue_of(b.r, b.g, b.b),
+        ) else {
+            return 0.0;
+        };
+        let d = (h1 - h2).abs().to_degrees() % 360.0;
+        d.min(360.0 - d)
+    }
+
+    #[test]
+    fn saturation_keeps_the_hue_and_the_value_never_clips() {
+        // A grid of colours, through the whole slider range.
+        let mut checked = 0;
+        for r in (0..=255).step_by(17) {
+            for g in (0..=255).step_by(17) {
+                for b in (0..=255).step_by(17) {
+                    let c = Rgb::new(r as u8, g as u8, b as u8);
+                    let chroma = crate::oklab::chroma_of(c.r, c.g, c.b);
+                    if chroma < 0.04 {
+                        continue; // near greys: 8-bit rounding dominates the hue
+                    }
+                    let mut last = 0.0f32;
+                    for amount in [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0] {
+                        let out = c.saturate(amount);
+                        let now = crate::oklab::chroma_of(out.r, out.g, out.b);
+                        if now > 0.03 {
+                            // 8-bit rounding moves a and b by ~0.002: the
+                            // hue of a weak colour is only that precise.
+                            let drift = hue_drift(c, out);
+                            let tolerance = 1.0 + (0.003 / now).to_degrees();
+                            assert!(
+                                drift < tolerance,
+                                "{c:?} ×{amount} → {out:?}: hue moved {drift:.2}° (> {tolerance:.2}°)"
+                            );
+                        }
+                        // More saturation, never less colour (8-bit rounding aside).
+                        assert!(
+                            now + 0.006 >= last,
+                            "{c:?} ×{amount} → {out:?}: chroma {now} < {last}"
+                        );
+                        last = now;
+                        // The HSV value (LED drive) barely moves: no brightness jump.
+                        let v0 = c.r.max(c.g).max(c.b) as i32;
+                        let v1 = out.r.max(out.g).max(out.b) as i32;
+                        assert!((v0 - v1).abs() <= 24, "{c:?} ×{amount} → {out:?}");
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 2000, "{checked}");
+    }
+
+    #[test]
+    fn pure_colours_stay_pure_mixed_colours_get_vivid() {
+        // Already the most saturated colour of their hue: unchanged above
+        // 100 % (no "deepening" that turned amber into orange).
+        for pure in [
+            Rgb::new(255, 0, 0),
+            Rgb::new(0, 255, 0),
+            Rgb::new(0, 0, 255),
+            Rgb::new(255, 255, 0),
+            Rgb::new(0, 255, 255),
+            Rgb::new(255, 0, 255),
+            Rgb::new(255, 191, 0),
+            Rgb::new(0, 120, 212),
+        ] {
+            assert_eq!(pure.saturate(2.0), pure, "{pure:?}");
+            assert_eq!(pure.saturate(1.3), pure, "{pure:?}");
+        }
+        // Pastel and washed-out colours: clearly more vivid, same hue.
+        for washed in [
+            Rgb::new(255, 127, 127),
+            Rgb::new(200, 150, 150),
+            Rgb::new(142, 140, 216),
+            Rgb::new(231, 72, 86),
+            Rgb::new(120, 160, 120),
+        ] {
+            let c0 = crate::oklab::chroma_of(washed.r, washed.g, washed.b);
+            let out = washed.saturate(2.0);
+            let c1 = crate::oklab::chroma_of(out.r, out.g, out.b);
+            assert!(c1 > c0 + 0.03, "{washed:?} → {out:?}: {c0} → {c1}");
+            assert!(hue_drift(washed, out) < 1.5, "{washed:?} → {out:?}");
+        }
+    }
+
+    #[test]
+    fn saturation_cache_matches_the_direct_computation() {
+        let mut cache = SaturationCache::default();
+        for amount in [1.5f32, 0.5, 2.0] {
+            for i in 0..20_000u32 {
+                let x = i.wrapping_mul(2_654_435_761);
+                let c = Rgb::new((x >> 8) as u8, (x >> 16) as u8, (x >> 24) as u8 & 0xF0);
+                assert_eq!(cache.saturate(c, amount), c.saturate(amount));
+                // Hits give the same answer.
+                assert_eq!(cache.saturate(c, amount), c.saturate(amount));
+            }
+        }
+    }
+
+    #[test]
+    fn boost_keeps_gradations() {
+        // A pastel → pure gradient stays a gradient at 200 % (a hard clamp
+        // at full saturation flattened most of it into one colour).
+        let ramp: Vec<Rgb> = (0..=16)
+            .map(|i| {
+                let x = 200 - i * 12;
+                Rgb::new(255, x as u8, x as u8)
+            })
+            .collect();
+        let boosted: Vec<Rgb> = ramp.iter().map(|c| c.saturate(2.0)).collect();
+        let distinct: std::collections::BTreeSet<(u8, u8, u8)> =
+            boosted.iter().map(|c| (c.r, c.g, c.b)).collect();
+        assert!(distinct.len() >= 13, "{boosted:?}");
+        for w in boosted.windows(2) {
+            assert!(w[1].g <= w[0].g, "{boosted:?}");
+        }
     }
 
     #[test]

@@ -147,10 +147,15 @@ enum PowerEvent {
     Resumed,
 }
 
-/// Holds a logind "delay" inhibitor so the system waits (≤ 5 s, logind's
-/// `InhibitDelayMaxSec`) for TuxRGB to turn the LEDs off before it shuts
-/// down or sleeps, and reports resume. Without logind (containers, some
-/// init systems) it simply does nothing.
+/// Longest time TuxRGB holds a shutdown, restart, logout or sleep back:
+/// the blackout's own strict limit plus a margin for the messages. Never
+/// noticeable, whatever the hardware (see `BLACKOUT_BUDGET`).
+pub const POWER_DOWN_BUDGET: Duration = Duration::from_millis(500);
+
+/// Holds a logind "delay" inhibitor so the system waits (at most
+/// [`POWER_DOWN_BUDGET`], logind would allow 5 s) for TuxRGB to turn the
+/// LEDs off before it shuts down or sleeps, and reports resume. Without
+/// logind (containers, some init systems) it simply does nothing.
 #[cfg(target_os = "linux")]
 async fn logind_watch(power: mpsc::UnboundedSender<PowerEvent>) {
     use futures::StreamExt;
@@ -211,8 +216,13 @@ async fn logind_watch(power: mpsc::UnboundedSender<PowerEvent>) {
         if start {
             tracing::info!(?kind, "system going down: turning the LEDs off");
             let (tx, rx) = tokio::sync::oneshot::channel();
+            let started = std::time::Instant::now();
             let _ = power.send(PowerEvent::Before { kind, done: tx });
-            let _ = tokio::time::timeout(Duration::from_millis(4000), rx).await;
+            let _ = tokio::time::timeout(POWER_DOWN_BUDGET + Duration::from_millis(50), rx).await;
+            tracing::info!(
+                ms = started.elapsed().as_millis() as u64,
+                "LEDs off: system released"
+            );
             // Releasing the inhibitor lets logind continue.
             drop(lock.take());
         } else {
@@ -265,7 +275,7 @@ async fn windows_power_watch(power: mpsc::UnboundedSender<PowerEvent>) {
         };
         let (done, wait) = tokio::sync::oneshot::channel();
         let _ = power.send(PowerEvent::Before { kind, done });
-        let _ = tokio::time::timeout(Duration::from_millis(3800), wait).await;
+        let _ = tokio::time::timeout(POWER_DOWN_BUDGET, wait).await;
         let _ = answer.send(());
     }
 }
@@ -512,7 +522,7 @@ pub fn run() -> impl Stream<Item = ServiceEvent> {
                                 let _ = btx.send(BridgeCommand::Blackout(Some(notify.clone())));
                                 tokio::spawn(async move {
                                     let _ = tokio::time::timeout(
-                                        Duration::from_millis(3500),
+                                        POWER_DOWN_BUDGET,
                                         notify.notified(),
                                     )
                                     .await;
@@ -1000,10 +1010,15 @@ mod tests {
         ) -> zbus::Result<()>;
     }
 
+    /// The logind tests point the system bus at their own daemon (a
+    /// process-wide variable): one at a time.
+    static DBUS_TESTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     /// The inhibitor is held until TuxRGB confirmed the LEDs are off, then
     /// released so the shutdown continues.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn shutdown_waits_for_the_blackout_then_releases_logind() {
+        let _serial = DBUS_TESTS.lock().await;
         let Ok(mut daemon) = std::process::Command::new("dbus-daemon")
             .args(["--session", "--nofork", "--print-address=1"])
             .stdout(std::process::Stdio::piped())
@@ -1087,6 +1102,96 @@ mod tests {
             .unwrap();
         assert_eq!(n, 0, "EOF expected on the inhibitor pipe");
         assert!(waited >= Duration::from_millis(250));
+        let _ = daemon.kill();
+    }
+
+    /// A blackout that never confirms (stuck device, stuck server) still
+    /// lets the shutdown go on within the strict budget.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn shutdown_is_never_held_longer_than_the_budget() {
+        let _serial = DBUS_TESTS.lock().await;
+        let Ok(mut daemon) = std::process::Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+        else {
+            eprintln!("no dbus-daemon: skipped");
+            return;
+        };
+        let mut addr = String::new();
+        {
+            let out = daemon.stdout.as_mut().unwrap();
+            let mut byte = [0u8; 1];
+            while out.read(&mut byte).unwrap_or(0) == 1 && byte[0] != b'\n' {
+                addr.push(byte[0] as char);
+            }
+        }
+        // SAFETY: only this test reads the system bus address.
+        unsafe { std::env::set_var("DBUS_SYSTEM_BUS_ADDRESS", &addr) };
+
+        let read_end = Arc::new(std::sync::Mutex::new(None));
+        let inhibited = Arc::new(AtomicBool::new(false));
+        let server = zbus::connection::Builder::address(addr.as_str())
+            .unwrap()
+            .name("org.freedesktop.login1")
+            .unwrap()
+            .serve_at(
+                "/org/freedesktop/login1",
+                MockLogind {
+                    read_end: read_end.clone(),
+                    inhibited: inhibited.clone(),
+                },
+            )
+            .unwrap()
+            .build()
+            .await
+            .expect("mock logind");
+
+        let (power_tx, mut power_rx) = mpsc::unbounded_channel();
+        tokio::spawn(logind_watch(power_tx));
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !inhibited.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(inhibited.load(Ordering::SeqCst), "no inhibitor taken");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let iface = server
+            .object_server()
+            .interface::<_, MockLogind>("/org/freedesktop/login1")
+            .await
+            .unwrap();
+        MockLogind::prepare_for_shutdown(iface.signal_emitter(), true)
+            .await
+            .unwrap();
+
+        let ev = tokio::time::timeout(Duration::from_secs(3), power_rx.recv())
+            .await
+            .expect("power event")
+            .expect("channel open");
+        let PowerEvent::Before { kind, done } = ev else {
+            panic!("expected PowerEvent::Before");
+        };
+        assert_eq!(kind, PowerKind::Shutdown);
+
+        let fd = read_end.lock().unwrap().take().unwrap();
+        let mut pipe = std::fs::File::from(fd);
+        let started = std::time::Instant::now();
+        let reader = tokio::task::spawn_blocking(move || {
+            let mut b = [0u8; 1];
+            pipe.read(&mut b).unwrap_or(0)
+        });
+        let n = tokio::time::timeout(Duration::from_secs(3), reader)
+            .await
+            .expect("inhibitor released")
+            .unwrap();
+        let held = started.elapsed();
+        assert_eq!(n, 0, "EOF expected on the inhibitor pipe");
+        assert!(
+            held <= POWER_DOWN_BUDGET + Duration::from_millis(200),
+            "shutdown held back for {held:?}"
+        );
+        drop(done);
         let _ = daemon.kill();
     }
 }

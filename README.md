@@ -32,10 +32,14 @@ l'effet, avec les appareils nets par-dessus.
 | Bureau | KDE Plasma, GNOME, COSMIC (accent via le portail `org.freedesktop.portal.Settings`, repli `kdeglobals` / `gsettings` / thème COSMIC), libellés adaptés (« Synchroniser avec l'accent GNOME »…), avertissement clair pour X11, un bureau sans accent ou une distribution non testée |
 | Matériel | OpenRGB 1.1 (16/10/2026) embarqué, lancé en serveur SDK privé (127.0.0.1:6743) : 100 % des périphériques pris en charge par OpenRGB |
 | Effets | 19 effets : Statique, Respiration (multi-teintes), Aurore, Plasma, Vague arc-en-ciel, Cycle de couleurs, Vague dégradée, Ciel étoilé, Comète, Scanner, Pluie, Bulles, Tourbillon, Feu, Orage, **Shader GLSL** (GPU), **Visualiseur audio** (PipeWire, sur chaque appareil), **Synchro écran** (portail ScreenCast, par LED), **Moniteur matériel** (température / charge CPU-GPU, mémoire ; en mode automatique, carte graphique → GPU, RAM → mémoire, appareils sans capteur → température CPU, ou charge CPU si elle est illisible) |
-| Couleurs | **Palette Système Harmonieuse** (dominante = accent exact du bureau, variante, nuance analogue / complémentaire / triadique), **fondus** entre couleurs, effets, préréglages et changements d'accent (1,2 s), luminosité globale et **saturation 0–200 %** qui suivent le curseur quasi instantanément (lissage de 35 ms au lieu d'un fondu) |
+| Couleurs | **Palette Système Harmonieuse** (dominante = accent exact du bureau, variante, nuance analogue / complémentaire / triadique), **fondus** entre couleurs, effets, préréglages et changements d'accent (1,2 s), luminosité globale qui suit le curseur quasi instantanément, **saturation 0–200 % perceptuelle** (Okhsv / OKLab : aucune dérive de teinte, aucun écrêtage, luminosité inchangée) appliquée sur le matériel dès l'image suivante |
+| Ventilateurs | **Par ventilateur, par connecteur** : un connecteur ARGB se divise en ventilateurs (comme les segments d'OpenRGB, nombre de LED propre à chacun), chacun est un élément du canevas qui se place, se tourne et se redimensionne seul, et suit l'effet, garde sa couleur ou reste éteint |
+| Canevas | Éléments **masquables** (toujours connectés et éclairés), élément sélectionné au premier plan, **orientation 0° / 90° / 180° / 270°**, miroir, taille |
+| Effets matériels | Un clavier, une souris ou une ampoule WiZ peut jouer **son propre effet** (réactions aux touches, scènes) au lieu de ceux de TuxRGB |
+| Lumières réseau | Contrôleurs **WLED** (DDP, nombre de LED détecté) et ampoules **Philips WiZ** (recherche sur le réseau) : des appareils comme les autres |
 | Accès matériel | Assistant de premier lancement + « Réinitialiser les permissions / Accès matériel » (Polkit/pkexec, programme d'aide vérifié), correctif SMBus sur toutes les distributions, appliqué seulement si nécessaire |
 | Zone de notification | StatusNotifierItem (ksni), catégorie *ApplicationStatus* (à côté de Steam, pas parmi les contrôles système) : effet, luminosité, extinction, sans fenêtre ouverte ; notifications de bureau avec action directe |
-| Extinction | LED éteintes immédiatement à l'extinction, à la mise en veille (inhibiteur logind) et à la fermeture de session ; état exact restauré au démarrage |
+| Extinction | **Toutes** les LED (carte mère et ventilateurs compris) éteintes à l'arrêt, au redémarrage, à la mise en veille et à la fermeture de session, avec un délai strict de 400 ms (inhibiteur logind / `WM_QUERYENDSESSION`) : l'arrêt du système n'est jamais ralenti ; état exact restauré au démarrage |
 | Mises à jour | Réglages → **Mises à jour** : version la plus récente lue sur les releases GitHub, téléchargement vérifié (taille, SHA-256, format), AppImage remplacée sur place puis redémarrage (Linux), installateur silencieux qui relance TuxRGB (Windows) ; vérification automatique au démarrage, au plus toutes les 6 heures (désactivable) ; Flatpak et paquets : page de la version |
 | Distribution | AppImage prête à l'emploi (Bazzite, Aurora…), manifest Flatpak, fichiers pour paquets natifs |
 | Sobriété | Aperçu ralenti à quelques images par seconde dès que la fenêtre n'est plus dessinée (réduite, autre bureau), moteur d'effets endormi quand rien n'utilise ses images, aucun tampon alloué par image (LED, captures d'écran, shaders), lueur des aperçus calculée hors du fil de l'interface, mémoire de la fenêtre rendue au système quand elle se ferme (environ 15 Mo de RAM lancé dans la zone de notification) |
@@ -57,13 +61,13 @@ cd dist
 ```
 
 Gear Lever (préinstallé sur Bazzite) peut aussi intégrer
-`TuxRGB-2.0.7-x86_64.AppImage` au menu.
+`TuxRGB-3.0.0-x86_64.AppImage` au menu.
 
 ### Autres distributions
 
 ```sh
-chmod +x dist/TuxRGB-2.0.7-x86_64.AppImage
-./dist/TuxRGB-2.0.7-x86_64.AppImage
+chmod +x dist/TuxRGB-3.0.0-x86_64.AppImage
+./dist/TuxRGB-3.0.0-x86_64.AppImage
 ```
 
 L'AppImage nécessite glibc ≥ 2.39 (Fedora 40+, Ubuntu 24.04+, Debian 13,
@@ -161,9 +165,12 @@ nom qui contient le numéro de version est renommé) et redémarre TuxRGB.
   devient la saturation globale.
 * **Extinction propre** : TuxRGB prend un inhibiteur « delay » de logind ;
   à `PrepareForShutdown` / `PrepareForSleep`, toutes les LED passent au noir
-  immédiatement (sans fondu), puis l'arrêt continue. À la fermeture de session
-  (SIGTERM), même chose ; le serveur OpenRGB bloque SIGTERM pour survivre le
-  temps d'envoyer le noir. Au réveil, l'éclairage revient en fondu.
+  immédiatement (sans fondu) – chaque contrôleur reçoit le noir en même
+  temps, puis une deuxième fois dès la première confirmée –, et l'arrêt
+  continue au plus tard 400 ms après (délai strict, le système n'est jamais
+  ralenti). À la fermeture de session (SIGTERM), même chose ; le serveur
+  OpenRGB bloque SIGTERM pour survivre le temps d'envoyer le noir. Au réveil,
+  l'éclairage revient en fondu.
 
 « Plus tard » laisse TuxRGB fonctionner en accès limité. Tout est réversible :
 **Réglages → Accès matériel → Réinitialiser les permissions / Accès matériel**
@@ -172,12 +179,12 @@ l'état du premier lancement et relance l'assistant (utile après un changement
 de carte mère, de RAM ou de périphérique). Même chose en ligne de commande :
 `tuxrgb --reset-hardware`.
 
-## Windows — `TuxRGB-2.0.7-Windows-Setup.exe`
+## Windows — `TuxRGB-3.0.0-Windows-Setup.exe`
 
 La version Windows (10 / 11, 64 bits) est publiée **en même temps que Linux,
 dans la même release**, avec les mêmes correctifs.
 
-**Installation** : télécharger `TuxRGB-2.0.7-Windows-Setup.exe` (page
+**Installation** : télécharger `TuxRGB-3.0.0-Windows-Setup.exe` (page
 Releases), double-cliquer, suivre l'installateur. Il installe TuxRGB dans
 `C:\Program Files\TuxRGB`, crée les raccourcis, puis **télécharge depuis
 leurs sources officielles** :
@@ -201,8 +208,9 @@ gardés tels quels), puis TuxRGB redémarre tout seul.
 | ![À propos](docs/screenshots/windows/02-a-propos.png) | ![Zone de notification](docs/screenshots/windows/03-zone-de-notification.png) |
 
 Ce qui est **identique** à Linux : toute l'interface iced / Material 3
-Expressive, les animations, les effets, les profils, le canevas spatial et le
-moteur OpenRGB. Ce qui **change**, par compilation conditionnelle
+Expressive, les animations, les effets, les profils, le canevas spatial
+(ventilateurs par connecteur, rotation, masquage), les effets matériels, les
+lumières réseau WLED / Philips WiZ et le moteur OpenRGB. Ce qui **change**, par compilation conditionnelle
 (`#[cfg(target_os = "windows")]`, dossier `crates/tuxrgb/src/win/`) :
 
 | Linux | Windows |
@@ -210,7 +218,7 @@ moteur OpenRGB. Ce qui **change**, par compilation conditionnelle
 | Visualiseur audio : moniteur PipeWire | Capture **WASAPI** en boucle de la sortie par défaut (suit le changement de casque / enceintes) |
 | Synchro écran : portail ScreenCast + PipeWire | Écran principal par GDI (les jeux en plein écran exclusif restent noirs : utiliser « fenêtré sans bordure ») |
 | Zone de notification : StatusNotifierItem (ksni) | Icône **Win32** (`Shell_NotifyIconW`), même menu, notifications en bulles / toasts |
-| Extinction / veille : inhibiteur logind | `WM_QUERYENDSESSION` / `WM_ENDSESSION` / `WM_POWERBROADCAST` : LED à 0 % à l'arrêt, au redémarrage, à la fermeture de session et à la mise en veille, restaurées au réveil et au démarrage suivant |
+| Extinction / veille : inhibiteur logind (400 ms au plus) | `WM_QUERYENDSESSION` / `WM_ENDSESSION` / `WM_POWERBROADCAST` : toutes les LED à 0 % à l'arrêt, au redémarrage, à la fermeture de session et à la mise en veille, en moins d'une demi-seconde, restaurées au réveil et au démarrage suivant |
 | Accent : portail, kdeglobals, gsettings | **WinRT** `UISettings.GetColorValue(Accent)`, repli registre (`DWM\AccentColor`), mode clair / sombre et « effets d'animation » de Windows, suivis en direct (`WM_SETTINGCHANGE`) |
 | Instance unique : D-Bus | Mutex nommé + `WM_COPYDATA` |
 | Démarrage avec la session : `~/.config/autostart` | Clé `HKCU\…\Run` |
@@ -221,7 +229,7 @@ Compiler la version Windows :
 
 ```sh
 # Depuis Linux (compilation croisée) : mingw-w64 + nsis
-bash scripts/windows/build-windows.sh    # → dist/TuxRGB-2.0.7-Windows-Setup.exe
+bash scripts/windows/build-windows.sh    # → dist/TuxRGB-3.0.0-Windows-Setup.exe
 ```
 
 ```powershell
@@ -241,6 +249,10 @@ Réglages : `%APPDATA%\tuxrgb` — journaux et rapport matériel :
 | Appareils et canevas | Réglages | Assistant |
 |---|---|---|
 | ![](docs/screenshots/07-devices.png) | ![](docs/screenshots/08-settings.png) | ![](docs/screenshots/01-onboarding.png) |
+
+| Ventilateurs par connecteur | Effet matériel d'un clavier | Lumières réseau (WLED, WiZ) |
+|---|---|---|
+| ![](docs/screenshots/10-devices-fans.png) | ![](docs/screenshots/11-devices-hardware.png) | ![](docs/screenshots/12-network.png) |
 
 Les mêmes captures en anglais sont dans `docs/screenshots/en/` (utilisées par
 la fiche AppStream). Elles sont produites par `tuxrgb --screenshot-tour`, qui
@@ -270,10 +282,12 @@ ne modifie jamais `config.json`.
   une image floutée (agrandissement ×4, trois flous de boîte ≈ gaussien,
   bords adoucis) placée sous les appareils. Rien n'est calculé dans la zone
   de notification.
-* **Réactivité des curseurs** : luminosité et saturation sont lissées dans le
-  moteur (constante de temps 35 ms : la première image bouge déjà, ~95 % en
-  0,1 s) au lieu de relancer un fondu à chaque pas ; les commandes en rafale
-  sont appliquées d'un coup avant chaque image ; côté OpenRGB, la dernière
+* **Réactivité des curseurs** : la saturation est appliquée telle quelle et
+  la luminosité lissée dans le moteur (constante de temps 35 ms : la première
+  image bouge déjà, ~95 % en 0,1 s) au lieu de relancer un fondu à chaque
+  pas ; un curseur qui bouge fait rendre une image tout de suite, sans
+  attendre le prochain tic (au plus deux fois la cadence) ; les commandes en
+  rafale sont appliquées d'un coup avant chaque image ; côté OpenRGB, la dernière
   image gagne toujours (envoi groupé), et la couleur d'un appareil SMBus
   retenue par la limite de 10 écritures/s est envoyée dès qu'elle est due ;
   les mises à jour D-Bus de la zone de notification sont regroupées (au plus
@@ -281,8 +295,10 @@ ne modifie jamais `config.json`.
 * **Moteur d'effets** (`tuxrgb-core`) : rendu en espace « canevas » 16:9,
   cadence fixe (30–120 i/s) avec échéance absolue, **0 réveil pour un effet
   statique** (renvoi de maintien toutes les 10 s, et le moteur se rendort dès
-  la fin d'un fondu). Saturation (0–200 %) puis luminosité appliquées en
-  logiciel sur chaque LED ; fondus en virgule flottante (sinus entrée/sortie)
+  la fin d'un fondu). Saturation (0–200 %, Okhsv : teinte et valeur
+  perceptuelles conservées, courbe douce sans écrêtage au-delà de 100 %,
+  mémorisée par couleur) puis luminosité appliquées en logiciel sur chaque
+  LED ; fondus en virgule flottante (sinus entrée/sortie)
   depuis ce que les LED affichent, y compris au milieu d'un autre fondu.
   Mesuré en debug : < 0,1 ms par image pour ~300 LED.
 * **Plugins OpenRGB, en natif** : les fonctions des plugins *Effects*,
@@ -299,7 +315,18 @@ ne modifie jamais `config.json`.
   `PR_SET_PDEATHSIG` pour qu'il ne survive jamais à TuxRGB, met chaque
   contrôleur en mode *Direct*, n'envoie que les appareils dont les couleurs
   ont changé, se reconnecte et redémarre le serveur si besoin. Un serveur
-  OpenRGB externe (port 6742) peut être choisi dans les réglages.
+  OpenRGB externe (port 6742) peut être choisi dans les réglages. Les
+  appareils laissés à leur **effet matériel** reçoivent leur mode une fois,
+  puis plus aucune couleur (sauf le noir à l'extinction). Les **lumières
+  réseau** (WLED en DDP, Philips WiZ) sont écrites dans les réglages du
+  serveur privé (`DDPDevices`, `PhilipsWizDevices` de son `OpenRGB.json`,
+  le reste du fichier conservé) avant son lancement.
+* **Ventilateurs par connecteur** (`tuxrgb-core::lighting`) : un connecteur
+  divisé en ventilateurs (parts égales, tailles propres à chacun, ou segments
+  d'OpenRGB) ; chaque ventilateur est un élément du canevas (anneau de LED
+  dans son propre rectangle, rotation et miroir à lui) qui reste dans son
+  appareil, à l'endroit des LED du connecteur, tant qu'il n'a pas été
+  déplacé.
 * **Fenêtre fermée = zéro GUI** : fermer la fenêtre détruit la surface
   wgpu/Wayland ; le processus reste dans la zone de notification avec le
   moteur et le pont uniquement.

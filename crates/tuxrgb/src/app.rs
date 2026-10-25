@@ -21,7 +21,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tuxrgb_core::device::demo_devices;
 use tuxrgb_core::engine::{EngineCommand, EngineScene, Frame};
-use tuxrgb_core::{DeviceInfo, DeviceKey, EffectKind, ParamValue, Placement, Rgb, Scene};
+use tuxrgb_core::layout::Target;
+use tuxrgb_core::{
+    DeviceInfo, DeviceKey, EffectKind, ParamValue, PartLighting, Placement, Rgb, Scene,
+};
 use tuxrgb_openrgb::{BridgeCommand, BridgeConfig, BridgeEvent, BridgeStatus, ZoneResize};
 
 /// LED count given to an empty ARGB header by "Configuration automatique":
@@ -220,6 +223,24 @@ pub struct Wizard {
     pub autostart: bool,
 }
 
+/// The "network lights" form of the settings.
+#[derive(Clone, Debug, Default)]
+pub struct NetForm {
+    pub wled_host: String,
+    pub wled_leds: String,
+    /// Name reported by the controller (`/json/info`).
+    pub wled_name: String,
+    pub wled_probing: bool,
+    /// Result of the last detection (text for the user), `Err` in red.
+    pub wled_status: Option<Result<String, String>>,
+    pub wiz_host: String,
+    pub wiz_searching: bool,
+    /// Bulbs that answered the last search (not added yet).
+    pub wiz_found: Vec<tuxrgb_openrgb::network::WizFound>,
+    /// A search ran (so "none found" can be said).
+    pub wiz_searched: bool,
+}
+
 #[derive(Clone, Debug)]
 pub enum Message {
     // Navigation & windows
@@ -251,14 +272,34 @@ pub enum Message {
     SetSaturation(f32),
     SetOutput(bool),
     // Devices & canvas
-    CanvasSelect(Option<usize>),
-    CanvasMove(usize, Placement),
+    /// A canvas item (device or fan of a split header) picked.
+    CanvasSelect(Option<Target>),
+    CanvasMove(Target, Placement),
     CanvasDragEnd,
     ResizeSelected(f32),
-    /// Turns the selected device by 90° clockwise.
-    RotateSelected,
-    /// Mirrors the selected device (LED order reversed).
+    /// Orientation of the selected item: 0, 90, 180 or 270° clockwise.
+    SetRotation(u16),
+    /// Mirrors the selected item (LED order reversed).
     MirrorSelected,
+    /// Shows / hides a canvas item (device or fan key); it stays connected
+    /// and lit by the effect.
+    ToggleHidden(DeviceKey),
+    /// Leaves a device to one of its own effects (`None`: TuxRGB's).
+    SetHardwareMode(DeviceKey, Option<String>),
+    // Network lights (WLED, Philips WiZ)
+    NetWledHost(String),
+    NetWledLeds(String),
+    /// Asks the WLED controller typed in for its name and LED count.
+    NetWledProbe,
+    NetWledProbed(Result<tuxrgb_openrgb::network::WledInfo, String>),
+    NetAddWled,
+    NetRemoveWled(usize),
+    NetWizHost(String),
+    NetAddWiz(String),
+    NetRemoveWiz(usize),
+    /// Looks for WiZ bulbs on the local network.
+    NetWizSearch,
+    NetWizFound(Vec<tuxrgb_openrgb::network::WizFound>),
     ToggleDevice(DeviceKey, bool),
     /// Text typed in the LED-count field of a resizable zone.
     ZoneSizeInput(DeviceKey, usize, String),
@@ -271,6 +312,22 @@ pub enum Message {
     /// Sends the new size to OpenRGB.
     ApplyZoneSize(DeviceKey, usize),
     Identify(u32),
+    /// Per-zone / per-fan lighting: one part of a zone (fan of a header,
+    /// or the whole zone) follows the effect, takes a colour or is dark.
+    SetPartLighting(DeviceKey, usize, usize, PartLighting),
+    /// How many fans (equal parts) a zone carries.
+    SetZoneParts(DeviceKey, usize, usize),
+    /// LED count of one fan of a split header (its neighbour takes the
+    /// difference).
+    SetPartSize(DeviceKey, usize, usize, usize),
+    /// The same lighting on every zone and fan of a device.
+    SetDeviceLighting(DeviceKey, PartLighting),
+    /// Flashes one part of a zone (find which fan is which).
+    IdentifyPart(DeviceKey, usize, usize),
+    /// Opens / closes the colour picker of a part.
+    OpenPartPicker(DeviceKey, usize, usize),
+    /// A part's colour picker finished collapsing.
+    PartPickerHidden,
     ResetLayout,
     Rescan,
     RestartEngine,
@@ -371,6 +428,10 @@ pub struct App {
     /// Blurred glow of the effect behind the canvas devices.
     pub backdrop: Option<iced::widget::image::Handle>,
     pub selected_device: Option<usize>,
+    /// The fan of the selected device picked on the canvas, if any.
+    pub selected_segment: Option<usize>,
+    /// What is being typed in the network lights section.
+    pub net: NetForm,
     pub diagnostics: Option<Diagnostics>,
     pub findings: Option<privileges::report::Findings>,
     /// The SMBus fix was applied: a reboot is needed.
@@ -425,6 +486,11 @@ pub struct App {
     pub confirm_reset: bool,
     /// Pending LED counts typed for resizable zones, by (device, zone).
     pub zone_edits: std::collections::BTreeMap<(DeviceKey, usize), String>,
+    /// Part (device, zone, part) whose colour picker is open.
+    pub part_picker: Option<(DeviceKey, usize, usize)>,
+    /// The one closed last, kept while it collapses.
+    pub part_picker_last: Option<(DeviceKey, usize, usize)>,
+    part_picker_seen: Option<(DeviceKey, usize, usize)>,
     pub license: Option<License>,
     pub restart_required: bool,
     config_dirty: bool,
@@ -484,6 +550,8 @@ impl App {
             preview: None,
             backdrop: None,
             selected_device: None,
+            selected_segment: None,
+            net: NetForm::default(),
             diagnostics: None,
             findings: None,
             smbus_reboot_pending: false,
@@ -527,6 +595,9 @@ impl App {
             snack_seq: 0,
             confirm_reset: false,
             zone_edits: Default::default(),
+            part_picker: None,
+            part_picker_last: None,
+            part_picker_seen: None,
             license: None,
             restart_required: false,
             config_dirty: false,
@@ -1182,6 +1253,65 @@ impl App {
     }
 
     /// Zone `zone` of the real device `key` (resizable zones editor).
+    /// The device (as detected, or from the demo rig) with this key.
+    fn device_info(&self, key: &DeviceKey) -> Option<DeviceInfo> {
+        self.scene
+            .devices
+            .iter()
+            .find(|d| d.info.key == *key)
+            .map(|d| d.info.clone())
+    }
+
+    /// What a part of a zone shows. `zone == usize::MAX`: the whole device,
+    /// `None` when its zones / fans differ.
+    fn part_value(&self, device: &DeviceKey, zone: usize, part: usize) -> Option<PartLighting> {
+        let lighting = self.config.lighting.get(device);
+        if zone != usize::MAX {
+            return Some(
+                lighting
+                    .and_then(|l| l.get(&zone))
+                    .map(|z| z.part(part))
+                    .unwrap_or_default(),
+            );
+        }
+        let info = self.device_info(device)?;
+        let mut seen: Option<PartLighting> = None;
+        for (zi, z) in info.zones.iter().enumerate() {
+            let zl = lighting
+                .and_then(|l| l.get(&zi))
+                .cloned()
+                .unwrap_or_default();
+            for p in 0..tuxrgb_core::lighting::parts_of(z, Some(&zl)) {
+                let v = zl.part(p);
+                match seen {
+                    None => seen = Some(v),
+                    Some(s) if s != v => return None,
+                    _ => {}
+                }
+            }
+        }
+        Some(seen.unwrap_or_default())
+    }
+
+    /// Lighting of a device changed: drop what is back to the default,
+    /// give the scene the new settings, the engine crossfades to them.
+    fn store_lighting(&mut self, device: &DeviceKey) {
+        if let Some(l) = self.config.lighting.get_mut(device) {
+            l.retain(|_, z| !z.is_default());
+            if l.is_empty() {
+                self.config.lighting.remove(device);
+            }
+        }
+        self.scene
+            .set_lighting(&self.config.lighting, &self.config.layout);
+        if self.selected_target().is_none_or(|t| t.segment.is_none()) {
+            self.selected_segment = None;
+        }
+        self.canvas_cache.clear();
+        self.push_scene();
+        self.mark_dirty();
+    }
+
     pub fn zone_info(&self, key: &DeviceKey, zone: usize) -> Option<tuxrgb_core::ZoneInfo> {
         self.devices
             .iter()
@@ -1232,22 +1362,46 @@ impl App {
             .selected_device
             .and_then(|i| self.scene.devices.get(i))
             .map(|d| d.info.key.clone());
+        let selected_fan = self
+            .selected_target()
+            .and_then(|t| self.scene.key_of(t))
+            .filter(|_| self.selected_segment.is_some())
+            .cloned();
         let real = !self.devices.is_empty();
-        let source: Vec<DeviceInfo> = if real {
+        let mut source: Vec<DeviceInfo> = if real {
             self.devices.clone()
         } else if self.config.show_demo_devices {
             demo_devices()
         } else {
             Vec::new()
         };
+        // Demo rig: the hardware effects chosen are only pretended.
+        for d in source.iter_mut().filter(|d| d.is_virtual) {
+            d.hardware_mode = self
+                .config
+                .hardware_modes
+                .get(&d.key)
+                .filter(|m| d.hardware_modes.contains(m))
+                .cloned();
+        }
         self.using_demo = !real && !source.is_empty();
         self.scene = Scene::build(&source, &self.config.layout, &self.config.disabled_devices);
+        self.scene
+            .set_lighting(&self.config.lighting, &self.config.layout);
         let now = Instant::now();
         for d in &self.scene.devices {
             self.device_seen.entry(d.info.key.clone()).or_insert(now);
         }
         self.selected_device =
             selected_key.and_then(|key| self.scene.devices.iter().position(|d| d.info.key == key));
+        self.selected_segment = selected_fan.and_then(|key| {
+            self.selected_device.and_then(|i| {
+                self.scene.devices[i]
+                    .segments
+                    .iter()
+                    .position(|s| s.key == key)
+            })
+        });
         self.canvas_cache.clear();
         self.push_scene();
         self.push_suspended();
@@ -1278,25 +1432,27 @@ impl App {
             return Task::none();
         }
         self.quitting = true;
+        // The LEDs first (instantly, no fade; the bridge has a strict time
+        // limit), the configuration is written meanwhile.
+        if let Some(s) = &self.services {
+            if turn_off {
+                s.engine(EngineCommand::SetOutputEnabled {
+                    on: false,
+                    fade: false,
+                });
+            }
+            s.send(ServiceCommand::Shutdown { turn_off });
+        }
         if let Err(e) = self.config.save_now() {
             tracing::warn!("cannot save configuration: {e}");
         }
         // A normal exit is not a GPU crash.
         let _ = std::fs::remove_file(&paths::paths().gpu_marker);
         match &self.services {
-            Some(s) => {
-                if turn_off {
-                    s.engine(EngineCommand::SetOutputEnabled {
-                        on: false,
-                        fade: false,
-                    });
-                }
-                s.send(ServiceCommand::Shutdown { turn_off });
-                // Safety net if the services never confirm.
-                Task::perform(tokio::time::sleep(Duration::from_secs(6)), |_| {
-                    Message::ForceExit
-                })
-            }
+            // Safety net if the services never confirm.
+            Some(_) => Task::perform(tokio::time::sleep(Duration::from_secs(6)), |_| {
+                Message::ForceExit
+            }),
             None => iced::exit(),
         }
     }
@@ -1309,7 +1465,44 @@ impl App {
             log_path: p.openrgb_log.clone(),
             client_name: "TuxRGB".into(),
             disabled: self.config.disabled_devices.clone(),
+            hardware_modes: self.config.hardware_modes.clone(),
+            network: self.config.network.clone(),
         }
+    }
+
+    /// The network lights changed: the engine restarts with them.
+    fn push_network(&mut self) {
+        if let Some(s) = &self.services {
+            s.bridge(BridgeCommand::SetNetwork(self.config.network.clone()));
+        }
+        self.mark_dirty();
+    }
+
+    /// The canvas item selected (device, or one of its fans).
+    pub fn selected_target(&self) -> Option<Target> {
+        let device = self.selected_device?;
+        let d = self.scene.devices.get(device)?;
+        Some(Target {
+            device,
+            segment: self.selected_segment.filter(|s| *s < d.segments.len()),
+        })
+    }
+
+    /// Moves / turns / resizes the selected item and remembers it.
+    fn place_selected(&mut self, make: impl FnOnce(Placement) -> Placement) {
+        let Some(t) = self.selected_target() else {
+            return;
+        };
+        let Some(current) = self.scene.placement_of(t) else {
+            return;
+        };
+        self.scene.set_target_placement(t, make(current));
+        if let (Some(key), Some(p)) = (self.scene.key_of(t).cloned(), self.scene.placement_of(t)) {
+            self.config.layout.insert(key, p);
+        }
+        self.canvas_cache.clear();
+        self.push_scene();
+        self.mark_dirty();
     }
 
     fn finish_onboarding(&mut self) {
@@ -1324,10 +1517,24 @@ impl App {
     // ------------------------------------------------------------------
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
-        // Frames and preview images change nothing the banners depend on.
+        // Frames, preview images and pointer drags (sliders, canvas, text
+        // typed) change nothing the banners depend on: those messages come
+        // dozens of times a second and go straight to the screen.
         let light = matches!(
             message,
-            Message::Tick(_) | Message::Service(ServiceEvent::Preview(_))
+            Message::Tick(_)
+                | Message::Service(ServiceEvent::Preview(_))
+                | Message::CanvasMove(..)
+                | Message::SetBrightness(_)
+                | Message::SetSaturation(_)
+                | Message::SetParam(..)
+                | Message::PickerChanged(_)
+                | Message::HexInput(_)
+                | Message::ResizeSelected(_)
+                | Message::ZoneSizeInput(..)
+                | Message::NetWledHost(_)
+                | Message::NetWledLeds(_)
+                | Message::NetWizHost(_)
         );
         let task = self.handle(message);
         self.after_update(light);
@@ -1401,6 +1608,15 @@ impl App {
         if self.picker_last.is_some() && self.picker_last == self.picker {
             self.picker_last = None;
         }
+        if self.part_picker != self.part_picker_seen {
+            if self.part_picker_seen.is_some() {
+                self.part_picker_last = self.part_picker_seen.clone();
+            }
+            self.part_picker_seen = self.part_picker.clone();
+        }
+        if self.part_picker_last.is_some() && self.part_picker_last == self.part_picker {
+            self.part_picker_last = None;
+        }
 
         if !light {
             self.sync_banners();
@@ -1418,10 +1634,10 @@ impl App {
 
     /// Banners of the home page (problems first, at most two; an
     /// information only when there is no problem) and of the devices page.
-    pub fn home_issues(&self) -> Vec<Issue> {
+    fn home_issues_of(all: Vec<Issue>) -> Vec<Issue> {
         let mut shown = Vec::new();
-        let problems = self.issues().iter().filter(|i| !i.info).count();
-        for issue in self.issues() {
+        let problems = all.iter().filter(|i| !i.info).count();
+        for issue in all {
             if shown.len() == 2 || (issue.info && problems > 0) {
                 continue;
             }
@@ -1435,12 +1651,10 @@ impl App {
     }
 
     fn sync_banners(&mut self) {
-        let home = self.home_issues();
-        let devices: Vec<Issue> = self
-            .issues()
-            .into_iter()
-            .filter(|i| i.key == "argb")
-            .collect();
+        // One evaluation of the checks for both pages.
+        let all = self.issues();
+        let devices: Vec<Issue> = all.iter().filter(|i| i.key == "argb").cloned().collect();
+        let home = Self::home_issues_of(all);
         self.home_banners
             .sync(home.into_iter().map(|i| (i.key, i)).collect());
         self.device_banners
@@ -1610,8 +1824,107 @@ impl App {
                         self.selected_device = Some(0);
                         self.canvas_cache.clear();
                     }
+                    "devices-zones" => {
+                        // Per-fan lighting on the first device's ARGB header:
+                        // three fans, the second red, the third off.
+                        let target = self.scene.devices.iter().enumerate().find_map(|(i, d)| {
+                            d.info
+                                .zones
+                                .iter()
+                                .position(|z| z.resizable() && z.led_count >= 3)
+                                .map(|zi| (i, d.info.key.clone(), zi))
+                        });
+                        if let Some((index, key, zi)) = target {
+                            self.selected_device = Some(index);
+                            {
+                                let _ = self.update(Message::SetZoneParts(key.clone(), zi, 3));
+                                let _ = self.update(Message::SetPartLighting(
+                                    key.clone(),
+                                    zi,
+                                    1,
+                                    PartLighting::Color {
+                                        color: Rgb::new(255, 40, 40),
+                                    },
+                                ));
+                                let _ = self.update(Message::SetPartLighting(
+                                    key,
+                                    zi,
+                                    2,
+                                    PartLighting::Off,
+                                ));
+                            }
+                        }
+                        self.canvas_cache.clear();
+                    }
+                    "devices-fans" => {
+                        // The fans of that header are canvas items: the
+                        // third one moved on its own and turned a quarter,
+                        // the second selected.
+                        if let Some(i) = self.selected_device
+                            && self.scene.devices[i].segments.len() >= 3
+                        {
+                            let _ = self.update(Message::CanvasSelect(Some(Target::segment(i, 2))));
+                            let _ = self.update(Message::CanvasMove(
+                                Target::segment(i, 2),
+                                Placement::new(0.40, 0.06, 0.07, 0.125),
+                            ));
+                            let _ = self.update(Message::CanvasDragEnd);
+                            let _ = self.update(Message::SetRotation(90));
+                            let _ = self.update(Message::CanvasSelect(Some(Target::segment(i, 1))));
+                        }
+                        self.canvas_cache.clear();
+                    }
+                    "devices-hardware" => {
+                        // A keyboard left to its own effect.
+                        if let Some((i, key, mode)) =
+                            self.scene.devices.iter().enumerate().find_map(|(i, d)| {
+                                (d.info.kind == tuxrgb_core::DeviceKind::Keyboard)
+                                    .then(|| d.info.hardware_modes.get(1).cloned())
+                                    .flatten()
+                                    .map(|m| (i, d.info.key.clone(), m))
+                            })
+                        {
+                            let _ = self.update(Message::SetHardwareMode(key, Some(mode)));
+                            let _ = self.update(Message::CanvasSelect(Some(Target::device(i))));
+                        }
+                        self.canvas_cache.clear();
+                    }
                     "settings" => {
                         let _ = self.update(Message::Navigate(Page::Settings));
+                    }
+                    "settings-network" => {
+                        // A WLED strip and a WiZ bulb added, another bulb
+                        // found by a search.
+                        if self.config.network.is_empty() {
+                            self.config.network.wled.push(tuxrgb_openrgb::WledLight {
+                                name: "Étagère".into(),
+                                host: "192.168.1.40".into(),
+                                port: tuxrgb_openrgb::network::DDP_PORT,
+                                leds: 144,
+                            });
+                            self.config.network.wiz.push(tuxrgb_openrgb::WizLight {
+                                host: "192.168.1.41".into(),
+                                warm_white: false,
+                            });
+                        }
+                        self.net.wled_host = "192.168.1.42".into();
+                        self.net.wled_leds = "60".into();
+                        self.net.wled_status = Some(Ok(trf!("WLED « {} » · {} LED", "Bureau", 60)));
+                        self.net.wiz_found = vec![tuxrgb_openrgb::network::WizFound {
+                            host: "192.168.1.43".into(),
+                            mac: "a8bb50e5f1c2".into(),
+                        }];
+                        self.net.wiz_searched = true;
+                        return Task::batch([
+                            iced::widget::operation::snap_to(
+                                ui::settings::SCROLL_ID,
+                                iced::widget::scrollable::RelativeOffset { x: 0.0, y: 0.56 },
+                            ),
+                            Task::perform(
+                                tokio::time::sleep(Duration::from_millis(1800)),
+                                move |_| Message::TourShoot(i),
+                            ),
+                        ]);
                     }
                     "settings-updates" => {
                         // A newer version on offer, as after a check.
@@ -1813,6 +2126,7 @@ impl App {
                 Task::none()
             }
             Message::OpenPicker(kind, key) => {
+                self.part_picker = None;
                 self.picker = if self.picker == Some((kind, key)) {
                     None
                 } else {
@@ -1823,9 +2137,19 @@ impl App {
             }
             Message::ClosePicker => {
                 self.picker = None;
+                self.part_picker = None;
                 Task::none()
             }
             Message::PickerChanged(color) => {
+                if let Some((device, zone, part)) = self.part_picker.clone() {
+                    self.hex_input = color.to_hex();
+                    return self.update(Message::SetPartLighting(
+                        device,
+                        zone,
+                        part,
+                        PartLighting::Color { color },
+                    ));
+                }
                 if let Some((kind, key)) = self.picker {
                     self.hex_input = color.to_hex();
                     return self.update(Message::SetParam(kind, key, ParamValue::Color(color)));
@@ -1834,6 +2158,16 @@ impl App {
             }
             Message::HexInput(s) => {
                 self.hex_input = s.clone();
+                if let (Some((device, zone, part)), Some(color)) =
+                    (self.part_picker.clone(), Rgb::from_hex(&s))
+                {
+                    return self.update(Message::SetPartLighting(
+                        device,
+                        zone,
+                        part,
+                        PartLighting::Color { color },
+                    ));
+                }
                 if let (Some((kind, key)), Some(c)) = (self.picker, Rgb::from_hex(&s)) {
                     return self.update(Message::SetParam(kind, key, ParamValue::Color(c)));
                 }
@@ -1877,79 +2211,250 @@ impl App {
             }
 
             // ---------------- Devices ----------------
-            Message::CanvasSelect(i) => {
-                if self.selected_device != i {
-                    self.selected_device = i;
+            Message::CanvasSelect(t) => {
+                let device = t.map(|t| t.device);
+                let segment = t.and_then(|t| t.segment);
+                if self.selected_device != device || self.selected_segment != segment {
+                    self.selected_device = device;
+                    self.selected_segment = segment;
                     self.canvas_cache.clear();
                 }
                 Task::none()
             }
-            Message::CanvasMove(i, placement) => {
-                self.scene.set_placement(i, placement);
+            Message::CanvasMove(t, placement) => {
+                self.scene.set_target_placement(t, placement);
                 self.canvas_cache.clear();
                 Task::none()
             }
             Message::CanvasDragEnd => {
                 for d in &self.scene.devices {
                     self.config.layout.insert(d.info.key.clone(), d.placement);
+                    // Fans moved on their own keep their place; the others
+                    // stay with their device.
+                    for s in d.segments.iter().filter(|s| s.pinned) {
+                        self.config.layout.insert(s.key.clone(), s.placement);
+                    }
                 }
                 self.push_scene();
                 self.mark_dirty();
                 Task::none()
             }
             Message::ResizeSelected(scale) => {
-                if let Some(i) = self.selected_device
-                    && let Some((kind, key, current)) = self
-                        .scene
-                        .devices
-                        .get(i)
-                        .map(|d| (d.info.kind, d.info.key.clone(), d.placement))
-                {
-                    let (w, h) = current.oriented_size(kind.default_size());
+                let Some(t) = self.selected_target() else {
+                    return Task::none();
+                };
+                let Some(kind) = self.scene.devices.get(t.device).map(|d| d.info.kind) else {
+                    return Task::none();
+                };
+                // A fan's reference size: a cooler's ring.
+                let base = if t.segment.is_some() {
+                    tuxrgb_core::DeviceKind::Cooler.default_size()
+                } else {
+                    kind.default_size()
+                };
+                self.place_selected(|current| {
+                    let (w, h) = current.oriented_size(base);
                     let (cx, cy) = current.center();
                     let (w, h) = ((w * scale).clamp(0.02, 1.0), (h * scale).clamp(0.02, 1.0));
-                    let p = Placement {
+                    Placement {
                         x: cx - w * 0.5,
                         y: cy - h * 0.5,
                         w,
                         h,
                         ..current
-                    };
-                    self.scene.set_placement(i, p);
+                    }
+                });
+                Task::none()
+            }
+            Message::SetRotation(degrees) => {
+                let wanted = (degrees / 90) % 4;
+                self.place_selected(|current| {
+                    let mut p = current;
+                    // Quarter turns keep the physical proportions.
+                    while p.quarter_turns() != wanted {
+                        p = p.rotated_cw();
+                    }
+                    p
+                });
+                Task::none()
+            }
+            Message::MirrorSelected => {
+                self.place_selected(|current| Placement {
+                    mirror: !current.mirror,
+                    ..current
+                });
+                Task::none()
+            }
+            Message::ToggleHidden(key) => {
+                if !self.config.hidden_on_canvas.remove(&key) {
+                    self.config.hidden_on_canvas.insert(key.clone());
+                }
+                // Showing a device shows its fans too.
+                if !self.config.hidden_on_canvas.contains(&key) {
                     self.config
-                        .layout
-                        .insert(key, self.scene.devices[i].placement);
-                    self.canvas_cache.clear();
-                    self.push_scene();
-                    self.mark_dirty();
+                        .hidden_on_canvas
+                        .retain(|k| !tuxrgb_core::layout::is_segment_of(k, &key));
+                }
+                self.canvas_cache.clear();
+                self.mark_dirty();
+                Task::none()
+            }
+            Message::NetWledHost(h) => {
+                self.net.wled_host = h;
+                self.net.wled_status = None;
+                Task::none()
+            }
+            Message::NetWledLeds(n) => {
+                self.net.wled_leds = n.chars().filter(char::is_ascii_digit).take(5).collect();
+                Task::none()
+            }
+            Message::NetWledProbe => {
+                let host = self.net.wled_host.trim().to_owned();
+                if !tuxrgb_openrgb::network::valid_host(&host) {
+                    self.net.wled_status = Some(Err(crate::i18n::t("Adresse invalide").to_owned()));
+                    return Task::none();
+                }
+                self.net.wled_probing = true;
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            tuxrgb_openrgb::network::wled_info(&host, Duration::from_secs(3))
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    Message::NetWledProbed,
+                )
+            }
+            Message::NetWledProbed(result) => {
+                self.net.wled_probing = false;
+                self.net.wled_status = Some(match result {
+                    Ok(info) => {
+                        self.net.wled_leds = info.leds.to_string();
+                        self.net.wled_name = info.name.clone();
+                        Ok(trf!("WLED « {} » · {} LED", info.name, info.leds))
+                    }
+                    Err(e) => Err(trf!("WLED introuvable : {}", crate::i18n::t(&e))),
+                });
+                Task::none()
+            }
+            Message::NetAddWled => {
+                let host = self.net.wled_host.trim().to_owned();
+                let leds = self.net.wled_leds.parse::<usize>().unwrap_or(0).min(4096);
+                if !tuxrgb_openrgb::network::valid_host(&host) || leds == 0 {
+                    self.net.wled_status = Some(Err(crate::i18n::t(
+                        "Indiquez l'adresse du contrôleur et son nombre de LED (bouton Détecter).",
+                    )
+                    .to_owned()));
+                    return Task::none();
+                }
+                let name = if self.net.wled_name.trim().is_empty() {
+                    format!("WLED {host}")
+                } else {
+                    self.net.wled_name.trim().to_owned()
+                };
+                self.config.network.wled.retain(|l| l.host.trim() != host);
+                self.config.network.wled.push(tuxrgb_openrgb::WledLight {
+                    name: name.clone(),
+                    host,
+                    port: tuxrgb_openrgb::network::DDP_PORT,
+                    leds,
+                });
+                self.net = NetForm {
+                    wiz_found: std::mem::take(&mut self.net.wiz_found),
+                    wiz_searched: self.net.wiz_searched,
+                    ..Default::default()
+                };
+                self.push_network();
+                self.snackbar(trf!("« {} » ajouté : le moteur redémarre…", name))
+            }
+            Message::NetRemoveWled(i) => {
+                if i < self.config.network.wled.len() {
+                    self.config.network.wled.remove(i);
+                    self.push_network();
                 }
                 Task::none()
             }
-            Message::RotateSelected | Message::MirrorSelected => {
-                let rotate = matches!(message, Message::RotateSelected);
-                if let Some(i) = self.selected_device
-                    && let Some((key, current)) = self
-                        .scene
-                        .devices
-                        .get(i)
-                        .map(|d| (d.info.key.clone(), d.placement))
-                {
-                    let p = if rotate {
-                        current.rotated_cw()
-                    } else {
-                        Placement {
-                            mirror: !current.mirror,
-                            ..current
-                        }
-                    };
-                    self.scene.set_placement(i, p);
-                    self.config
-                        .layout
-                        .insert(key, self.scene.devices[i].placement);
-                    self.canvas_cache.clear();
-                    self.push_scene();
-                    self.mark_dirty();
+            Message::NetWizHost(h) => {
+                self.net.wiz_host = h;
+                Task::none()
+            }
+            Message::NetAddWiz(host) => {
+                let host = host.trim().to_owned();
+                if !tuxrgb_openrgb::network::valid_host(&host) {
+                    return self.snackbar("Adresse invalide");
                 }
+                if !self
+                    .config
+                    .network
+                    .wiz
+                    .iter()
+                    .any(|l| l.host.trim() == host)
+                {
+                    self.config.network.wiz.push(tuxrgb_openrgb::WizLight {
+                        host: host.clone(),
+                        warm_white: false,
+                    });
+                    self.push_network();
+                }
+                self.net.wiz_host.clear();
+                self.net.wiz_found.retain(|f| f.host != host);
+                self.snackbar(trf!("Ampoule WiZ {} ajoutée : le moteur redémarre…", host))
+            }
+            Message::NetRemoveWiz(i) => {
+                if i < self.config.network.wiz.len() {
+                    self.config.network.wiz.remove(i);
+                    self.push_network();
+                }
+                Task::none()
+            }
+            Message::NetWizSearch => {
+                if self.net.wiz_searching {
+                    return Task::none();
+                }
+                self.net.wiz_searching = true;
+                Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(|| {
+                            tuxrgb_openrgb::network::discover_wiz(
+                                &tuxrgb_openrgb::network::wiz_broadcast(),
+                                Duration::from_millis(1500),
+                            )
+                        })
+                        .await
+                        .unwrap_or_default()
+                    },
+                    Message::NetWizFound,
+                )
+            }
+            Message::NetWizFound(found) => {
+                self.net.wiz_searching = false;
+                self.net.wiz_searched = true;
+                self.net.wiz_found = found
+                    .into_iter()
+                    .filter(|f| !self.config.network.wiz.iter().any(|l| l.host == f.host))
+                    .collect();
+                Task::none()
+            }
+            Message::SetHardwareMode(key, mode) => {
+                match mode {
+                    Some(m) => {
+                        self.config.hardware_modes.insert(key.clone(), m);
+                    }
+                    None => {
+                        self.config.hardware_modes.remove(&key);
+                    }
+                }
+                if let Some(s) = &self.services {
+                    s.bridge(BridgeCommand::SetHardwareModes(
+                        self.config.hardware_modes.clone(),
+                    ));
+                }
+                // Real devices: the bridge reports the mode once applied.
+                if self.using_demo || self.devices.is_empty() {
+                    self.rebuild_scene();
+                }
+                self.mark_dirty();
                 Task::none()
             }
             Message::ToggleDevice(key, enabled) => {
@@ -1971,6 +2476,127 @@ impl App {
                 if let Some(s) = &self.services {
                     s.engine(EngineCommand::Identify(id));
                 }
+                Task::none()
+            }
+            Message::SetPartLighting(device, zone, part, value) => {
+                // The "whole device" row (its picker included).
+                if zone == usize::MAX {
+                    return self.update(Message::SetDeviceLighting(device, value));
+                }
+                let entry = self.config.lighting.entry(device.clone()).or_default();
+                let z = entry.entry(zone).or_default();
+                z.set_part(part, value);
+                self.store_lighting(&device);
+                Task::none()
+            }
+            Message::SetZoneParts(device, zone, parts) => {
+                let leds = self
+                    .device_info(&device)
+                    .and_then(|d| d.zones.get(zone).map(|z| z.led_count))
+                    .unwrap_or(1)
+                    .max(1);
+                let parts = parts.clamp(1, tuxrgb_core::lighting::MAX_PARTS.min(leds));
+                let entry = self.config.lighting.entry(device.clone()).or_default();
+                let z = entry.entry(zone).or_default();
+                z.parts = parts;
+                z.sizes.clear();
+                z.lighting.truncate(parts);
+                // Places of fans that no longer exist.
+                for gone in parts..tuxrgb_core::lighting::MAX_PARTS {
+                    let key = tuxrgb_core::layout::segment_key(&device, zone, gone);
+                    self.config.layout.remove(&key);
+                    self.config.hidden_on_canvas.remove(&key);
+                }
+                if self.selected_segment.is_some() {
+                    self.selected_segment = None;
+                }
+                if let Some((d, zi, p)) = &self.part_picker
+                    && *d == device
+                    && *zi == zone
+                    && *p >= parts
+                {
+                    self.part_picker = None;
+                }
+                self.store_lighting(&device);
+                Task::none()
+            }
+            Message::SetPartSize(device, zone, part, leds) => {
+                let Some(info) = self.device_info(&device) else {
+                    return Task::none();
+                };
+                let Some(z) = info.zones.get(zone) else {
+                    return Task::none();
+                };
+                let current = self.config.lighting.get(&device).and_then(|l| l.get(&zone));
+                let sizes = tuxrgb_core::lighting::part_sizes(z, current);
+                if let Some(sizes) = tuxrgb_core::lighting::resize_part(&sizes, part, leds) {
+                    let entry = self.config.lighting.entry(device.clone()).or_default();
+                    let zl = entry.entry(zone).or_default();
+                    zl.parts = sizes.len();
+                    zl.sizes = sizes;
+                    self.store_lighting(&device);
+                }
+                Task::none()
+            }
+            Message::SetDeviceLighting(device, value) => {
+                let Some(info) = self.device_info(&device) else {
+                    return Task::none();
+                };
+                let entry = self.config.lighting.entry(device.clone()).or_default();
+                for (zi, zone) in info.zones.iter().enumerate() {
+                    let z = entry.entry(zi).or_default();
+                    for part in 0..tuxrgb_core::lighting::parts_of(zone, Some(z)) {
+                        z.set_part(part, value);
+                    }
+                }
+                self.store_lighting(&device);
+                Task::none()
+            }
+            Message::IdentifyPart(device, zone, part) => {
+                if let Some(info) = self.device_info(&device) {
+                    let leds = tuxrgb_core::lighting::part_leds(
+                        &info,
+                        self.config.lighting.get(&device),
+                        zone,
+                        part,
+                    );
+                    if let Some(s) = &self.services
+                        && !leds.is_empty()
+                    {
+                        s.engine(EngineCommand::IdentifyLeds {
+                            device: info.id,
+                            leds,
+                        });
+                    }
+                }
+                Task::none()
+            }
+            Message::OpenPartPicker(device, zone, part) => {
+                let target = Some((device.clone(), zone, part));
+                self.picker = None;
+                if self.part_picker == target {
+                    self.part_picker = None;
+                } else {
+                    let current = self.part_value(&device, zone, part);
+                    let color = match current {
+                        Some(PartLighting::Color { color }) => color,
+                        _ => self.desktop_accent(),
+                    };
+                    self.hex_input = color.to_hex();
+                    self.part_picker = target;
+                    if !matches!(current, Some(PartLighting::Color { .. })) {
+                        return self.update(Message::SetPartLighting(
+                            device,
+                            zone,
+                            part,
+                            PartLighting::Color { color },
+                        ));
+                    }
+                }
+                Task::none()
+            }
+            Message::PartPickerHidden => {
+                self.part_picker_last = None;
                 Task::none()
             }
             Message::ResetLayout => {

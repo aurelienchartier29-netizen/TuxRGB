@@ -6,10 +6,13 @@ use super::widgets::{self, badge, icon, icon_filled, label, muted, small, switch
 use super::{empty_state, icons, page_header};
 use crate::app::{App, Message};
 use crate::theme::style::{self, ButtonKind, Surface};
+use crate::theme::to_iced;
 use crate::theme::tokens::{shape, space};
 use iced::widget::{Space, column, container, row, scrollable, text, text_input};
 use iced::{Alignment, Element, Length, Padding};
-use tuxrgb_core::{DeviceKind, SceneDevice, ZoneKind};
+use tuxrgb_core::layout::Target;
+use tuxrgb_core::lighting::{self, MAX_PARTS};
+use tuxrgb_core::{DeviceKey, DeviceKind, PartLighting, Rgb, SceneDevice, ZoneKind};
 
 pub fn kind_icon(kind: DeviceKind) -> char {
     match kind {
@@ -65,6 +68,29 @@ fn device_row<'a>(app: &'a App, index: usize, d: &'a SceneDevice) -> Element<'a,
             Surface::Tertiary,
         ));
     }
+    let custom = lighting::custom_parts(info, Some(&d.lighting));
+    if custom > 0 {
+        badges = badges.push(badge(
+            small(if custom == 1 {
+                crate::i18n::t("1 zone personnalisée").to_owned()
+            } else {
+                trf!("{} zones personnalisées", custom)
+            }),
+            r,
+            Surface::Secondary,
+        ));
+    }
+    if let Some(mode) = &info.hardware_mode {
+        badges = badges.push(badge(
+            small(trf!("Effet matériel : {}", mode)),
+            r,
+            Surface::Tertiary,
+        ));
+    }
+    let hidden = app.config.hidden_on_canvas.contains(&info.key);
+    if hidden {
+        badges = badges.push(badge(small("Masqué sur le canvas"), r, Surface::Highest));
+    }
     if !info.controllable && info.led_count > 0 {
         badges = badges.push(badge(small("Aucun mode pilotable"), r, Surface::Error));
     } else if info.single_color {
@@ -83,6 +109,17 @@ fn device_row<'a>(app: &'a App, index: usize, d: &'a SceneDevice) -> Element<'a,
             shape::LARGE_INCREASED,
         ));
     let mut trailing = row![].spacing(space::S).align_y(Alignment::Center);
+    // Shown / hidden on the canvas (it stays connected and lit).
+    trailing = trailing.push(widgets::round_icon_button(
+        if hidden {
+            icons::VISIBILITY_OFF
+        } else {
+            icons::VISIBILITY
+        },
+        r,
+        hidden,
+        Some(Message::ToggleHidden(info.key.clone())),
+    ));
     if info.controllable {
         trailing = trailing.push(widgets::round_icon_button(
             icons::HIGHLIGHT,
@@ -112,7 +149,7 @@ fn device_row<'a>(app: &'a App, index: usize, d: &'a SceneDevice) -> Element<'a,
                     crate::i18n::t(info.kind.label())
                 ))
                 .color(r.on_surface_variant),
-                badges,
+                badges.wrap().vertical_spacing(space::XS),
                 small(zones).color(r.on_surface_variant),
             ]
             .spacing(space::XS)
@@ -129,7 +166,7 @@ fn device_row<'a>(app: &'a App, index: usize, d: &'a SceneDevice) -> Element<'a,
         selected,
         if selected { 1.0 } else { 0.0 },
     ))
-    .on_press(Message::CanvasSelect(Some(index)))
+    .on_press(Message::CanvasSelect(Some(Target::device(index))))
     .into()
 }
 
@@ -144,20 +181,300 @@ fn zone_kind_label(kind: ZoneKind) -> &'static str {
     }
 }
 
-/// Zones of the selected device; addressable (ARGB) zones get an LED-count
-/// editor – OpenRGB cannot know how many LEDs are plugged into a header.
-fn zones_panel<'a>(app: &'a App, d: &'a SceneDevice) -> Element<'a, Message> {
+/// Choice shown by the lighting chips of a part (or of a whole device,
+/// where the parts may differ).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Light {
+    Effect,
+    Color,
+    Off,
+    Mixed,
+}
+
+fn light_of(p: PartLighting) -> Light {
+    match p {
+        PartLighting::Effect => Light::Effect,
+        PartLighting::Color { .. } => Light::Color,
+        PartLighting::Off => Light::Off,
+    }
+}
+
+/// Round colour swatch (opens the picker), as on the Effects page.
+fn swatch<'a>(app: &'a App, c: Rgb, open: bool, on_press: Message) -> Element<'a, Message> {
+    let r = &app.roles;
+    let col = to_iced(c);
+    let (ring, hover_ring) = if open {
+        (r.primary, r.primary)
+    } else {
+        (r.outline_variant, r.on_surface_variant)
+    };
+    button(Space::new().width(30).height(30))
+        .padding(0)
+        .style(move |_, status| iced::widget::button::Style {
+            background: Some(iced::Background::Color(col)),
+            border: iced::Border {
+                color: match status {
+                    iced::widget::button::Status::Hovered
+                    | iced::widget::button::Status::Pressed => hover_ring,
+                    _ => ring,
+                },
+                width: 3.0,
+                radius: 15.0.into(),
+            },
+            ..Default::default()
+        })
+        .on_press(on_press)
+        .into()
+}
+
+/// What a part of a zone shows: effect / colour / off chips, the colour
+/// swatch, and a button that flashes the part (`zone == usize::MAX`: the
+/// whole device).
+fn part_controls<'a>(
+    app: &'a App,
+    key: &DeviceKey,
+    zone: usize,
+    part: usize,
+    value: Option<PartLighting>,
+    device_id: u32,
+) -> Element<'a, Message> {
+    let r = &app.roles;
+    let whole = zone == usize::MAX;
+    let k = key.clone();
+    let chips = widgets::segmented(
+        &[
+            (Light::Effect, "Effet"),
+            (Light::Color, "Couleur"),
+            (Light::Off, "Éteint"),
+        ],
+        value.map_or(Light::Mixed, light_of),
+        r,
+        move |l| {
+            let k = k.clone();
+            match (l, whole) {
+                (Light::Effect, true) => Message::SetDeviceLighting(k, PartLighting::Effect),
+                (Light::Off, true) => Message::SetDeviceLighting(k, PartLighting::Off),
+                (Light::Effect, false) => {
+                    Message::SetPartLighting(k, zone, part, PartLighting::Effect)
+                }
+                (Light::Off, false) => Message::SetPartLighting(k, zone, part, PartLighting::Off),
+                (Light::Color, _) => Message::OpenPartPicker(k, zone, part),
+                (Light::Mixed, _) => Message::Noop,
+            }
+        },
+    );
+    let mut line = row![chips].spacing(space::S).align_y(Alignment::Center);
+    // The swatch keeps its place when hidden: the chips stay aligned.
+    line = line.push(match value {
+        Some(PartLighting::Color { color }) => {
+            let open = app.part_picker == Some((key.clone(), zone, part));
+            swatch(
+                app,
+                color,
+                open,
+                Message::OpenPartPicker(key.clone(), zone, part),
+            )
+        }
+        _ => Space::new().width(30).height(30).into(),
+    });
+    line = line.push(widgets::round_icon_button(
+        icons::HIGHLIGHT,
+        r,
+        false,
+        Some(if whole {
+            Message::Identify(device_id)
+        } else {
+            Message::IdentifyPart(key.clone(), zone, part)
+        }),
+    ));
+    line.into()
+}
+
+/// The picker of a part, expanding under its row.
+fn part_picker<'a>(
+    app: &'a App,
+    key: &DeviceKey,
+    zone: usize,
+    part: usize,
+    value: Option<PartLighting>,
+) -> Option<Element<'a, Message>> {
+    let target = Some((key.clone(), zone, part));
+    let open = app.part_picker == target;
+    if !open && app.part_picker_last != target {
+        return None;
+    }
+    let color = match value {
+        Some(PartLighting::Color { color }) => color,
+        _ => Rgb::from_hex(&app.hex_input).unwrap_or(Rgb::WHITE),
+    };
+    Some(
+        super::transition::reveal(
+            open,
+            r_surface(app),
+            super::effects::color_editor(app, color),
+        )
+        .on_hidden(Message::PartPickerHidden)
+        .into(),
+    )
+}
+
+fn r_surface(app: &App) -> iced::Color {
+    app.roles.surface_container
+}
+
+/// M3 filter chip (one of a set of choices).
+fn chip<'a>(
+    app: &'a App,
+    caption: &'a str,
+    selected: bool,
+    on_press: Message,
+) -> Element<'a, Message> {
+    let content: Element<'a, Message> = if selected {
+        row![icon(icons::CHECK, 16.0), small(caption)]
+            .spacing(space::XS)
+            .align_y(Alignment::Center)
+            .into()
+    } else {
+        small(caption).into()
+    };
+    button(content)
+        .padding(Padding::from([6.0, 14.0]))
+        .style(style::chip(app.roles, selected))
+        .on_press(on_press)
+        .into()
+}
+
+/// Compact − / + of a fan's LED count.
+fn small_step<'a>(app: &'a App, glyph: char, on_press: Option<Message>) -> Element<'a, Message> {
+    button(
+        container(icon(glyph, 14.0))
+            .center_x(Length::Fixed(18.0))
+            .center_y(Length::Fixed(18.0)),
+    )
+    .padding(2)
+    .style(style::icon_button(app.roles, false))
+    .on_press_maybe(on_press)
+    .into()
+}
+
+/// Lighting of a whole device: the value shared by every part, or `None`
+/// when they differ.
+fn device_value(d: &SceneDevice) -> Option<PartLighting> {
+    let mut seen: Option<PartLighting> = None;
+    for (zi, zone) in d.info.zones.iter().enumerate() {
+        let z = d.lighting.get(&zi).cloned().unwrap_or_default();
+        for part in 0..lighting::parts_of(zone, Some(&z)) {
+            let v = z.part(part);
+            match seen {
+                None => seen = Some(v),
+                Some(s) if s != v => return None,
+                _ => {}
+            }
+        }
+    }
+    Some(seen.unwrap_or_default())
+}
+
+/// Zones of the selected device: LED counts of addressable (ARGB) headers –
+/// OpenRGB cannot know how many LEDs are plugged in –, fans per header, and
+/// what each zone or fan shows (the effect, a fixed colour, or nothing).
+fn zones_panel<'a>(app: &'a App, index: usize, d: &'a SceneDevice) -> Element<'a, Message> {
     let r = &app.roles;
     let info = &d.info;
-    let mut col = column![
+    let mut col = column![].spacing(space::S);
+
+    // The device's own effects (keyboards, mice…): TuxRGB lets go of it.
+    let peripheral = matches!(
+        info.kind,
+        DeviceKind::Keyboard
+            | DeviceKind::Keypad
+            | DeviceKind::Mouse
+            | DeviceKind::MouseMat
+            | DeviceKind::Headset
+            | DeviceKind::HeadsetStand
+            | DeviceKind::Gamepad
+            | DeviceKind::Microphone
+            | DeviceKind::Speaker
+            // Network bulbs (Philips WiZ scenes).
+            | DeviceKind::Light
+    );
+    if !info.hardware_modes.is_empty() && (peripheral || info.hardware_mode.is_some()) {
+        let current = info.hardware_mode.clone();
+        let wanted = app.config.hardware_modes.get(&info.key).cloned();
+        let shown = wanted.clone().or(current.clone());
+        let mut chips = row![chip(
+            app,
+            "Effets TuxRGB",
+            shown.is_none(),
+            Message::SetHardwareMode(info.key.clone(), None)
+        )]
+        .spacing(space::XS);
+        for m in &info.hardware_modes {
+            chips = chips.push(chip(
+                app,
+                m.as_str(),
+                shown.as_deref() == Some(m.as_str()),
+                Message::SetHardwareMode(info.key.clone(), Some(m.clone())),
+            ));
+        }
+        col = col.push(
+            column![
+                row![
+                    icon(icons::AUTO_AWESOME, 18.0).color(r.primary),
+                    label("Effet de l'appareil"),
+                ]
+                .spacing(space::S)
+                .align_y(Alignment::Center),
+                small(if shown.is_some() {
+                    "L'appareil joue son propre effet (réactions aux touches…) : TuxRGB n'y envoie plus de couleurs, mais l'éteint toujours à l'arrêt du PC."
+                } else {
+                    "Suit les effets de TuxRGB. Choisissez un effet intégré pour laisser l'appareil le jouer lui-même."
+                })
+                .color(r.on_surface_variant),
+                chips.wrap(),
+            ]
+            .spacing(space::XS),
+        );
+    }
+    // Playing its own effect: TuxRGB's zone settings do not apply.
+    if info.hardware_mode.is_some() {
+        return super::transition::smooth_scroll(scrollable(col).height(Length::Shrink), r);
+    }
+    col = col.push(
         row![
             icon(icons::SETTINGS_INPUT_COMPONENT, 18.0).color(r.primary),
             label(trf!("Zones et canaux ({})", info.zones.len())),
         ]
         .spacing(space::S)
-        .align_y(Alignment::Center)
-    ]
-    .spacing(space::S);
+        .align_y(Alignment::Center),
+    );
+
+    // The whole device at once (the only choice for single-colour ones).
+    let whole = device_value(d);
+    if info.controllable && (info.zones.len() > 1 || info.single_color) {
+        col = col.push(
+            row![
+                column![
+                    label("Tout l'appareil"),
+                    small(if info.single_color {
+                        "Une seule couleur pour tout l'appareil (limite du contrôleur)."
+                    } else {
+                        "Même réglage pour toutes les zones et tous les ventilateurs."
+                    })
+                    .color(r.on_surface_variant),
+                ]
+                .spacing(space::XXS)
+                .width(Length::Fill),
+                part_controls(app, &info.key, usize::MAX, 0, whole, info.id),
+            ]
+            .spacing(space::S)
+            .align_y(Alignment::Center),
+        );
+        if let Some(p) = part_picker(app, &info.key, usize::MAX, 0, whole) {
+            col = col.push(p);
+        }
+    }
+
     let mut any_resizable = false;
     for (zi, z) in info.zones.iter().enumerate() {
         let details = if z.resizable() {
@@ -175,6 +492,10 @@ fn zones_panel<'a>(app: &'a App, d: &'a SceneDevice) -> Element<'a, Message> {
                 z.led_count
             )
         };
+        let zl = d.lighting.get(&zi).cloned().unwrap_or_default();
+        let sizes = lighting::part_sizes(z, Some(&zl));
+        let parts = sizes.len();
+        let per_zone = info.controllable && !info.single_color && z.led_count > 0;
         let mut line = row![
             column![
                 label(crate::i18n::t(&z.name).to_owned()).color(if z.needs_size() {
@@ -236,8 +557,146 @@ fn zones_panel<'a>(app: &'a App, d: &'a SceneDevice) -> Element<'a, Message> {
                     r,
                     (editable && changed).then(|| Message::ApplyZoneSize(info.key.clone(), zi)),
                 ));
+        } else if per_zone {
+            // One part: the zone's lighting on its own line.
+            line = line.push(part_controls(
+                app,
+                &info.key,
+                zi,
+                0,
+                Some(zl.part(0)),
+                info.id,
+            ));
         }
         col = col.push(line);
+        if !z.resizable() {
+            if per_zone && let Some(p) = part_picker(app, &info.key, zi, 0, Some(zl.part(0))) {
+                col = col.push(p);
+            }
+            continue;
+        }
+        if !per_zone {
+            continue;
+        }
+        // Addressable header: how many fans, then one line per fan.
+        let (k1, k2) = (info.key.clone(), info.key.clone());
+        let mut fans =
+            row![
+                container(icon(icons::MODE_FAN, 18.0).color(r.on_surface_variant))
+                    .center_x(Length::Fixed(28.0)),
+                column![
+                label("Ventilateurs sur ce connecteur"),
+                small("Chaque ventilateur peut suivre l'effet, garder sa couleur ou rester éteint.")
+                    .color(r.on_surface_variant),
+            ]
+                .spacing(space::XXS)
+                .width(Length::Fill),
+                widgets::round_icon_button(
+                    icons::REMOVE,
+                    r,
+                    false,
+                    (parts > 1).then(|| Message::SetZoneParts(k1, zi, parts - 1)),
+                ),
+                text(parts.to_string())
+                    .size(15.0)
+                    .width(Length::Fixed(28.0))
+                    .center(),
+                widgets::round_icon_button(
+                    icons::ADD,
+                    r,
+                    false,
+                    (parts < MAX_PARTS.min(z.led_count)).then(|| Message::SetZoneParts(
+                        k2,
+                        zi,
+                        parts + 1
+                    )),
+                ),
+            ]
+            .spacing(space::S)
+            .align_y(Alignment::Center);
+        if parts == 1 {
+            fans = fans.push(part_controls(
+                app,
+                &info.key,
+                zi,
+                0,
+                Some(zl.part(0)),
+                info.id,
+            ));
+        }
+        col = col.push(container(fans).padding(Padding {
+            left: space::L,
+            ..Padding::ZERO
+        }));
+        if parts == 1 {
+            if let Some(p) = part_picker(app, &info.key, zi, 0, Some(zl.part(0))) {
+                col = col.push(p);
+            }
+            continue;
+        }
+        let ranges = lighting::part_ranges(z, Some(&zl));
+        for part in 0..parts {
+            let range = ranges[part].clone();
+            // The fan on the canvas: its number selects it there.
+            let segment = d
+                .segments
+                .iter()
+                .position(|s| s.zone == zi && s.part == part);
+            let on_canvas = segment.is_some_and(|s| app.selected_segment == Some(s))
+                && app.selected_device == Some(index);
+            let number = button(
+                container(text((part + 1).to_string()).size(13.0))
+                    .center_x(Length::Fixed(28.0))
+                    .center_y(Length::Fixed(28.0)),
+            )
+            .padding(0)
+            .style(style::chip(*r, on_canvas))
+            .on_press_maybe(
+                segment.map(|s| Message::CanvasSelect(Some(Target::segment(index, s)))),
+            );
+            let n = sizes[part];
+            let (k1, k2) = (info.key.clone(), info.key.clone());
+            let stepper = row![
+                small_step(
+                    app,
+                    icons::REMOVE,
+                    (n > 1).then(|| Message::SetPartSize(k1, zi, part, n - 1))
+                ),
+                small(trf!("{} LED", n)).color(r.on_surface_variant),
+                small_step(
+                    app,
+                    icons::ADD,
+                    Some(Message::SetPartSize(k2, zi, part, n + 1))
+                ),
+            ]
+            .spacing(space::XXS)
+            .align_y(Alignment::Center);
+            let fan = row![
+                number,
+                column![
+                    label(trf!("Ventilateur {}", part + 1)),
+                    row![
+                        small(trf!("LED {} à {}", range.start + 1, range.end))
+                            .color(r.on_surface_variant),
+                        stepper,
+                    ]
+                    .spacing(space::S)
+                    .align_y(Alignment::Center),
+                ]
+                .spacing(space::XXS)
+                .width(Length::Fill),
+                part_controls(app, &info.key, zi, part, Some(zl.part(part)), info.id),
+            ]
+            .spacing(space::S)
+            .align_y(Alignment::Center);
+            col = col.push(container(fan).padding(Padding {
+                left: space::L,
+                ..Padding::ZERO
+            }));
+            if let Some(p) = part_picker(app, &info.key, zi, part, Some(zl.part(part))) {
+                col = col.push(p);
+            }
+        }
     }
     if any_resizable {
         col = col.push(
@@ -254,46 +713,83 @@ fn zones_panel<'a>(app: &'a App, d: &'a SceneDevice) -> Element<'a, Message> {
 
 fn editor(app: &App) -> Element<'_, Message> {
     let r = &app.roles;
-    let selected = app.selected_device.and_then(|i| app.scene.devices.get(i));
+    let target = app.selected_target();
+    let selected = target.and_then(|t| app.scene.devices.get(t.device).map(|d| (t, d)));
     let footer: Element<'_, Message> = match selected {
-        Some(d) => {
-            let (dw, _) = d.placement.oriented_size(d.info.kind.default_size());
-            let scale = (d.placement.w / dw).clamp(0.3, 3.0);
-            let placement = row![
-                icon(kind_icon(d.info.kind), 22.0).color(r.primary),
-                column![label(d.info.display_name()), small(d.info.location.clone()).color(r.on_surface_variant)]
-                    .spacing(space::XXS)
-                    .width(Length::FillPortion(2)),
-                widgets::round_icon_button(
-                    icons::ROTATE_RIGHT,
-                    r,
-                    d.placement.rotation != 0,
-                    Some(Message::RotateSelected)
+        Some((t, d)) => {
+            let fan = t.segment.and_then(|s| d.segments.get(s));
+            let place = app.scene.placement_of(t).unwrap_or(d.placement);
+            let base = if fan.is_some() {
+                DeviceKind::Cooler.default_size()
+            } else {
+                d.info.kind.default_size()
+            };
+            let (dw, _) = place.oriented_size(base);
+            let scale = (place.w / dw).clamp(0.3, 3.0);
+            let key = app.scene.key_of(t).cloned().unwrap_or_else(|| d.info.key.clone());
+            let hidden = app.scene.is_hidden(t, &app.config.hidden_on_canvas);
+            let (title, subtitle) = match fan {
+                Some(s) => (
+                    trf!("Ventilateur {}", s.part + 1),
+                    format!(
+                        "{} · {}",
+                        d.info.display_name(),
+                        crate::i18n::t(&d.info.zones[s.zone].name)
+                    ),
                 ),
-                widgets::round_icon_button(
-                    icons::FLIP,
-                    r,
-                    d.placement.mirror,
-                    Some(Message::MirrorSelected)
-                ),
-                icon(icons::ZOOM_OUT_MAP, 20.0).color(r.on_surface_variant),
-                container(
-                    super::motion::slider(0.3..=3.0, scale, Message::ResizeSelected)
-                        .step(0.05)
-                        .format(|v| format!("×{v:.2}"))
-                        .colors(super::motion::SliderColors::standard(r))
-                        .height(40.0)
-                )
-                .width(Length::FillPortion(2)),
-                text(format!("×{scale:.2}")).size(13.0).color(r.on_surface_variant),
+                None => (d.info.display_name().to_owned(), d.info.location.clone()),
+            };
+            let rotation = widgets::segmented(
+                &[(0u16, "0°"), (90, "90°"), (180, "180°"), (270, "270°")],
+                place.quarter_turns() * 90,
+                r,
+                Message::SetRotation,
+            );
+            let placement = column![
+                row![
+                    icon(if fan.is_some() { icons::MODE_FAN } else { kind_icon(d.info.kind) }, 22.0)
+                        .color(r.primary),
+                    column![label(title), small(subtitle).color(r.on_surface_variant)]
+                        .spacing(space::XXS)
+                        .width(Length::Fill),
+                    widgets::round_icon_button(
+                        if hidden { icons::VISIBILITY_OFF } else { icons::VISIBILITY },
+                        r,
+                        hidden,
+                        Some(Message::ToggleHidden(key)),
+                    ),
+                ]
+                .spacing(space::M)
+                .align_y(Alignment::Center),
+                row![
+                    icon(icons::ROTATE_RIGHT, 20.0).color(r.on_surface_variant),
+                    rotation,
+                    widgets::round_icon_button(
+                        icons::FLIP,
+                        r,
+                        place.mirror,
+                        Some(Message::MirrorSelected)
+                    ),
+                    icon(icons::ZOOM_OUT_MAP, 20.0).color(r.on_surface_variant),
+                    container(
+                        super::motion::slider(0.3..=3.0, scale, Message::ResizeSelected)
+                            .step(0.05)
+                            .format(|v| format!("×{v:.2}"))
+                            .colors(super::motion::SliderColors::standard(r))
+                            .height(40.0)
+                    )
+                    .width(Length::Fill),
+                    text(format!("×{scale:.2}")).size(13.0).color(r.on_surface_variant),
+                ]
+                .spacing(space::M)
+                .align_y(Alignment::Center),
             ]
-            .spacing(space::M)
-            .align_y(Alignment::Center);
-            if d.info.zones.is_empty() {
+            .spacing(space::S);
+            if d.info.zones.is_empty() && d.info.hardware_modes.is_empty() {
                 placement.into()
             } else {
                 column![
-                    container(zones_panel(app, d)).max_height(260.0),
+                    container(zones_panel(app, t.device, d)).max_height(320.0),
                     placement
                 ]
                 .spacing(space::L)
@@ -315,7 +811,8 @@ fn editor(app: &App) -> Element<'_, Message> {
                     scene: &app.scene,
                     frame: app.preview.as_ref(),
                     roles: *r,
-                    selected: app.selected_device,
+                    selected: target,
+                    hidden: &app.config.hidden_on_canvas,
                     editable: true,
                     show_labels: true,
                     screen_hint: app.config.effect == tuxrgb_core::EffectKind::ScreenSync,
@@ -328,7 +825,9 @@ fn editor(app: &App) -> Element<'_, Message> {
             ),
             // Another device selected: its settings fade in.
             super::transition::swap(
-                app.selected_device.map_or(u64::MAX, |i| i as u64),
+                target.map_or(u64::MAX, |t| {
+                    (t.device as u64) << 8 | t.segment.map_or(0, |s| s as u64 + 1)
+                }),
                 r.surface_container,
                 footer,
             ),

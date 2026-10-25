@@ -58,7 +58,11 @@ pub const STOPS: &[&str] = &[
     "effects-palette",
     "effects-monitor",
     "devices",
+    "devices-zones",
+    "devices-fans",
+    "devices-hardware",
     "settings",
+    "settings-network",
     "settings-updates",
     "credits",
 ];

@@ -60,6 +60,32 @@ impl<'c> Zone<'c> {
         }
     }
 
+    /// LED count of each segment of this zone, in LED order, when they
+    /// cover the zone from its first LED without gaps (TuxRGB patch: the
+    /// "per fan" split of an ARGB header); empty otherwise or before SDK
+    /// protocol 4.
+    pub fn segment_sizes(&self) -> Vec<usize> {
+        let Some(segments) = self.segment_data() else {
+            return Vec::new();
+        };
+        let mut spans: Vec<(u32, u32)> = segments
+            .iter()
+            .map(|s| (s.offset(), s.led_count()))
+            .collect();
+        spans.sort_unstable();
+        let mut next = 0u32;
+        for &(offset, count) in &spans {
+            if offset != next || count == 0 {
+                return Vec::new();
+            }
+            next += count;
+        }
+        if next as usize != self.num_leds() {
+            return Vec::new();
+        }
+        spans.into_iter().map(|(_, n)| n as usize).collect()
+    }
+
     /// Returns the segment with the given `segment_id`.
     pub fn get_segment(&'c self, segment_id: usize) -> OpenRgbResult<Segment<'c>> {
         let Some(segments) = self.segment_data() else {

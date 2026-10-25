@@ -2,7 +2,7 @@
 ;
 ; Built by scripts/windows/build-windows.sh (from Linux) or
 ; scripts/windows/build-windows.ps1 (on Windows):
-;   makensis -DVERSION=2.0.7 -DSTAGE=<dir> -DOUTFILE=<setup.exe> tuxrgb.nsi
+;   makensis -DVERSION=3.0.0 -DSTAGE=<dir> -DOUTFILE=<setup.exe> tuxrgb.nsi
 ;
 ; <STAGE> holds tuxrgb.exe, tuxrgb.ico, installer-side.bmp, fetch.ps1, LICENSE.txt,
 ; LIRE-MOI-Windows.txt and licenses\.
@@ -20,10 +20,10 @@ SetCompressor /SOLID lzma
 ManifestDPIAware true
 
 !ifndef VERSION
-  !define VERSION "2.0.7"
+  !define VERSION "3.0.0"
 !endif
 !ifndef VERSION_NUM
-  !define VERSION_NUM "2.0.7.0"
+  !define VERSION_NUM "3.0.0.0"
 !endif
 !ifndef STAGE
   !define STAGE "stage"

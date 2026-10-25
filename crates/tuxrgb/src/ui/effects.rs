@@ -386,7 +386,7 @@ fn param_controls(app: &App, kind: EffectKind) -> Element<'_, Message> {
     col.into()
 }
 
-fn color_editor(app: &App, c: Rgb) -> Element<'_, Message> {
+pub(super) fn color_editor(app: &App, c: Rgb) -> Element<'_, Message> {
     let r = &app.roles;
     let mut swatches = row![].spacing(space::S);
     let accent = app.system.accent.unwrap_or(crate::theme::BREEZE_ACCENT);
@@ -563,7 +563,7 @@ fn panel(app: &App) -> Element<'_, Message> {
                 .stops(&[1.0])
                 .colors(super::motion::SliderColors::standard(r))
                 .height(40.0),
-            small("0 % = blanc · 100 % = couleurs d'origine · 200 % = ultra-vives")
+            small("0 % = blanc · 100 % = couleurs d'origine · 200 % = plus vives, même teinte")
                 .color(r.on_surface_variant),
         ]
         .spacing(space::XS),
@@ -583,6 +583,7 @@ fn panel(app: &App) -> Element<'_, Message> {
                 frame: app.preview.as_ref(),
                 roles: *r,
                 selected: None,
+                hidden: &app.config.hidden_on_canvas,
                 editable: false,
                 show_labels: true,
                 screen_hint: app.config.effect == tuxrgb_core::EffectKind::ScreenSync,

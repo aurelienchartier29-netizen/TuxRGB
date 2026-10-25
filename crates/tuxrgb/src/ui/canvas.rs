@@ -1,10 +1,13 @@
 //! The setup canvas: SignalRGB-style 2D view of the user's rig with live LED
-//! colours (the native "Visual Map"). In edit mode devices can be dragged
-//! around and resized from their corner handle; rotation and mirroring are
-//! buttons of the Devices page. The canvas is also the screen: with Screen
-//! Sync each LED takes the colour of the part of the screen it covers, which
-//! the canvas shows as a screen frame and, for the selected device, the
-//! sampled area of every LED.
+//! colours (the native "Visual Map"). Its items are the devices and the fans
+//! of split ARGB headers ("per fan per header"). In edit mode items can be
+//! dragged around and resized from their corner handle; rotation, mirroring
+//! and hiding are buttons of the Devices page. The selected item is drawn on
+//! top of whatever overlaps it, and hidden items stay connected and lit,
+//! only off the canvas. The canvas is also the screen: with Screen Sync each
+//! LED takes the colour of the part of the screen it covers, which the
+//! canvas shows as a screen frame and, for the selected item, the sampled
+//! area of every LED.
 //!
 //! Behind the devices, the whole canvas glows with a soft, blurred rendering
 //! of the current effect ([`super::backdrop`]); devices and LEDs are drawn
@@ -16,17 +19,19 @@ use iced::mouse::{self, Cursor};
 use iced::widget::canvas::{self, Cache, Event, Frame as CFrame, Geometry, Path, Stroke, Text};
 use iced::widget::stack;
 use iced::{Color, Element, Length, Point, Rectangle, Renderer, Size, Theme, Vector, border};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use tuxrgb_core::engine::Frame;
-use tuxrgb_core::layout::SCENE_ASPECT;
-use tuxrgb_core::{Placement, Scene};
+use tuxrgb_core::layout::{SCENE_ASPECT, Target};
+use tuxrgb_core::{DeviceKey, Placement, Scene};
 
 pub struct SetupCanvas<'a> {
     pub scene: &'a Scene,
     pub frame: Option<&'a Arc<Frame>>,
     pub roles: Roles,
-    pub selected: Option<usize>,
+    pub selected: Option<Target>,
+    /// Items hidden on the canvas (device or fan keys).
+    pub hidden: &'a BTreeSet<DeviceKey>,
     pub editable: bool,
     pub show_labels: bool,
     /// Screen Sync active: draw the screen frame and sampling areas.
@@ -110,12 +115,12 @@ impl canvas::Program<Message> for Sheet<'_> {
 
 #[derive(Default)]
 pub struct DragState {
-    dragging: Option<(usize, Vector)>,
+    dragging: Option<(Target, Vector)>,
     /// Resizing from the bottom-right handle.
-    resizing: Option<usize>,
+    resizing: Option<Target>,
 }
 
-/// Radius (px) of the resize handle of the selected device.
+/// Radius (px) of the resize handle of the selected item.
 const HANDLE: f32 = 7.0;
 
 fn handle_pos(r: &Rectangle, p: &Placement) -> Point {
@@ -145,6 +150,17 @@ fn to_scene(r: &Rectangle, p: Point) -> (f32, f32) {
     ((p.x - r.x) / r.width, (p.y - r.y) / r.height)
 }
 
+impl SetupCanvas<'_> {
+    /// The selected item, if it is shown.
+    fn shown_selection(&self) -> Option<(Target, Placement)> {
+        let t = self.selected?;
+        if self.scene.is_hidden(t, self.hidden) {
+            return None;
+        }
+        Some((t, self.scene.placement_of(t)?))
+    }
+}
+
 impl canvas::Program<Message> for SetupCanvas<'_> {
     type State = DragState;
 
@@ -159,54 +175,54 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let pos = cursor.position_in(bounds)?;
-                // Corner handle of the selected device: resize.
+                // Corner handle of the selected item: resize.
                 if self.editable
-                    && let Some(i) = self.selected
-                    && let Some(d) = self.scene.devices.get(i)
-                    && handle_pos(&rect, &d.placement).distance(pos) <= HANDLE * 1.8
+                    && let Some((t, p)) = self.shown_selection()
+                    && handle_pos(&rect, &p).distance(pos) <= HANDLE * 1.8
                 {
-                    state.resizing = Some(i);
+                    state.resizing = Some(t);
                     return Some(canvas::Action::capture());
                 }
                 let (sx, sy) = to_scene(&rect, pos);
-                let hit = self.scene.hit_test(sx, sy);
-                if let (true, Some(i)) = (self.editable, hit) {
-                    let p = self.scene.devices[i].placement;
-                    state.dragging = Some((i, Vector::new(sx - p.x, sy - p.y)));
+                let hit = self.scene.hit_test(sx, sy, self.hidden, self.selected);
+                if let (true, Some(t)) = (self.editable, hit)
+                    && let Some(p) = self.scene.placement_of(t)
+                {
+                    state.dragging = Some((t, Vector::new(sx - p.x, sy - p.y)));
                 }
                 Some(canvas::Action::publish(Message::CanvasSelect(hit)).and_capture())
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) if state.resizing.is_some() => {
-                let index = state.resizing?;
+                let t = state.resizing?;
                 let pos = cursor.position_in(bounds).or_else(|| {
                     cursor
                         .position()
                         .map(|p| Point::new(p.x - bounds.x, p.y - bounds.y))
                 })?;
                 let (sx, sy) = to_scene(&rect, pos);
-                let current = self.scene.devices.get(index)?.placement;
+                let current = self.scene.placement_of(t)?;
                 let resized = Placement {
                     w: (sx - current.x).clamp(0.02, 1.0 - current.x),
                     h: (sy - current.y).clamp(0.02, 1.0 - current.y),
                     ..current
                 };
-                Some(canvas::Action::publish(Message::CanvasMove(index, resized)).and_capture())
+                Some(canvas::Action::publish(Message::CanvasMove(t, resized)).and_capture())
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                let (index, offset) = state.dragging?;
+                let (t, offset) = state.dragging?;
                 let pos = cursor.position_in(bounds).or_else(|| {
                     cursor
                         .position()
                         .map(|p| Point::new(p.x - bounds.x, p.y - bounds.y))
                 })?;
                 let (sx, sy) = to_scene(&rect, pos);
-                let current = self.scene.devices.get(index)?.placement;
+                let current = self.scene.placement_of(t)?;
                 let moved = Placement {
                     x: sx - offset.x,
                     y: sy - offset.y,
                     ..current
                 };
-                Some(canvas::Action::publish(Message::CanvasMove(index, moved)).and_capture())
+                Some(canvas::Action::publish(Message::CanvasMove(t, moved)).and_capture())
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 let was_resizing = state.resizing.take().is_some();
@@ -230,6 +246,7 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
         let r = &self.roles;
         let rect = scene_rect(bounds.size());
         let unit = rect.height;
+        let order = self.scene.draw_order(self.hidden, self.selected);
 
         let background = self.cache.draw(renderer, bounds.size(), |f: &mut CFrame| {
             // Dot grid (light enough to sit on the glow).
@@ -273,13 +290,19 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
                     ..Text::default()
                 });
             }
-            // Device bodies.
-            for (i, d) in self.scene.devices.iter().enumerate() {
-                let p = d.placement;
-                let a = self.appear.get(i).copied().unwrap_or(1.0);
+            // Item bodies, bottom first; the selected one last.
+            for t in &order {
+                let Some(d) = self.scene.devices.get(t.device) else {
+                    continue;
+                };
+                let Some(p) = self.scene.placement_of(*t) else {
+                    continue;
+                };
+                let a = self.appear.get(t.device).copied().unwrap_or(1.0);
                 if a <= 0.001 {
                     continue;
                 }
+                let fan = t.segment.and_then(|s| d.segments.get(s));
                 // Arrival: grows from 85 % around its centre while fading in.
                 let k = 0.85 + 0.15 * a;
                 let full = Size::new(p.w * rect.width, p.h * rect.height);
@@ -289,10 +312,18 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
                     c0.x + (full.width - size.width) * 0.5,
                     c0.y + (full.height - size.height) * 0.5,
                 );
-                let radius = (size.width.min(size.height) * 0.22).clamp(4.0, 20.0);
+                // Fans are round-cornered squares, devices softer boxes.
+                let radius = if fan.is_some() {
+                    size.width.min(size.height) * 0.42
+                } else {
+                    (size.width.min(size.height) * 0.22).clamp(4.0, 20.0)
+                };
                 let body = Path::rounded_rectangle(tl, size, border::Radius::new(radius));
-                let selected = self.selected == Some(i);
-                // Soft two-step shadow: lifts the device off the glow.
+                let selected = self.selected == Some(*t);
+                // A fan of the selected device: outlined like a part of it.
+                let sibling =
+                    fan.is_some() && !selected && self.selected.map(|s| s.device) == Some(t.device);
+                // Soft two-step shadow: lifts the item off the glow.
                 for (spread, alpha) in [(4.0f32, 0.10f32), (1.5, 0.18)] {
                     f.fill(
                         &Path::rounded_rectangle(
@@ -307,38 +338,59 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
                     with_alpha(r.surface_container_high, 0.6)
                 } else if selected {
                     with_alpha(r.primary_container, 0.92)
+                } else if fan.is_some() {
+                    with_alpha(r.surface_container_highest, 0.95)
                 } else {
                     with_alpha(r.surface_container_high, 0.95)
                 };
                 f.fill(&body, with_alpha(fill, a));
+                let outline = if selected {
+                    r.primary
+                } else if sibling {
+                    with_alpha(r.primary, 0.6)
+                } else {
+                    r.outline_variant
+                };
                 f.stroke(
                     &body,
                     Stroke::default()
-                        .with_width(if selected { 2.5 } else { 1.0 })
-                        .with_color(with_alpha(
-                            if selected {
-                                r.primary
-                            } else {
-                                r.outline_variant
-                            },
-                            a,
-                        )),
+                        .with_width(if selected {
+                            2.5
+                        } else if sibling {
+                            1.5
+                        } else {
+                            1.0
+                        })
+                        .with_color(with_alpha(outline, a)),
                 );
-                // One line under the device (never wrapped, never hidden by
-                // the LEDs), cut to the device width with an ellipsis; very
-                // narrow devices (RAM sticks) only show it when selected.
-                let name = d.info.display_name();
+                // One line under the item (never wrapped, never hidden by
+                // the LEDs), cut to its width with an ellipsis; very narrow
+                // items (RAM sticks, small fans) only show it when selected.
+                let name = match fan {
+                    Some(s) => trf!("Ventilateur {}", s.part + 1),
+                    None if d.info.hardware_mode.is_some() => {
+                        format!(
+                            "{} · {}",
+                            d.info.display_name(),
+                            crate::i18n::t("effet matériel")
+                        )
+                    }
+                    None => d.info.display_name().to_owned(),
+                };
                 let max_chars = if selected {
                     usize::MAX
                 } else {
                     (size.width * 1.1 / 5.8) as usize
                 };
-                if self.show_labels && max_chars >= 6 {
+                // A fan still in its device: its number says enough (a name
+                // under it would cover the device's).
+                let docked = fan.is_some_and(|s| !s.pinned);
+                if self.show_labels && max_chars >= 6 && !docked {
                     let content = if name.chars().count() > max_chars {
                         let cut: String = name.chars().take(max_chars.saturating_sub(1)).collect();
                         format!("{}…", cut.trim_end())
                     } else {
-                        name.to_owned()
+                        name
                     };
                     let position = Point::new(tl.x + 2.0, tl.y + size.height + 3.0);
                     // Halo in the canvas colour: readable on any glow.
@@ -367,15 +419,37 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
                         ..Text::default()
                     });
                 }
+                // Fan number in the middle of its ring.
+                if let Some(s) = fan
+                    && size.width.min(size.height) >= 22.0
+                {
+                    f.fill_text(Text {
+                        content: (s.part + 1).to_string(),
+                        position: Point::new(tl.x + size.width * 0.5, tl.y + size.height * 0.5),
+                        color: with_alpha(r.on_surface_variant, 0.8 * a),
+                        size: (size.width.min(size.height) * 0.28)
+                            .clamp(10.0, 18.0)
+                            .into(),
+                        align_x: iced::widget::text::Alignment::Center,
+                        align_y: iced::alignment::Vertical::Center,
+                        ..Text::default()
+                    });
+                }
             }
         });
 
         // Live LEDs (redrawn at the preview rate).
         let mut leds = CFrame::new(renderer, bounds.size());
-        // Selected device in edit mode: sampled areas and the resize handle.
-        if let Some(d) = self.selected.and_then(|i| self.scene.devices.get(i)) {
+        // Selected item in edit mode: sampled areas and the resize handle.
+        if let Some((t, p)) = self.shown_selection()
+            && let Some(d) = self.scene.devices.get(t.device)
+        {
             if self.screen_hint {
-                for g in &d.geometry {
+                let range = match t.segment.and_then(|s| d.segments.get(s)) {
+                    Some(s) => s.leds.clone(),
+                    None => 0..d.geometry.len(),
+                };
+                for g in d.geometry.get(range).unwrap_or_default() {
                     let tl = to_screen(&rect, g.x - g.rx.max(0.012), g.y - g.ry.max(0.02));
                     let br = to_screen(&rect, g.x + g.rx.max(0.012), g.y + g.ry.max(0.02));
                     leds.stroke(
@@ -387,7 +461,7 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
                 }
             }
             if self.editable {
-                let h = handle_pos(&rect, &d.placement);
+                let h = handle_pos(&rect, &p);
                 leds.fill(&Path::circle(h, HANDLE + 3.0), with_alpha(r.primary, 0.25));
                 leds.fill(&Path::circle(h, HANDLE), r.primary);
                 leds.fill(&Path::circle(h, HANDLE - 3.0), r.on_primary);
@@ -406,17 +480,39 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
             })
             .unwrap_or_default();
         for (di, d) in self.scene.devices.iter().enumerate() {
+            if self.hidden.contains(&d.info.key) {
+                continue;
+            }
             let a = self.appear.get(di).copied().unwrap_or(1.0);
             if a <= 0.001 {
                 continue;
             }
-            let n = d.leds.len().max(1) as f32;
-            let p = d.placement;
-            // LED size adapts to density so keyboards and strips both read well.
-            let area = p.w * rect.width * p.h * rect.height;
-            let led_r = ((area / n).sqrt() * 0.32).clamp(1.5, 7.0);
+            // LEDs of hidden fans are left out; each fan gets the LED size of
+            // its own ring.
+            let hidden_fans: Vec<std::ops::Range<usize>> = d
+                .segments
+                .iter()
+                .filter(|s| self.hidden.contains(&s.key))
+                .map(|s| s.leds.clone())
+                .collect();
+            let led_radius = |p: &Placement, n: usize| {
+                // LED size adapts to density so keyboards and strips both read well.
+                let area = p.w * rect.width * p.h * rect.height;
+                ((area / n.max(1) as f32).sqrt() * 0.32).clamp(1.5, 7.0)
+            };
+            let body_r = led_radius(&d.placement, d.leds.len());
             let device_colors = colors.get(&d.info.id).copied();
             for (li, &(x, y)) in d.leds.iter().enumerate() {
+                if hidden_fans.iter().any(|r| r.contains(&li)) {
+                    continue;
+                }
+                let led_r = match d.segment_of_led(li) {
+                    Some(s) => {
+                        let s = &d.segments[s];
+                        led_radius(&s.placement, s.leds.len()).min(5.5)
+                    }
+                    None => body_r,
+                };
                 let c = device_colors
                     .and_then(|cs| cs.get(li).copied())
                     .map(to_iced)
@@ -452,13 +548,17 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
             && let Some(pos) = cursor.position_in(bounds)
         {
             let rect = scene_rect(bounds.size());
-            if let Some(d) = self.selected.and_then(|i| self.scene.devices.get(i))
-                && handle_pos(&rect, &d.placement).distance(pos) <= HANDLE * 1.8
+            if let Some((_, p)) = self.shown_selection()
+                && handle_pos(&rect, &p).distance(pos) <= HANDLE * 1.8
             {
                 return mouse::Interaction::ResizingDiagonallyDown;
             }
             let (sx, sy) = to_scene(&rect, pos);
-            if self.scene.hit_test(sx, sy).is_some() {
+            if self
+                .scene
+                .hit_test(sx, sy, self.hidden, self.selected)
+                .is_some()
+            {
                 return mouse::Interaction::Grab;
             }
         }

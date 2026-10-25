@@ -1,4 +1,4 @@
-TuxRGB 2.0.7 pour Windows
+TuxRGB 3.0.0 pour Windows
 =========================
 
 FRANÇAIS
@@ -7,7 +7,9 @@ TuxRGB pour Windows 10 / 11 (64 bits) : la même application que sur Linux,
 publiée en même temps et avec les mêmes correctifs.
 
 Ce qui est identique à Linux : toute l'interface Material 3 Expressive,
-les effets, les profils, le canevas spatial et le moteur OpenRGB embarqué
+les effets, les profils, le canevas spatial (ventilateurs placés un par
+un, rotation, masquage), les lumières réseau WLED et Philips WiZ, les
+effets matériels des claviers et souris, et le moteur OpenRGB embarqué
 (OpenRGB 1.1, lancé par TuxRGB comme serveur privé).
 
 Ce qui est propre à Windows :
@@ -15,9 +17,11 @@ Ce qui est propre à Windows :
   - Synchro écran : écran principal (les jeux en plein écran exclusif
     restent noirs : utilisez le mode « fenêtré sans bordure »).
   - Zone de notification : icône Windows avec le même menu.
-  - Extinction / veille : les LED passent à 0 % à l'arrêt, au redémarrage,
-    à la fermeture de session et à la mise en veille, puis reviennent au
-    réveil et au démarrage suivant.
+  - Extinction / veille : toutes les LED (carte mère et ventilateurs
+    compris) passent à 0 % à l'arrêt, au redémarrage, à la fermeture de
+    session et à la mise en veille, en moins d'une demi-seconde (Windows
+    n'est jamais ralenti), puis reviennent au réveil et au démarrage
+    suivant.
   - Couleur d'accentuation : celle de Windows (Paramètres →
     Personnalisation → Couleurs), suivie en direct, ainsi que le mode
     clair / sombre.
@@ -51,11 +55,14 @@ TuxRGB for Windows 10 / 11 (64-bit): the same application as on Linux,
 released at the same time with the same fixes.
 
 Same as on Linux: the whole Material 3 Expressive interface, effects,
-profiles, spatial canvas and the embedded OpenRGB 1.1 engine.
+profiles, spatial canvas (fans placed one by one, rotation, hiding), WLED
+and Philips WiZ network lights, keyboard / mouse hardware effects and the
+embedded OpenRGB 1.1 engine.
 
 Windows specifics: WASAPI audio capture, primary-monitor screen sync,
-Windows tray icon, LEDs off at shutdown / logoff / sleep (back on resume
-and at the next start), live Windows accent colour and light/dark mode.
+Windows tray icon, every LED off at shutdown / logoff / sleep in under
+half a second (back on resume and at the next start), live Windows accent
+colour and light/dark mode.
 Motherboard and RAM need the PawnIO driver and administrator rights
 (the installer can set both up; otherwise Settings → Hardware access →
 Set up access).
