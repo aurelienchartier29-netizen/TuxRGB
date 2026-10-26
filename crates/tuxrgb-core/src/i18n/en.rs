@@ -1512,8 +1512,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Open protocols from liquidctl, deepcool-digital-linux and OpenLinkHub (GPL-3.0). Close NZXT CAM, iCUE or the DeepCool software: one program at a time.",
     ),
     (
-        "Sous Windows, la température et la puissance du CPU (ainsi que les capteurs des cartes graphiques AMD et Intel) sont lues dans LibreHardwareMonitor quand il est ouvert : Windows ne les donne à aucun programme sans pilote.",
-        "On Windows, the CPU temperature and power (and the sensors of AMD and Intel graphics cards) are read from LibreHardwareMonitor while it is open: Windows gives them to no program without a driver.",
+        "Sous Windows, la charge et la température du GPU viennent de Windows (comme dans le Gestionnaire des tâches) ; la température et la puissance du CPU sont lues par le pilote PawnIO en mode administrateur, ou dans LibreHardwareMonitor s'il est ouvert.",
+        "On Windows, the GPU load and temperature come from Windows (as in the Task Manager); the CPU temperature and power are read through the PawnIO driver in administrator mode, or from LibreHardwareMonitor while it is open.",
     ),
     ("Aucun afficheur", "No display"),
     (

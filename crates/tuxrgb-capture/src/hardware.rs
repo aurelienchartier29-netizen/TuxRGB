@@ -43,6 +43,12 @@ mod windows_sensors;
 #[path = "hardware_lhm.rs"]
 mod lhm;
 
+#[path = "hardware_pdh.rs"]
+mod pdh;
+
+#[path = "hardware_pawnio.rs"]
+mod pawnio;
+
 pub struct HardwareMonitor {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,

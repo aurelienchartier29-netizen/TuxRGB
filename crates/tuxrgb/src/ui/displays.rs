@@ -467,9 +467,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if cfg!(windows) {
         notes = notes.push(
             small(
-                "Sous Windows, la température et la puissance du CPU (ainsi que les capteurs \
-                 des cartes graphiques AMD et Intel) sont lues dans LibreHardwareMonitor quand \
-                 il est ouvert : Windows ne les donne à aucun programme sans pilote.",
+                "Sous Windows, la charge et la température du GPU viennent de Windows \
+                 (comme dans le Gestionnaire des tâches) ; la température et la puissance \
+                 du CPU sont lues par le pilote PawnIO en mode administrateur, ou dans \
+                 LibreHardwareMonitor s'il est ouvert.",
             )
             .color(r.on_surface_variant),
         );

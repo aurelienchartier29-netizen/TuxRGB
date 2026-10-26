@@ -7,11 +7,21 @@
 //! * GPU temperature / load / power / clock – `nvidia-smi` (installed with
 //!   the NVIDIA driver), as on Linux;
 //! * CPU temperature and power, sensors of AMD and Intel graphics cards –
-//!   LibreHardwareMonitor through WMI, when it runs (see `hardware_lhm.rs`).
+//!   LibreHardwareMonitor through WMI, when it runs (see `hardware_lhm.rs`);
+//! * GPU load of any card – the "GPU Engine" counters of the Task Manager
+//!   (see `hardware_pdh.rs`), when nothing above gave it;
+//! * GPU temperature of any card – the graphics kernel, as the Task Manager
+//!   (see `hardware_d3dkmt.rs`), when nothing above gave it;
+//! * CPU temperature and power – PawnIO (installed with TuxRGB) in
+//!   administrator mode (see `hardware_pawnio.rs`), when LibreHardwareMonitor
+//!   does not run.
 //!
 //! Windows exposes no CPU temperature without a kernel driver: without
 //! LibreHardwareMonitor the effect follows the CPU load, exactly like on a
 //! Linux machine whose sensor is unreadable.
+
+#[path = "hardware_d3dkmt.rs"]
+mod d3dkmt;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -182,6 +192,10 @@ fn sample_until_stopped(inputs: &SharedInputs, stop: &AtomicBool, period: Durati
     let mut cpu = CpuLoad::default();
     let mut nvidia: Option<(Instant, super::NvidiaReading)> = None;
     let mut monitor = Monitor::default();
+    let gpu_counters = super::pdh::GpuCounters::open();
+    let gpu_kernel = d3dkmt::GpuKernel::open();
+    let mut cpu_sensors = super::pawnio::CpuSensors::open();
+    tracing::info!(gpu_counters = gpu_counters.is_some(), "GPU engine counters");
     while !stop.load(Ordering::Relaxed) {
         let mem = memory();
         let mut sample = HardwareSample {
@@ -214,6 +228,19 @@ fn sample_until_stopped(inputs: &SharedInputs, stop: &AtomicBool, period: Durati
             sample.gpu_load = sample.gpu_load.or(m.gpu_load);
             sample.gpu_power = sample.gpu_power.or(m.gpu_power);
             sample.gpu_freq = sample.gpu_freq.or(m.gpu_freq);
+        }
+        // Read every period (a rate since the previous collection).
+        let engines = gpu_counters.as_ref().and_then(|c| c.read());
+        sample.gpu_load = sample.gpu_load.or(engines);
+        if let Some(c) = cpu_sensors.as_mut() {
+            let power = c.power();
+            if sample.cpu_temp.is_none() {
+                sample.cpu_temp = c.temperature();
+            }
+            sample.cpu_power = sample.cpu_power.or(power);
+        }
+        if sample.gpu_temp.is_none() {
+            sample.gpu_temp = gpu_kernel.as_ref().and_then(|k| k.temperature());
         }
         inputs.set_hardware(Some(sample));
         std::thread::park_timeout(period);

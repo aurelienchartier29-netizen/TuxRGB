@@ -54,9 +54,13 @@ GPU, Wayland (MIT), le serveur de notifications de votre bureau.
   registre, WinRT `UISettings` — lié à `tuxrgb.exe`.
 * [NSIS](https://nsis.sourceforge.io/) (zlib/libpng) : l'installateur
   `TuxRGB-…-Windows-Setup.exe`.
-* Téléchargés par l'installateur depuis leurs sources officielles, jamais
-  redistribués par TuxRGB : OpenRGB 1.1 pour Windows (GPL-2.0-or-later, avec
-  Qt 6 LGPL-3.0) et le pilote [PawnIO](https://pawnio.eu) (namazso).
+* Téléchargé par TuxRGB à l'installation depuis sa source officielle :
+  OpenRGB 1.1 pour Windows (GPL-2.0-or-later, avec Qt 6 LGPL-3.0).
+* Inclus tels quels, signés par leur auteur : l'installateur du pilote
+  [PawnIO](https://pawnio.eu) (namazso, GPL-2.0-or-later) et deux de ses
+  [modules officiels](https://github.com/namazso/PawnIO.Modules)
+  (`AMDFamily17`, `IntelMSR`, LGPL-2.1) pour la température et la puissance
+  du CPU, comme dans LibreHardwareMonitor.
 * Utilisés sur le système : WASAPI, GDI, le Planificateur de tâches et
   l'Explorateur Windows.
 

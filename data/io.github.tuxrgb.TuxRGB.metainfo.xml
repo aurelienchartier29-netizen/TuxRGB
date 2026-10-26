@@ -96,6 +96,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.1.2" date="2026-10-25">
+      <description>
+        <p>Windows: GPU load and temperature of any graphics card, CPU temperature and power without extra software.</p>
+        <ul>
+          <li>GPU load from the GPU engine counters and GPU temperature from the graphics kernel, as in the Task Manager: AMD, NVIDIA and Intel cards</li>
+          <li>CPU temperature and package power of AMD Ryzen and Intel Core processors through the signed PawnIO driver, in administrator mode</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.1.1" date="2026-10-25">
       <description>
         <p>Windows installer without any script, so that Windows Defender no longer flags it.</p>

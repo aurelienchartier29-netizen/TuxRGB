@@ -63,13 +63,13 @@ cd dist
 ```
 
 Gear Lever (préinstallé sur Bazzite) peut aussi intégrer
-`TuxRGB-3.1.1-x86_64.AppImage` au menu.
+`TuxRGB-3.1.2-x86_64.AppImage` au menu.
 
 ### Autres distributions
 
 ```sh
-chmod +x dist/TuxRGB-3.1.1-x86_64.AppImage
-./dist/TuxRGB-3.1.1-x86_64.AppImage
+chmod +x dist/TuxRGB-3.1.2-x86_64.AppImage
+./dist/TuxRGB-3.1.2-x86_64.AppImage
 ```
 
 L'AppImage nécessite glibc ≥ 2.39 (Fedora 40+, Ubuntu 24.04+, Debian 13,
@@ -181,12 +181,12 @@ l'état du premier lancement et relance l'assistant (utile après un changement
 de carte mère, de RAM ou de périphérique). Même chose en ligne de commande :
 `tuxrgb --reset-hardware`.
 
-## Windows — `TuxRGB-3.1.1-Windows-Setup.exe`
+## Windows — `TuxRGB-3.1.2-Windows-Setup.exe`
 
 La version Windows (10 / 11, 64 bits) est publiée **en même temps que Linux,
 dans la même release**, avec les mêmes correctifs.
 
-**Installation** : télécharger `TuxRGB-3.1.1-Windows-Setup.exe` (page
+**Installation** : télécharger `TuxRGB-3.1.2-Windows-Setup.exe` (page
 Releases), double-cliquer, suivre l'installateur. Il installe TuxRGB dans
 `C:\Program Files\TuxRGB`, crée les raccourcis, puis :
 
@@ -227,13 +227,13 @@ lumières réseau WLED / Philips WiZ et le moteur OpenRGB. Ce qui **change**, pa
 | Instance unique : D-Bus | Mutex nommé + `WM_COPYDATA` |
 | Démarrage avec la session : `~/.config/autostart` | Clé `HKCU\…\Run` |
 | Accès matériel : udev, i2c-dev, Polkit | PawnIO + mode administrateur (UAC une seule fois) |
-| Capteurs : hwmon, `/proc`, RAPL | Charge et fréquence CPU, mémoire ; GPU NVIDIA via `nvidia-smi` ; température et puissance du CPU, cartes AMD / Intel via **LibreHardwareMonitor** (WMI) quand il est ouvert |
+| Capteurs : hwmon, `/proc`, RAPL | Charge et fréquence CPU, mémoire ; charge et température de toute carte graphique par Windows (compteurs du Gestionnaire des tâches, noyau graphique), détails NVIDIA via `nvidia-smi` ; température et puissance du CPU (Ryzen, Intel Core) par le pilote signé **PawnIO** en mode administrateur, ou **LibreHardwareMonitor** s'il est ouvert |
 
 Compiler la version Windows :
 
 ```sh
 # Depuis Linux (compilation croisée) : mingw-w64 + nsis
-bash scripts/windows/build-windows.sh    # → dist/TuxRGB-3.1.1-Windows-Setup.exe
+bash scripts/windows/build-windows.sh    # → dist/TuxRGB-3.1.2-Windows-Setup.exe
 ```
 
 ```powershell
