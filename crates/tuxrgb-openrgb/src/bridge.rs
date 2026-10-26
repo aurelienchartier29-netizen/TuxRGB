@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 use tuxrgb_core::engine::Frame;
+use tuxrgb_core::led_color::ColorLut;
 use tuxrgb_core::{DeviceInfo, DeviceKey, DeviceKind, Rgb, ZoneInfo, ZoneKind};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -39,6 +40,10 @@ pub struct BridgeConfig {
     /// WLED and Philips WiZ lights, written into the embedded server's
     /// settings before it starts (see [`crate::network`]).
     pub network: crate::network::NetworkLights,
+    /// Colour correction of the LEDs (gamma, white balance), applied to
+    /// every colour written to the hardware; the frames themselves keep the
+    /// colours as shown in the interface.
+    pub calibration: tuxrgb_core::led_color::LedCalibration,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -99,6 +104,9 @@ pub enum BridgeCommand {
     /// Re-enter direct mode on every device and resend the current frame
     /// (after resume from sleep: some controllers reset themselves).
     Reapply,
+    /// See [`BridgeConfig::calibration`]: the current frame is written again
+    /// with it at once.
+    SetCalibration(tuxrgb_core::led_color::LedCalibration),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -186,6 +194,9 @@ pub async fn run(
                                     config.hardware_modes = h
                                 }
                                 Ok(Some(BridgeCommand::SetNetwork(n))) => config.network = n,
+                                Ok(Some(BridgeCommand::SetCalibration(c))) => {
+                                    config.calibration = c
+                                }
                                 // No engine, no LED driven: dark already, the
                                 // system must not wait for it.
                                 Ok(Some(BridgeCommand::Blackout(Some(n)))) => n.notify_one(),
@@ -241,6 +252,7 @@ pub async fn run(
                     Some(BridgeCommand::SetMode(m)) => { config.mode = m; server = None; continue 'outer; }
                     Some(BridgeCommand::SetDisabled(d)) => config.disabled = d,
                     Some(BridgeCommand::SetHardwareModes(h)) => config.hardware_modes = h,
+                    Some(BridgeCommand::SetCalibration(c)) => config.calibration = c,
                     Some(BridgeCommand::SetNetwork(n)) => {
                         let changed = n != config.network;
                         config.network = n;
@@ -405,6 +417,8 @@ struct Managed {
     deferred_until: Option<Instant>,
     /// Frame devices to write this frame (indices, reused buffer).
     pending: Vec<usize>,
+    /// [`BridgeConfig::calibration`] as a table.
+    lut: Arc<ColorLut>,
 }
 
 /// A controller left to a hardware effect.
@@ -731,6 +745,8 @@ fn push_frame_pipe<'a>(
     only: Option<u32>,
 ) -> BoxFut<'a, Result<(), String>> {
     Box::pin(async move {
+        let lut = managed.lut.clone();
+        let to_color = |c: Rgb| to_color(lut.apply(c));
         for dev in &frame.devices {
             if only.is_some_and(|id| id != dev.id) {
                 continue;
@@ -908,6 +924,13 @@ fn session<'a>(
                             Err(e) => return SessionEnd::Lost(e),
                         };
                         publish_devices(&managed, config, protocol, server_label, send);
+                        frames.mark_changed();
+                    }
+                    Some(BridgeCommand::SetCalibration(c)) => {
+                        config.calibration = c;
+                        managed.lut = Arc::new(c.lut());
+                        // Everything is written again with the new table.
+                        managed.last_sent.clear();
                         frames.mark_changed();
                     }
                     Some(BridgeCommand::SetDisabled(d)) => {
@@ -1168,6 +1191,7 @@ fn load<'a>(
             last_sent: Vec::new(),
             deferred_until: None,
             pending: Vec::new(),
+            lut: Arc::new(config.calibration.lut()),
         })
     })
 }
@@ -1336,6 +1360,8 @@ fn push_frame<'a>(
         // and copied into the reused `last_sent` buffers once written.
         let mut pending = std::mem::take(&mut managed.pending);
         pending.clear();
+        let lut = managed.lut.clone();
+        let to_color = |c: Rgb| to_color(lut.apply(c));
         let mut mode_updates: Option<Vec<(u32, openrgb2::Color)>> = None;
         for (index, dev) in frame.devices.iter().enumerate() {
             let Some(target) = managed.active.get(&dev.id) else {

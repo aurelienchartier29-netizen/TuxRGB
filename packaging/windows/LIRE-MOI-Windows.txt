@@ -1,4 +1,4 @@
-TuxRGB 3.1.2 pour Windows
+TuxRGB 3.1.3 pour Windows
 =========================
 
 FRANÇAIS

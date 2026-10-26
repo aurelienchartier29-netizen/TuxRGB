@@ -96,6 +96,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.1.3" date="2026-10-26">
+      <description>
+        <p>The LEDs show the same colours as the app.</p>
+        <ul>
+          <li>LED colour correction, on by default: the colours go through the screen's curve (gamma) and a white balance before reaching the hardware, so a pink stays pink instead of turning purple and pastels are no longer washed out</li>
+          <li>Settings, LED colours: gamma, red, green and blue weights, and a white test to set a neutral white</li>
+          <li>The brightness slider keeps its feel</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.1.2" date="2026-10-25">
       <description>
         <p>Windows: GPU load and temperature of any graphics card, CPU temperature and power without extra software.</p>

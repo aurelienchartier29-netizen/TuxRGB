@@ -7,6 +7,7 @@
 //! * [`device`] – the hardware model exposed by the OpenRGB bridge,
 //! * [`layout`] – the 2D "setup canvas" (device placement and LED positions),
 //! * [`lighting`] – per-zone / per-fan colours on top of the effect,
+//! * [`led_color`] – LED colour correction (gamma, white balance),
 //! * [`effects`] – every lighting effect, its parameters and its renderer,
 //! * [`signal`] – audio spectrum / screen frame inputs for reactive effects,
 //! * [`engine`] – the fixed-rate, sleep-when-idle effect engine thread,
@@ -18,6 +19,7 @@ pub mod effects;
 pub mod engine;
 pub mod i18n;
 pub mod layout;
+pub mod led_color;
 pub mod lighting;
 pub mod oklab;
 pub mod process;

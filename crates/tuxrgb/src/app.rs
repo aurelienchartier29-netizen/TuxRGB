@@ -383,6 +383,14 @@ pub enum Message {
     SetMotion(MotionPref),
     SetAnimationSpeed(f32),
     SetTransitions(bool),
+    /// LED colour correction (Réglages → Couleurs des LED).
+    LedColorEnabled(bool),
+    LedGamma(f32),
+    /// Weight of one channel (0 red, 1 green, 2 blue).
+    LedWhite(usize, f32),
+    LedColorReset,
+    /// Every LED in white while on, to set the white balance.
+    LedTestWhite(bool),
     SetLanguage(LanguagePref),
     SetFps(u32),
     SetRenderer(RendererPref),
@@ -455,6 +463,8 @@ pub enum Message {
 
 pub struct App {
     pub config: Config,
+    /// [`Message::LedTestWhite`] (never saved: off when leaving Réglages).
+    pub led_test_white: bool,
     pub onboarding: Onboarding,
     pub wizard: Option<Wizard>,
     pub page: Page,
@@ -660,6 +670,7 @@ impl App {
             own_picker_seen: None,
             license: None,
             restart_required: false,
+            led_test_white: false,
             config_dirty: false,
             quitting: false,
             window_focused: false,
@@ -1631,6 +1642,29 @@ impl App {
             disabled: self.config.disabled_devices.clone(),
             hardware_modes: self.config.hardware_modes.clone(),
             network: self.config.network.clone(),
+            calibration: self.config.led_color,
+        }
+    }
+
+    /// The LED colour correction changed: the bridge writes the colours
+    /// through it, the engine keeps the brightness slider's feel.
+    fn push_led_color(&mut self) {
+        self.config.led_color = self.config.led_color.sanitized();
+        if let Some(s) = &self.services {
+            s.bridge(BridgeCommand::SetCalibration(self.config.led_color));
+            s.engine(EngineCommand::SetLedGamma(
+                self.config.led_color.effective_gamma(),
+            ));
+        }
+        self.mark_dirty();
+    }
+
+    fn set_test_white(&mut self, on: bool) {
+        if on != self.led_test_white {
+            self.led_test_white = on;
+            if let Some(s) = &self.services {
+                s.engine(EngineCommand::SetTestWhite(on));
+            }
         }
     }
 
@@ -1691,6 +1725,8 @@ impl App {
                 | Message::CanvasMove(..)
                 | Message::SetBrightness(_)
                 | Message::SetSaturation(_)
+                | Message::LedGamma(_)
+                | Message::LedWhite(..)
                 | Message::SetParam(..)
                 | Message::SetOwnParam(..)
                 | Message::DisplayInterval(..)
@@ -1846,6 +1882,8 @@ impl App {
         match message {
             Message::Navigate(page) => {
                 if page != self.page {
+                    // The white test belongs to the settings page.
+                    self.set_test_white(false);
                     self.page = page;
                     self.settings_view = SettingsView::Main;
                     self.picker = None;
@@ -2101,6 +2139,19 @@ impl App {
                     "settings" => {
                         let _ = self.update(Message::Navigate(Page::Settings));
                     }
+                    "settings-led" => {
+                        // The LED colour correction, right under Apparence.
+                        return Task::batch([
+                            iced::widget::operation::snap_to(
+                                ui::settings::SCROLL_ID,
+                                iced::widget::scrollable::RelativeOffset { x: 0.0, y: 0.16 },
+                            ),
+                            Task::perform(
+                                tokio::time::sleep(Duration::from_millis(1800)),
+                                move |_| Message::TourShoot(i),
+                            ),
+                        ]);
+                    }
                     "settings-network" => {
                         // A WLED strip and a WiZ bulb added, another bulb
                         // found by a search.
@@ -2127,7 +2178,7 @@ impl App {
                         return Task::batch([
                             iced::widget::operation::snap_to(
                                 ui::settings::SCROLL_ID,
-                                iced::widget::scrollable::RelativeOffset { x: 0.0, y: 0.56 },
+                                iced::widget::scrollable::RelativeOffset { x: 0.0, y: 0.61 },
                             ),
                             Task::perform(
                                 tokio::time::sleep(Duration::from_millis(1800)),
@@ -2222,6 +2273,7 @@ impl App {
             }
             Message::WindowClosed(id) => {
                 if self.window == Some(id) {
+                    self.set_test_white(false);
                     self.window = None;
                     self.window_focused = false;
                     if std::mem::take(&mut self.reopen_pending) {
@@ -3155,6 +3207,38 @@ impl App {
                 self.mark_dirty();
                 Task::none()
             }
+            Message::LedColorEnabled(on) => {
+                self.config.led_color.enabled = on;
+                self.push_led_color();
+                Task::none()
+            }
+            Message::LedGamma(g) => {
+                if (g - self.config.led_color.gamma).abs() < 1e-3 {
+                    return Task::none();
+                }
+                self.config.led_color.gamma = g;
+                self.push_led_color();
+                Task::none()
+            }
+            Message::LedWhite(ch, v) => {
+                if let Some(w) = self.config.led_color.white.get_mut(ch) {
+                    if (v - *w).abs() < 1e-3 {
+                        return Task::none();
+                    }
+                    *w = v;
+                    self.push_led_color();
+                }
+                Task::none()
+            }
+            Message::LedColorReset => {
+                self.config.led_color = tuxrgb_core::led_color::LedCalibration::default();
+                self.push_led_color();
+                Task::none()
+            }
+            Message::LedTestWhite(on) => {
+                self.set_test_white(on);
+                Task::none()
+            }
             Message::SetTransitions(on) => {
                 self.config.smooth_transitions = on;
                 if let Some(s) = &self.services {
@@ -3750,6 +3834,9 @@ impl App {
                 ));
                 handle.engine(EngineCommand::SetBrightness(self.config.brightness));
                 handle.engine(EngineCommand::SetSaturation(self.config.saturation));
+                handle.engine(EngineCommand::SetLedGamma(
+                    self.config.led_color.effective_gamma(),
+                ));
                 handle.engine(EngineCommand::SetFps(self.config.fps));
                 handle.engine(EngineCommand::SetAccent(self.desktop_accent()));
                 handle.engine(EngineCommand::SetOutputEnabled {

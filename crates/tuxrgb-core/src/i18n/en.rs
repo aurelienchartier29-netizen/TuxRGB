@@ -880,6 +880,29 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Expressives", "Expressive"),
     ("Réduites", "Reduced"),
     ("Transitions douces des LED", "Smooth LED transitions"),
+    ("Couleurs des LED", "LED colours"),
+    ("Couleurs fidèles à l'écran", "Colours true to the screen"),
+    (
+        "Corrige la courbe et la balance des blancs des LED pour qu'elles montrent les mêmes couleurs que l'application (sans correction, un rose part vers le violet et les teintes pastel paraissent délavées).",
+        "Corrects the curve and the white balance of the LEDs so that they show the same colours as the app (without it, a pink drifts to purple and pastel shades look washed out).",
+    ),
+    ("Gamma", "Gamma"),
+    (
+        "Plus haut : couleurs plus franches, demi-teintes plus sombres. 2,2 correspond à un écran.",
+        "Higher: bolder colours, darker half-tones. 2.2 matches a screen.",
+    ),
+    ("Rouge", "Red"),
+    ("Vert", "Green"),
+    ("Bleu", "Blue"),
+    (
+        "Part du {} dans le blanc des LED.",
+        "Share of {} in the white of the LEDs.",
+    ),
+    ("Blanc de test", "White test"),
+    (
+        "Allume toutes les LED en blanc : réglez le vert et le bleu jusqu'à obtenir un blanc neutre, sans reflet bleuté ni verdâtre.",
+        "Lights every LED in white: adjust green and blue until the white is neutral, with no blue or green cast.",
+    ),
     (
         "Fondus entre couleurs, effets, préréglages et accent du bureau sur tout le matériel.",
         "Crossfades between colours, effects, presets and the desktop accent on all hardware.",

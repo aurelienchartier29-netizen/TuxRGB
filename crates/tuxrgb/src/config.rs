@@ -185,6 +185,9 @@ pub struct Config {
     pub saturation: f32,
     /// Crossfades between colours, effects and presets.
     pub smooth_transitions: bool,
+    /// Colour correction of the LEDs (3.1.3): on by default, also for a
+    /// configuration written by an older TuxRGB.
+    pub led_color: tuxrgb_core::led_color::LedCalibration,
     pub language: LanguagePref,
     pub output_enabled: bool,
     pub fps: u32,
@@ -268,6 +271,7 @@ impl Default for Config {
             brightness: 1.0,
             saturation: 1.0,
             smooth_transitions: true,
+            led_color: Default::default(),
             language: LanguagePref::System,
             output_enabled: true,
             fps: 60,
@@ -355,6 +359,7 @@ impl Config {
         c.fps = c.fps.clamp(10, 144);
         c.brightness = c.brightness.clamp(0.0, 1.0);
         c.saturation = c.saturation.clamp(0.0, 2.0);
+        c.led_color = c.led_color.sanitized();
         c
     }
 

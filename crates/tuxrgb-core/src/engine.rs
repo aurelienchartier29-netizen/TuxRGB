@@ -306,6 +306,13 @@ pub enum EngineCommand {
     SetBrightness(f32),
     /// Global saturation, `0..=2` (`1` = colours as rendered, `2` = 200 %).
     SetSaturation(f32),
+    /// Gamma the colours will go through on their way to the LEDs
+    /// ([`crate::led_color::LedCalibration::effective_gamma`], `1` = none):
+    /// the brightness slider is mapped so that its feel does not change.
+    SetLedGamma(f32),
+    /// Every LED in plain white (at the brightness of the slider), to set
+    /// the white balance of the LEDs.
+    SetTestWhite(bool),
     SetFps(u32),
     /// Desktop accent colour (faded in over ~1.2 s when it changes).
     SetAccent(Rgb),
@@ -406,14 +413,18 @@ pub fn spawn(
     }
 }
 
-/// Maps the brightness slider (`0..=1`) to an LED intensity factor.
+/// Maps the brightness slider (`0..=1`) to the factor applied to the
+/// colours.
 ///
-/// LEDs are driven linearly (PWM) but the eye is not: a gamma-2 curve makes
-/// 50 % on the slider look roughly half as bright instead of barely dimmer.
+/// LEDs are driven linearly (PWM) but the eye is not: the light must follow
+/// the square of the slider so that 50 % looks roughly half as bright
+/// instead of barely dimmer. The colours are scaled before the LED colour
+/// correction raises them to its gamma, hence `slider^(2 / gamma)`
+/// (`exponent`, see [`crate::led_color::LedCalibration::level_exponent`]):
+/// `2` without correction.
 #[inline]
-pub fn perceived_level(slider: f32) -> f32 {
-    let s = slider.clamp(0.0, 1.0);
-    s * s
+pub fn perceived_level(slider: f32, exponent: f32) -> f32 {
+    slider.clamp(0.0, 1.0).powf(exponent.clamp(0.5, 2.0))
 }
 
 /// Keep-alive interval for non-animated effects: some controllers fall back
@@ -493,6 +504,10 @@ struct Engine {
     saturation: f32,
     /// Memo of the saturation of the colours of the last frames.
     saturation_cache: SaturationCache,
+    /// See [`perceived_level`].
+    level_exponent: f32,
+    /// [`EngineCommand::SetTestWhite`].
+    test_white: bool,
     /// A slider moved: render now instead of at the next frame tick.
     urgent: bool,
     fps: u32,
@@ -542,6 +557,8 @@ impl Engine {
             brightness_target: config.brightness.clamp(0.0, 1.0),
             saturation: config.saturation.clamp(0.0, 2.0),
             saturation_cache: SaturationCache::default(),
+            level_exponent: 2.0,
+            test_white: false,
             urgent: false,
             fps: config.fps.clamp(1, 240),
             accent: config.accent,
@@ -727,6 +744,21 @@ impl Engine {
             EngineCommand::SetSaturation(s) => {
                 self.saturation = s.clamp(0.0, 2.0);
                 self.urgent = true;
+            }
+            EngineCommand::SetLedGamma(g) => {
+                let g = if g.is_finite() {
+                    g.clamp(1.0, 3.0)
+                } else {
+                    1.0
+                };
+                self.level_exponent = 2.0 / g;
+                self.urgent = true;
+            }
+            EngineCommand::SetTestWhite(on) => {
+                if on != self.test_white {
+                    self.begin_fade(fades::PARAMS);
+                }
+                self.test_white = on;
             }
             EngineCommand::SetFps(fps) => {
                 self.fps = fps.clamp(1, 240);
@@ -919,13 +951,16 @@ impl Engine {
             // a brightness setting.
             // Fixed colours / dark parts replace the effect where set.
             apply_lighting(&mut self.buffer, &self.scene.lighting);
-            let level = perceived_level(self.brightness);
+            let level = perceived_level(self.brightness, self.level_exponent);
             grade(
                 &mut self.buffer,
                 self.saturation,
                 level,
                 &mut self.saturation_cache,
             );
+            if self.test_white {
+                self.buffer.fill(Rgb::WHITE.scale(level));
+            }
             if let Some(b) = &mut self.backdrop {
                 // No device kinds: per-device choices use their defaults.
                 let ctx = FrameContext {

@@ -54,6 +54,11 @@ async fn streams_frames_to_a_real_openrgb_server() {
         disabled: BTreeSet::new(),
         hardware_modes: Default::default(),
         network: Default::default(),
+        // Raw colours: the test compares what the server received.
+        calibration: tuxrgb_core::led_color::LedCalibration {
+            enabled: false,
+            ..Default::default()
+        },
     };
     // Same entry point as the app: dedicated I/O thread + current-thread runtime.
     let thread = tuxrgb_openrgb::bridge::spawn_thread(config, frame_rx, cmd_rx, ev_tx)
@@ -127,6 +132,41 @@ async fn streams_frames_to_a_real_openrgb_server() {
             &colors[..colors.len().min(3)]
         );
     }
+
+    // LED colour correction: the same frame, written again through the
+    // table at once (no new frame needed), as the hardware gets it.
+    let calibration = tuxrgb_core::led_color::LedCalibration::default();
+    cmd_tx
+        .send(BridgeCommand::SetCalibration(calibration))
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    let lut = calibration.lut();
+    let group = client.get_all_controllers().await.expect("controllers");
+    for (d, sent) in devices.iter().zip(palette) {
+        let expected = lut.apply(sent);
+        let c = group
+            .iter()
+            .find(|c| c.id() as u32 == d.id)
+            .expect("controller still present");
+        assert!(
+            c.colors()
+                .iter()
+                .all(|x| x.r == expected.r && x.g == expected.g && x.b == expected.b),
+            "{} calibrated: {:?} expected {expected:?}",
+            d.name,
+            &c.colors()[..c.colors().len().min(3)]
+        );
+    }
+    // Back to raw colours for the rest of the test.
+    cmd_tx
+        .send(BridgeCommand::SetCalibration(
+            tuxrgb_core::led_color::LedCalibration {
+                enabled: false,
+                ..Default::default()
+            },
+        ))
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     // ARGB header: the motherboard has an empty resizable zone (0..=100).
     let mobo = devices
@@ -499,6 +539,10 @@ async fn network_lights_through_openrgb() {
                 host: "127.0.0.1".into(),
                 warm_white: false,
             }],
+        },
+        calibration: tuxrgb_core::led_color::LedCalibration {
+            enabled: false,
+            ..Default::default()
         },
     };
     let thread = tuxrgb_openrgb::bridge::spawn_thread(config, frame_rx, cmd_rx, ev_tx)

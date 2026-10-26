@@ -236,6 +236,125 @@ fn appearance(app: &App) -> Element<'_, Message> {
     )
 }
 
+/// One slider of the LED colour correction, with its value on the right.
+fn led_slider<'a>(
+    app: &'a App,
+    range: std::ops::RangeInclusive<f32>,
+    value: f32,
+    stop: f32,
+    format: fn(f32) -> String,
+    tint: Option<iced::Color>,
+    on_change: impl Fn(f32) -> Message + 'a,
+) -> Element<'a, Message> {
+    let r = &app.roles;
+    let mut colors = super::motion::SliderColors::standard(r);
+    if let Some(t) = tint {
+        colors.active = t;
+        colors.handle = t;
+    }
+    row![
+        container(
+            super::motion::slider(range, value, on_change)
+                .step(0.01)
+                .stops(&[stop])
+                .format(format)
+                .colors(colors)
+                .height(40.0),
+        )
+        .width(Length::Fixed(260.0)),
+        iced::widget::text(format(value))
+            .size(14.0)
+            .color(r.on_surface_variant)
+            .width(Length::Fixed(52.0))
+            .align_x(iced::alignment::Horizontal::Right),
+    ]
+    .spacing(space::S)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+/// LED colour correction: the LEDs show the colours of the interface.
+fn led_colors(app: &App) -> Element<'_, Message> {
+    use tuxrgb_core::led_color::{DEFAULT_GAMMA, DEFAULT_WHITE, GAMMA_RANGE};
+    let r = &app.roles;
+    let c = &app.config.led_color;
+    let mut rows = vec![setting_row(
+        icons::COLORIZE,
+        "Couleurs fidèles à l'écran",
+        "Corrige la courbe et la balance des blancs des LED pour qu'elles montrent les mêmes couleurs que l'application (sans correction, un rose part vers le violet et les teintes pastel paraissent délavées).",
+        switch(c.enabled, r, Message::LedColorEnabled),
+        r,
+    )];
+    if c.enabled {
+        let percent: fn(f32) -> String = |v| format!("{:.0} %", v * 100.0);
+        rows.push(setting_row(
+            icons::CONTRAST,
+            "Gamma",
+            "Plus haut : couleurs plus franches, demi-teintes plus sombres. 2,2 correspond à un écran.",
+            led_slider(
+                app,
+                GAMMA_RANGE,
+                c.gamma,
+                DEFAULT_GAMMA,
+                |v| {
+                    let s = format!("{v:.2}");
+                    if tuxrgb_core::i18n::language() == tuxrgb_core::i18n::Lang::Fr {
+                        s.replace('.', ",")
+                    } else {
+                        s
+                    }
+                },
+                None,
+                Message::LedGamma,
+            ),
+            r,
+        ));
+        let channels = [
+            ("Rouge", iced::Color::from_rgb8(0xE5, 0x39, 0x35)),
+            ("Vert", iced::Color::from_rgb8(0x43, 0xA0, 0x47)),
+            ("Bleu", iced::Color::from_rgb8(0x1E, 0x88, 0xE5)),
+        ];
+        for (ch, (name, tint)) in channels.into_iter().enumerate() {
+            rows.push(setting_row(
+                icons::OPACITY,
+                name,
+                trf!(
+                    "Part du {} dans le blanc des LED.",
+                    crate::i18n::t(name).to_lowercase()
+                ),
+                led_slider(
+                    app,
+                    0.0..=1.0,
+                    c.white[ch],
+                    DEFAULT_WHITE[ch],
+                    percent,
+                    Some(tint),
+                    move |v| Message::LedWhite(ch, v),
+                ),
+                r,
+            ));
+        }
+    }
+    rows.push(setting_row(
+        icons::LIGHTBULB,
+        "Blanc de test",
+        "Allume toutes les LED en blanc : réglez le vert et le bleu jusqu'à obtenir un blanc neutre, sans reflet bleuté ni verdâtre.",
+        row![
+            text_button(
+                "Réinitialiser",
+                ButtonKind::Text,
+                r,
+                Some(Message::LedColorReset)
+            ),
+            switch(app.led_test_white, r, Message::LedTestWhite),
+        ]
+        .spacing(space::M)
+        .align_y(Alignment::Center),
+        r,
+    ));
+    group(app, icons::PALETTE, "Couleurs des LED", rows)
+}
+
 fn performance(app: &App) -> Element<'_, Message> {
     let r = &app.roles;
     group(
@@ -1243,6 +1362,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let r = &app.roles;
     let content = column![
         appearance(app),
+        led_colors(app),
         hardware(app),
         engine(app),
         network(app),

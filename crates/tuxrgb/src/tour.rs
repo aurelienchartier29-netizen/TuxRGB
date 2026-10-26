@@ -64,6 +64,7 @@ pub const STOPS: &[&str] = &[
     "devices-hardware",
     "displays",
     "settings",
+    "settings-led",
     "settings-network",
     "settings-updates",
     "credits",
