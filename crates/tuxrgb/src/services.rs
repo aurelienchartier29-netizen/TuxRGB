@@ -69,6 +69,8 @@ pub enum ServiceCommand {
     Capture(CaptureRequest),
     /// To the hardware displays thread.
     Displays(crate::displays::Command),
+    /// To the fan control thread.
+    Fans(crate::fans::Command),
     /// Desktop notification (freedesktop): "Open" plus, optionally, the
     /// issue's own action (`(key, label)`, reported back when clicked).
     Notify {
@@ -124,6 +126,9 @@ pub enum ServiceEvent {
     ScreencastToken(Option<String>),
     /// Every hardware display, as the settings page shows it.
     Displays(Vec<crate::displays::DisplayState>),
+    Fans(crate::fans::FansState),
+    /// Every screen went off (`true`) or one came back.
+    ScreensOff(bool),
     /// A second launch asked this instance to show itself.
     Activate(crate::instance::ActivateRequest),
     /// SIGTERM / SIGINT / SIGHUP (logout, reboot, `kill`): save and stop.
@@ -152,6 +157,8 @@ enum PowerEvent {
         done: tokio::sync::oneshot::Sender<()>,
     },
     Resumed,
+    /// Every screen off (`true`) or one back on.
+    Screen(bool),
 }
 
 /// Longest time TuxRGB holds a shutdown, restart, logout or sleep back:
@@ -281,6 +288,10 @@ async fn windows_power_watch(power: mpsc::UnboundedSender<PowerEvent>) {
             PowerSignal::Suspend(answer) => (PowerKind::Sleep, answer),
             PowerSignal::EndSessionCancelled | PowerSignal::Resumed => {
                 let _ = power.send(PowerEvent::Resumed);
+                continue;
+            }
+            PowerSignal::Display(on) => {
+                let _ = power.send(PowerEvent::Screen(!on));
                 continue;
             }
         };
@@ -467,6 +478,18 @@ pub fn run() -> impl Stream<Item = ServiceEvent> {
         // WM_POWERBROADCAST).
         let (power_tx, mut power_rx) = mpsc::unbounded_channel::<PowerEvent>();
         #[cfg(target_os = "linux")]
+        {
+            // Screens off / on (KWin DPMS, Mutter, inactivity).
+            let (screen_tx, mut screen_rx) = mpsc::unbounded_channel::<bool>();
+            crate::screen_watch::spawn(screen_tx);
+            let power = power_tx.clone();
+            tokio::spawn(async move {
+                while let Some(off) = screen_rx.recv().await {
+                    let _ = power.send(PowerEvent::Screen(off));
+                }
+            });
+        }
+        #[cfg(target_os = "linux")]
         tokio::spawn(logind_watch(power_tx));
         #[cfg(windows)]
         tokio::spawn(windows_power_watch(power_tx));
@@ -500,6 +523,20 @@ pub fn run() -> impl Stream<Item = ServiceEvent> {
                 Ok(d) => Some(Arc::new(d)),
                 Err(e) => {
                     tracing::warn!("hardware displays: {e}");
+                    None
+                }
+            }
+        };
+
+        // Fan control (Linux: the root service; Windows: the chip itself).
+        let fans = {
+            let ev = ev_tx.clone();
+            match crate::fans::FanService::spawn(inputs.clone(), move |state| {
+                let _ = ev.send(ServiceEvent::Fans(state));
+            }) {
+                Ok(f) => Some(Arc::new(f)),
+                Err(e) => {
+                    tracing::warn!("fan control: {e}");
                     None
                 }
             }
@@ -572,6 +609,9 @@ pub fn run() -> impl Stream<Item = ServiceEvent> {
                         }
                         let _ = output.send(ServiceEvent::Resumed).await;
                     }
+                    PowerEvent::Screen(off) => {
+                        let _ = output.send(ServiceEvent::ScreensOff(off)).await;
+                    }
                 },
                 cmd = cmd_rx.recv() => {
                     let Some(cmd) = cmd else { break };
@@ -634,6 +674,11 @@ pub fn run() -> impl Stream<Item = ServiceEvent> {
                                 d.send(c);
                             }
                         }
+                        ServiceCommand::Fans(c) => {
+                            if let Some(f) = &fans {
+                                f.send(c);
+                            }
+                        }
                         ServiceCommand::Notify { summary, body, action } => {
                             // Never hold the service loop on the notification
                             // daemon (D-Bus activation can take seconds).
@@ -652,6 +697,13 @@ pub fn run() -> impl Stream<Item = ServiceEvent> {
                             if let Some(d) = displays.clone() {
                                 let _ = tokio::task::spawn_blocking(move || {
                                     d.release(DISPLAYS_BUDGET)
+                                })
+                                .await;
+                            }
+                            // Windows: the fans back to the motherboard.
+                            if let Some(f) = fans.clone() {
+                                let _ = tokio::task::spawn_blocking(move || {
+                                    f.release(DISPLAYS_BUDGET)
                                 })
                                 .await;
                             }

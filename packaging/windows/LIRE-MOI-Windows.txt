@@ -1,4 +1,4 @@
-TuxRGB 3.1.3 pour Windows
+TuxRGB 3.2.0 pour Windows
 =========================
 
 FRANÇAIS
@@ -25,6 +25,14 @@ Ce qui est propre à Windows :
   - Couleur d'accentuation : celle de Windows (Paramètres →
     Personnalisation → Couleurs), suivie en direct, ainsi que le mode
     clair / sombre.
+  - Écran éteint : les LED s'éteignent avec l'écran (veille de l'écran)
+    et reviennent dès qu'il se rallume (Réglages → Démarrage).
+  - Ventilation : vitesse fixe ou courbe pour les ventilateurs branchés
+    sur la carte mère (contrôleurs ITE et Nuvoton), en mode
+    administrateur avec PawnIO. Les ventilateurs sont rendus à la carte
+    mère dès que TuxRGB s'arrête, même brutalement. Sur les cartes
+    Gigabyte à deux contrôleurs, ceux du second (souvent SYS_FAN5/6,
+    pompe) sont affichés en lecture seule.
 
 Accès matériel :
   - Périphériques USB / HID (claviers, souris, contrôleurs USB) : rien à
@@ -69,8 +77,11 @@ embedded OpenRGB 1.1 engine.
 
 Windows specifics: WASAPI audio capture, primary-monitor screen sync,
 Windows tray icon, every LED off at shutdown / logoff / sleep in under
-half a second (back on resume and at the next start), live Windows accent
-colour and light/dark mode.
+half a second (back on resume and at the next start), LEDs off while the
+screen is off, live Windows accent colour and light/dark mode.
+Fans page: fixed speed or curve for motherboard fans (ITE and Nuvoton
+controllers) in administrator mode with PawnIO; fans go back to the
+motherboard as soon as TuxRGB stops, even after a crash.
 Motherboard and RAM need the PawnIO driver and administrator rights
 (the installer can set both up; otherwise Settings → Hardware access →
 Set up access).

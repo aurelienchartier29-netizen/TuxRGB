@@ -23,11 +23,18 @@
 //!   (tracked in `/var/lib/tuxrgb/installed.list`), restores any
 //!   pre-existing file and reloads udev.
 //! * `status`  – prints the current state (no root needed).
+//! * `enable-fans`, `fan-daemon`, `fan-restore` – fan control (see
+//!   [`fand`]): the service is installed by the first, run by systemd as
+//!   the second, and the third gives every fan back to the motherboard
+//!   when it stops.
 //!
 //! No path, command or option is ever taken from the caller, the environment
 //! is ignored and every external tool is called by absolute path.
 
 mod bootloader;
+mod fancurve;
+mod fand;
+mod hwmon;
 mod rules;
 mod system;
 
@@ -74,7 +81,22 @@ fn main() -> ExitCode {
             print!("{}", system::status_report());
             Ok(())
         }
-        "install" | "reset" | "enable-smbus" => {
+        // Started by systemd (root, no pkexec): the service and its restore.
+        "fan-daemon" | "fan-restore" => {
+            if !system::is_root() {
+                eprintln!("tuxrgb-helper: must be run as root (systemd)");
+                return ExitCode::from(code::NOT_ROOT);
+            }
+            system::harden_process();
+            system::sanitize_environment();
+            if verb == "fan-restore" {
+                fand::restore(fand::RESTORE_PATH);
+                Ok(())
+            } else {
+                fand::daemon().map_err(|e| (code::IO, e))
+            }
+        }
+        "install" | "reset" | "enable-smbus" | "enable-fans" => {
             if !system::is_root() {
                 eprintln!("tuxrgb-helper: must be run as root (through pkexec)");
                 return ExitCode::from(code::NOT_ROOT);
@@ -95,6 +117,7 @@ fn main() -> ExitCode {
             match verb {
                 "install" => install(),
                 "enable-smbus" => enable_smbus(),
+                "enable-fans" => enable_fans(&caller),
                 _ => reset(),
             }
         }
@@ -118,7 +141,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> ExitCode {
-    eprintln!("usage: tuxrgb-helper install|enable-smbus|reset|status");
+    eprintln!("usage: tuxrgb-helper install|enable-smbus|enable-fans|reset|status");
     ExitCode::from(code::USAGE)
 }
 
@@ -332,6 +355,128 @@ fn enable_smbus() -> HelperResult {
     Ok(())
 }
 
+/// A motherboard fan header can be driven.
+fn board_fans(h: &hwmon::Hwmon) -> bool {
+    h.fans
+        .iter()
+        .any(|f| f.controllable() && hwmon::chip_kind(&f.chip) == "motherboard")
+}
+
+/// Loads the motherboard's sensor driver when no fan can be driven yet:
+/// Nuvoton (`nct6775`), then ITE (`it87`), then ITE behind an ACPI claim of
+/// its ports (Gigabyte boards: `ignore_resource_conflict=1`, the driver's
+/// own option, narrower than `acpi_enforce_resources=lax`). Kept for the
+/// next boots only if it worked.
+fn fan_drivers(manifest: &mut system::Manifest) -> HelperResult {
+    let root = Path::new(hwmon::SYSFS_ROOT);
+    if board_fans(&hwmon::discover(root)) {
+        println!("STEP fan-driver-present");
+        return Ok(());
+    }
+    let attempts: [(&str, &[&str], Option<&str>); 3] = [
+        ("nct6775", &["nct6775"], None),
+        ("it87", &["it87"], None),
+        (
+            "it87",
+            &["it87", "ignore_resource_conflict=1"],
+            Some("options it87 ignore_resource_conflict=1\n"),
+        ),
+    ];
+    for (module, args, options) in attempts {
+        if options.is_some() {
+            let _ = system::run("modprobe", &["-r", "it87"]);
+        }
+        let loaded = system::run("modprobe", args).is_ok();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if loaded && board_fans(&hwmon::discover(root)) {
+            system::ensure_dir("/etc/modules-load.d", 0o755)
+                .map_err(io_err("/etc/modules-load.d"))?;
+            let conf = format!("# TuxRGB – fan control: motherboard sensor driver\n{module}\n");
+            system::write_atomic(fand::MODULES_LOAD_PATH, conf.as_bytes(), 0o644)
+                .map_err(io_err(fand::MODULES_LOAD_PATH))?;
+            manifest.add(fand::MODULES_LOAD_PATH);
+            if let Some(o) = options {
+                system::ensure_dir("/etc/modprobe.d", 0o755).map_err(io_err("/etc/modprobe.d"))?;
+                let conf = format!(
+                    "# TuxRGB – the board's firmware claims the sensor chip's ports (ACPI):\n{o}"
+                );
+                system::write_atomic(fand::MODPROBE_PATH, conf.as_bytes(), 0o644)
+                    .map_err(io_err(fand::MODPROBE_PATH))?;
+                manifest.add(fand::MODPROBE_PATH);
+            }
+            system::restorecon(&[fand::MODULES_LOAD_PATH, fand::MODPROBE_PATH]);
+            println!("STEP fan-driver-loaded {}", args.join(" "));
+            return Ok(());
+        }
+        if loaded && options.is_some() {
+            let _ = system::run("modprobe", &["-r", "it87"]);
+        }
+    }
+    println!("STEP fan-driver-none");
+    Ok(())
+}
+
+/// Installs and starts the fan service (see [`fand`]).
+fn enable_fans(caller: &str) -> HelperResult {
+    let uid: u32 = caller
+        .parse()
+        .ok()
+        .filter(|u| *u > 0)
+        .ok_or((code::USAGE, "à lancer depuis TuxRGB (pkexec)".to_owned()))?;
+    system::ensure_dir(STATE_DIR, 0o755).map_err(io_err(STATE_DIR))?;
+    let mut manifest = system::Manifest::load(MANIFEST_PATH);
+
+    fan_drivers(&mut manifest)?;
+
+    // This very binary, where systemd can run it at every boot (the copy
+    // TuxRGB staged for pkexec is deleted right after).
+    let exe = std::env::current_exe().map_err(io_err("programme d'aide"))?;
+    let bytes = std::fs::read(&exe).map_err(io_err("programme d'aide"))?;
+    system::ensure_dir("/usr/local/libexec", 0o755).map_err(io_err("/usr/local/libexec"))?;
+    system::ensure_dir(fand::INSTALL_DIR, 0o755).map_err(io_err(fand::INSTALL_DIR))?;
+    system::write_atomic(fand::INSTALLED_HELPER, &bytes, 0o755)
+        .map_err(io_err(fand::INSTALLED_HELPER))?;
+    manifest.add(fand::INSTALLED_HELPER);
+    println!("STEP fan-service-binary {}", fand::INSTALLED_HELPER);
+
+    system::write_atomic(fand::OWNER_PATH, format!("{uid}\n").as_bytes(), 0o644)
+        .map_err(io_err(fand::OWNER_PATH))?;
+    manifest.add(fand::OWNER_PATH);
+    manifest.add(fand::SETTINGS_PATH);
+    system::write_atomic(
+        fand::UNIT_PATH,
+        fand::unit(fand::INSTALLED_HELPER).as_bytes(),
+        0o644,
+    )
+    .map_err(io_err(fand::UNIT_PATH))?;
+    manifest.add(fand::UNIT_PATH);
+    system::restorecon(&[fand::INSTALL_DIR, fand::INSTALLED_HELPER, fand::UNIT_PATH]);
+    manifest
+        .save(MANIFEST_PATH)
+        .map_err(io_err(MANIFEST_PATH))?;
+
+    let systemctl = |args: &[&str]| {
+        system::run("systemctl", args)
+            .map_err(|e| (code::IO, format!("systemctl {} : {e}", args[0])))
+    };
+    systemctl(&["daemon-reload"])?;
+    systemctl(&["enable", fand::SERVICE])?;
+    // Restart: a new version of the binary takes over (the stop restores
+    // the fans first).
+    systemctl(&["restart", fand::SERVICE])?;
+    for _ in 0..30 {
+        if Path::new(fand::SOCKET_PATH).exists() {
+            println!("STEP fan-service-running");
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Err((
+        code::IO,
+        "le service des ventilateurs n'a pas démarré".into(),
+    ))
+}
+
 /// Copy of a boot file before its first edit (kept for « Réinitialiser »).
 fn backup_boot_file(path: &str) -> HelperResult {
     system::ensure_dir(BOOT_BACKUP_DIR, 0o700).map_err(io_err(BOOT_BACKUP_DIR))?;
@@ -432,6 +577,14 @@ fn add_karg(
 
 fn reset() -> HelperResult {
     let manifest = system::Manifest::load(MANIFEST_PATH);
+    // Fan service first: stopping it gives every fan back to the board.
+    if manifest.owns(fand::UNIT_PATH) {
+        match system::run("systemctl", &["disable", "--now", fand::SERVICE]) {
+            Ok(()) => println!("STEP fan-service-stopped"),
+            Err(e) => println!("STEP fan-service-stop-failed ({e})"),
+        }
+        fand::restore(fand::RESTORE_PATH);
+    }
     for karg in manifest.kargs() {
         // The manifest lives in root-only /var/lib/tuxrgb, but is still
         // treated as untrusted input: only the allowlisted argument.
@@ -510,6 +663,12 @@ fn reset() -> HelperResult {
             EXTRA_RULES_PATH,
             MODULES_PATH,
             SPD_BLACKLIST_PATH,
+            fand::UNIT_PATH,
+            fand::INSTALLED_HELPER,
+            fand::OWNER_PATH,
+            fand::SETTINGS_PATH,
+            fand::MODPROBE_PATH,
+            fand::MODULES_LOAD_PATH,
         ]
         .contains(&path)
         {
@@ -533,6 +692,10 @@ fn reset() -> HelperResult {
     }
     match std::fs::remove_file(MANIFEST_PATH) {
         Ok(()) | Err(_) => {}
+    }
+    if manifest.owns(fand::UNIT_PATH) {
+        let _ = std::fs::remove_dir(fand::INSTALL_DIR);
+        let _ = system::run("systemctl", &["daemon-reload"]);
     }
     reload_udev();
     Ok(())

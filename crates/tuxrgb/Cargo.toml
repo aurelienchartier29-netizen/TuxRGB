@@ -49,6 +49,10 @@ ashpd.workspace = true
 zbus.workspace = true
 libc.workspace = true
 rust-ini.workspace = true
+# Screens on / off (KWin DPMS, ext-idle-notify): LEDs off with the screens.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+wayland-protocols-plasma = { version = "0.3", features = ["client"] }
 
 # Windows build: Win32 tray, power events, registry, single instance.
 [target.'cfg(windows)'.dependencies]
@@ -64,6 +68,7 @@ windows = { workspace = true, features = [
     "Win32_System_Console",
     "Win32_System_DataExchange",
     "Win32_System_LibraryLoader",
+    "Win32_System_Power",
     "Win32_System_Registry",
     "Win32_Storage_FileSystem",
     "Win32_System_IO",

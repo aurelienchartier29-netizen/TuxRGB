@@ -168,11 +168,11 @@ mod linux {
     }
 }
 
-/// Records bulk writes (tests).
-#[cfg(test)]
+/// Records bulk writes (tests; pictures are Linux-only).
+#[cfg(all(test, target_os = "linux"))]
 pub struct MockBulk(pub std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>);
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 impl BulkOut for MockBulk {
     fn write(&mut self, data: &[u8]) -> io::Result<()> {
         self.0.lock().unwrap().push(data.to_vec());

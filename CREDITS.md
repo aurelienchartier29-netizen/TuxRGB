@@ -32,6 +32,8 @@ l'application : **Réglages → À propos → Crédits & licences open source**.
 | [liquidctl](https://github.com/liquidctl/liquidctl) | Écrans NZXT Kraken Z / 2023 / 2024 : commandes HID, mémoire « buckets », envoi des images | Jonas Malaco, Tom Frey, Shady Nawara et contributeurs | GPL-3.0-or-later |
 | [deepcool-digital-linux](https://github.com/Nortank12/deepcool-digital-linux) | Afficheurs numériques DeepCool (AK, AG, LS, LD, LP, LQ, AK Digital Pro, boîtiers CH) | Nortank12 et contributeurs | GPL-3.0 |
 | [OpenLinkHub](https://github.com/jurkovic-nikola/OpenLinkHub) | Écrans LCD Corsair (flux JPEG en rapports HID de 1024 octets) | Nikola Jurkovic et contributeurs | GPL-3.0 |
+| [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) | Ventilation sous Windows : registres des contrôleurs ITE / Nuvoton, prise en main et restitution des ventilateurs ; modules PawnIO signés (température du CPU, accès LPC) | Michael Möller et contributeurs | MPL-2.0 |
+| [lm-sensors](https://github.com/lm-sensors/lm-sensors) · pilotes hwmon de Linux | Ventilation sous Linux : principe de `fancontrol` (`pwmN`, `pwmN_enable`), pilotes `it87` / `nct6775` | Projet lm-sensors, Guenter Roeck et contributeurs | GPL-2.0 |
 | [realfft](https://github.com/HEnquist/realfft), [rustfft](https://github.com/ejmahler/RustFFT) | FFT du visualiseur audio | Henrik Enquist, Elliott Mahler et contributeurs | MIT OR Apache-2.0 |
 | [naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) | Compilation des shaders GLSL de l'effet « Shader GLSL » | gfx-rs | MIT OR Apache-2.0 |
 | [tokio](https://tokio.rs/) | Exécution asynchrone | Tokio contributors | MIT |

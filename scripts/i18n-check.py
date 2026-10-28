@@ -36,7 +36,8 @@ SOURCES = [
     "crates/tuxrgb-core/src/device.rs",
 ] + sorted(str(p.relative_to(ROOT)) for p in (ROOT / "crates/tuxrgb/src/ui").glob("*.rs")) \
   + sorted(str(p.relative_to(ROOT)) for p in (ROOT / "crates/tuxrgb/src/win").glob("*.rs")) \
-  + sorted(str(p.relative_to(ROOT)) for p in (ROOT / "crates/tuxrgb/src/displays").glob("*.rs"))
+  + sorted(str(p.relative_to(ROOT)) for p in (ROOT / "crates/tuxrgb/src/displays").glob("*.rs")) \
+  + sorted(str(p.relative_to(ROOT)) for p in (ROOT / "crates/tuxrgb/src/fans").glob("*.rs"))
 
 SKIP_CONTEXT = re.compile(
     r"(tracing::\w+!|debug!|info!|warn!|error!|trace!|\.expect\(|include_\w+!|env!|"

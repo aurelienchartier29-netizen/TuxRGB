@@ -57,15 +57,18 @@ pub enum Page {
     Devices,
     /// Hardware displays (AIO screens, digital displays).
     Displays,
+    /// Fan speeds (3.2).
+    Fans,
     Settings,
 }
 
 impl Page {
-    pub const ALL: [Page; 5] = [
+    pub const ALL: [Page; 6] = [
         Page::Home,
         Page::Effects,
         Page::Devices,
         Page::Displays,
+        Page::Fans,
         Page::Settings,
     ];
 
@@ -375,6 +378,21 @@ pub enum Message {
     DisplayAlarm(String, bool),
     DisplaysFahrenheit(bool),
     DisplaysRescan,
+    /// Ventilation page.
+    FanMode(String, crate::fans::FanMode),
+    FanFixed(String, u8),
+    FanSource(String, String),
+    FanPreset(String, &'static str),
+    /// A point of a curve dragged: (fan, index, (°C, %)).
+    FanPoint(String, usize, (u8, u8)),
+    /// Renaming a fan: started (`Some`) / text typed / done (`None`).
+    FanRename(Option<String>),
+    FanRenameInput(String),
+    FanIdentify(String),
+    FansRescan,
+    /// Linux: installs the fan service (Polkit); Windows: administrator mode.
+    FansEnable,
+    FansEnableDone(Result<HelperReport, HelperError>),
     // Settings
     SetThemeMode(ThemeMode),
     SetAccentSource(AccentSource),
@@ -399,6 +417,7 @@ pub enum Message {
     SetStartMinimized(bool),
     SetCloseToTray(bool),
     SetTurnOffOnExit(bool),
+    SetLedsOffWithScreen(bool),
     SetServerKind(ServerKind),
     ShowLicense(Option<License>),
     OpenUrl(String),
@@ -488,6 +507,12 @@ pub struct App {
     /// Hardware displays found (from the displays thread), and their
     /// previews as images (made once per new picture).
     pub displays: Vec<crate::displays::DisplayState>,
+    /// Ventilation page: the fans and temperatures, and the fan being
+    /// renamed (id, text).
+    pub fans: crate::fans::FansState,
+    pub fan_rename: Option<(String, String)>,
+    /// Every screen is off (DPMS, Windows display state).
+    pub screen_off: bool,
     pub display_previews: std::collections::HashMap<String, (usize, iced::widget::image::Handle)>,
     pub diagnostics: Option<Diagnostics>,
     pub findings: Option<privileges::report::Findings>,
@@ -508,7 +533,7 @@ pub struct App {
     roles_from: Roles,
     roles_to: Roles,
     theme_t: Spring,
-    pub nav: [Spring; 5],
+    pub nav: [Spring; 6],
     /// View transition in progress and its progress (`0..=1`).
     pub transition: Option<ViewTransition>,
     pub transition_t: f32,
@@ -617,6 +642,9 @@ impl App {
             selected_segment: None,
             net: NetForm::default(),
             displays: Vec::new(),
+            fans: Default::default(),
+            fan_rename: None,
+            screen_off: false,
             display_previews: std::collections::HashMap::new(),
             diagnostics: None,
             findings: None,
@@ -1045,10 +1073,29 @@ impl App {
         req
     }
 
+    /// The LEDs are lit: the switch is on, and the screens are not off (when
+    /// the LEDs follow them).
+    pub fn effective_output(&self) -> bool {
+        self.config.output_enabled
+            && !(self.screen_off && self.config.behavior.leds_off_with_screen)
+    }
+
+    /// Lights the LEDs, or fades them out, as [`Self::effective_output`]
+    /// says (and stops the inputs nothing uses then).
+    fn push_output(&self) {
+        if let Some(s) = &self.services {
+            s.engine(EngineCommand::SetOutputEnabled {
+                on: self.effective_output(),
+                fade: true,
+            });
+        }
+        self.push_capture();
+    }
+
     fn push_capture(&self) {
         if let Some(s) = &self.services {
             let req = self.effect_requirements();
-            let on = self.config.output_enabled;
+            let on = self.effective_output();
             let displays = self.displays_sensors();
             let shader = (req.shader && on).then(|| self.shader_settings());
             // Audio-reactive custom shaders get the spectrum too.
@@ -1058,7 +1105,10 @@ impl App {
             s.send(ServiceCommand::Capture(CaptureRequest {
                 audio: (req.audio || shader_audio) && on,
                 screen: req.screen && on,
-                hardware: (req.hardware && on) || displays.is_some(),
+                // Windows: the fan curves follow the sensor sampler.
+                hardware: (req.hardware && on)
+                    || displays.is_some()
+                    || (cfg!(windows) && self.config.fans.any_driven()),
                 hardware_period: displays,
                 shader,
                 screencast_token: self.config.screencast_token.clone(),
@@ -1421,8 +1471,8 @@ impl App {
     /// while a page that shows it is on screen.
     fn push_preview(&self) {
         if let Some(s) = &self.services {
-            let wanted =
-                self.window.is_some() && !matches!(self.page, Page::Settings | Page::Displays);
+            let wanted = self.window.is_some()
+                && !matches!(self.page, Page::Settings | Page::Displays | Page::Fans);
             s.send(ServiceCommand::SetPreview(wanted));
             // The displays page: previews and live values.
             s.send(ServiceCommand::Displays(
@@ -1430,7 +1480,38 @@ impl App {
                     self.window.is_some() && self.page == Page::Displays,
                 ),
             ));
+            s.send(ServiceCommand::Fans(crate::fans::Command::Page(
+                self.window.is_some() && self.page == Page::Fans,
+            )));
         }
+    }
+
+    /// Changes the settings of a fan (its defaults when never changed), then
+    /// sends every fan's settings.
+    fn edit_fan(&mut self, id: &str, f: impl FnOnce(&mut crate::fans::FanPrefs)) {
+        let kind = self
+            .fans
+            .fans
+            .iter()
+            .find(|x| x.id == id)
+            .map_or(crate::fans::FanKind::Motherboard, |x| x.kind);
+        let driven = self.config.fans.any_driven();
+        f(self
+            .config
+            .fans
+            .fans
+            .entry(id.to_owned())
+            .or_insert_with(|| crate::fans::FanPrefs::for_fan(kind)));
+        if let Some(s) = &self.services {
+            s.send(ServiceCommand::Fans(crate::fans::Command::Configure(
+                self.config.fans.clone(),
+            )));
+        }
+        // Windows: a driven fan needs the sensor sampler.
+        if cfg!(windows) && self.config.fans.any_driven() != driven {
+            self.push_capture();
+        }
+        self.mark_dirty();
     }
 
     /// The displays' settings (and the demo setup, the accent) to their
@@ -1735,6 +1816,10 @@ impl App {
                 | Message::DisplayText(..)
                 | Message::DisplayImagePath(..)
                 | Message::Service(ServiceEvent::Displays(_))
+                | Message::Service(ServiceEvent::Fans(_))
+                | Message::FanPoint(..)
+                | Message::FanFixed(..)
+                | Message::FanRenameInput(_)
                 | Message::PickerChanged(_)
                 | Message::HexInput(_)
                 | Message::ResizeSelected(_)
@@ -2136,6 +2221,20 @@ impl App {
                         // the digital display alternating.
                         let _ = self.update(Message::Navigate(Page::Displays));
                     }
+                    "fans" => {
+                        // The virtual fans: the first on a curve, the
+                        // second at a fixed speed, the others left alone.
+                        let _ = self.update(Message::Navigate(Page::Fans));
+                        let _ = self.update(Message::FanMode(
+                            "demo-it8689-fan1".into(),
+                            crate::fans::FanMode::Curve,
+                        ));
+                        let _ = self.update(Message::FanMode(
+                            "demo-it8689-fan2".into(),
+                            crate::fans::FanMode::Fixed,
+                        ));
+                        let _ = self.update(Message::FanFixed("demo-it8689-fan2".into(), 40));
+                    }
                     "settings" => {
                         let _ = self.update(Message::Navigate(Page::Settings));
                     }
@@ -2485,10 +2584,7 @@ impl App {
             }
             Message::SetOutput(on) => {
                 self.config.output_enabled = on;
-                if let Some(s) = &self.services {
-                    s.engine(EngineCommand::SetOutputEnabled { on, fade: true });
-                }
-                self.push_capture();
+                self.push_output();
                 self.push_tray();
                 self.mark_dirty();
                 Task::none()
@@ -2984,6 +3080,111 @@ impl App {
                 }
                 Task::none()
             }
+            Message::FanMode(id, mode) => {
+                self.edit_fan(&id, |p| p.mode = mode);
+                Task::none()
+            }
+            Message::FanFixed(id, pct) => {
+                self.edit_fan(&id, |p| p.fixed = pct.min(100));
+                Task::none()
+            }
+            Message::FanSource(id, source) => {
+                if crate::fans::curve::valid_id(&source) {
+                    self.edit_fan(&id, |p| p.source = source);
+                }
+                Task::none()
+            }
+            Message::FanPreset(id, preset) => {
+                self.edit_fan(&id, |p| p.points = crate::fans::curve::preset(preset));
+                Task::none()
+            }
+            Message::FanPoint(id, i, (t, d)) => {
+                self.edit_fan(&id, |p| {
+                    // Each point stays between its neighbours (1 °C apart).
+                    let lo = if i == 0 {
+                        0
+                    } else {
+                        p.points.get(i - 1).map_or(0, |q| q.0 + 1)
+                    };
+                    let hi = p
+                        .points
+                        .get(i + 1)
+                        .map_or(crate::fans::curve::TEMP_MAX, |q| q.0.saturating_sub(1));
+                    if let Some(pt) = p.points.get_mut(i) {
+                        *pt = (t.clamp(lo, hi.max(lo)), d.min(100));
+                    }
+                });
+                Task::none()
+            }
+            Message::FanRename(Some(id)) => {
+                let current = self
+                    .config
+                    .fans
+                    .fans
+                    .get(&id)
+                    .and_then(|p| p.name.clone())
+                    .or_else(|| {
+                        self.fans
+                            .fans
+                            .iter()
+                            .find(|f| f.id == id)
+                            .map(|f| f.default_name())
+                    })
+                    .unwrap_or_default();
+                self.fan_rename = Some((id, current));
+                Task::none()
+            }
+            Message::FanRename(None) => {
+                if let Some((id, name)) = self.fan_rename.take() {
+                    let name = name.trim().chars().take(40).collect::<String>();
+                    self.edit_fan(&id, |p| p.name = (!name.is_empty()).then_some(name));
+                }
+                Task::none()
+            }
+            Message::FanRenameInput(text) => {
+                if let Some((_, name)) = &mut self.fan_rename {
+                    *name = text;
+                }
+                Task::none()
+            }
+            Message::FanIdentify(id) => {
+                if let Some(s) = &self.services {
+                    s.send(ServiceCommand::Fans(crate::fans::Command::Identify(id)));
+                }
+                Task::none()
+            }
+            Message::FansRescan => {
+                if let Some(s) = &self.services {
+                    s.send(ServiceCommand::Fans(crate::fans::Command::Rescan));
+                }
+                Task::none()
+            }
+            Message::FansEnable => {
+                if cfg!(windows) {
+                    return self.update(Message::StartHardwareSetup);
+                }
+                if self.helper_busy {
+                    return Task::none();
+                }
+                self.helper_busy = true;
+                Task::perform(
+                    privileges::runner::run_helper("enable-fans", None),
+                    Message::FansEnableDone,
+                )
+            }
+            Message::FansEnableDone(result) => {
+                self.helper_busy = false;
+                let _ = self.update(Message::FansRescan);
+                match result {
+                    Ok(report) if report.steps.iter().any(|s| s == "fan-driver-none") => self
+                        .snackbar(
+                            "Service activé, mais aucun ventilateur pilotable : le capteur de la carte mère n'a pas de pilote ici",
+                        ),
+                    Ok(_) => self.snackbar("Contrôle des ventilateurs activé"),
+                    Err(HelperError::Cancelled) => self.snackbar("Authentification annulée"),
+                    Err(e) => self.snackbar(trf!("Échec : {}", e)),
+                }
+            }
             Message::FollowGlobalEverywhere => {
                 let devices: Vec<DeviceKey> = self.config.lighting.keys().cloned().collect();
                 for l in self.config.lighting.values_mut() {
@@ -3296,6 +3497,12 @@ impl App {
             }
             Message::SetTurnOffOnExit(on) => {
                 self.config.behavior.turn_off_on_exit = on;
+                self.mark_dirty();
+                Task::none()
+            }
+            Message::SetLedsOffWithScreen(on) => {
+                self.config.behavior.leds_off_with_screen = on;
+                self.push_output();
                 self.mark_dirty();
                 Task::none()
             }
@@ -3623,13 +3830,7 @@ impl App {
                 Task::none()
             }
             Message::RestoreOutput => {
-                if let Some(s) = &self.services {
-                    s.engine(EngineCommand::SetOutputEnabled {
-                        on: self.config.output_enabled,
-                        fade: true,
-                    });
-                }
-                self.push_capture();
+                self.push_output();
                 Task::none()
             }
             Message::CheckUpdates => {
@@ -3838,9 +4039,12 @@ impl App {
                     self.config.led_color.effective_gamma(),
                 ));
                 handle.engine(EngineCommand::SetFps(self.config.fps));
+                handle.send(ServiceCommand::Fans(crate::fans::Command::Configure(
+                    self.config.fans.clone(),
+                )));
                 handle.engine(EngineCommand::SetAccent(self.desktop_accent()));
                 handle.engine(EngineCommand::SetOutputEnabled {
-                    on: self.config.output_enabled,
+                    on: self.effective_output(),
                     fade: true,
                 });
                 self.services = Some(handle);
@@ -3849,6 +4053,20 @@ impl App {
                 self.push_suspended();
                 self.push_capture();
                 self.push_displays();
+                Task::none()
+            }
+            ServiceEvent::Fans(state) => {
+                self.fans = state;
+                Task::none()
+            }
+            ServiceEvent::ScreensOff(off) => {
+                if off != self.screen_off {
+                    self.screen_off = off;
+                    if self.config.behavior.leds_off_with_screen {
+                        tracing::info!(off, "LEDs follow the screens");
+                    }
+                    self.push_output();
+                }
                 Task::none()
             }
             ServiceEvent::Displays(states) => {

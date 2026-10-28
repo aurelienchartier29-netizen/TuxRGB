@@ -23,6 +23,9 @@
 #[path = "hardware_d3dkmt.rs"]
 mod d3dkmt;
 
+#[path = "hardware_adl.rs"]
+mod adl;
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -195,6 +198,13 @@ fn sample_until_stopped(inputs: &SharedInputs, stop: &AtomicBool, period: Durati
     let gpu_counters = super::pdh::GpuCounters::open();
     let gpu_kernel = d3dkmt::GpuKernel::open();
     let mut cpu_sensors = super::pawnio::CpuSensors::open();
+    let amd = adl::AmdGpu::open();
+    tracing::info!(
+        cpu_pawnio = cpu_sensors.is_some(),
+        amd_adl = amd.is_some(),
+        gpu_kernel = gpu_kernel.is_some(),
+        "sensor sources (Windows)"
+    );
     tracing::info!(gpu_counters = gpu_counters.is_some(), "GPU engine counters");
     while !stop.load(Ordering::Relaxed) {
         let mem = memory();
@@ -228,6 +238,13 @@ fn sample_until_stopped(inputs: &SharedInputs, stop: &AtomicBool, period: Durati
             sample.gpu_load = sample.gpu_load.or(m.gpu_load);
             sample.gpu_power = sample.gpu_power.or(m.gpu_power);
             sample.gpu_freq = sample.gpu_freq.or(m.gpu_freq);
+        }
+        // AMD cards: AMD's own library, the most complete.
+        if let Some(a) = amd.as_ref().and_then(|g| g.read()) {
+            sample.gpu_temp = sample.gpu_temp.or(a.temp);
+            sample.gpu_load = sample.gpu_load.or(a.load);
+            sample.gpu_power = sample.gpu_power.or(a.power);
+            sample.gpu_freq = sample.gpu_freq.or(a.clock);
         }
         // Read every period (a rate since the previous collection).
         let engines = gpu_counters.as_ref().and_then(|c| c.read());

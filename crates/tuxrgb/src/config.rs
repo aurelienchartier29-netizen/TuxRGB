@@ -122,6 +122,8 @@ pub struct Behavior {
     pub close_to_tray: bool,
     pub autostart: bool,
     pub turn_off_on_exit: bool,
+    /// LEDs off while every screen is off (3.2).
+    pub leds_off_with_screen: bool,
 }
 
 impl Default for Behavior {
@@ -133,6 +135,7 @@ impl Default for Behavior {
             // The lighting goes dark with TuxRGB (it can be kept on in
             // Réglages → Démarrage).
             turn_off_on_exit: true,
+            leds_off_with_screen: true,
         }
     }
 }
@@ -219,6 +222,8 @@ pub struct Config {
     pub network: tuxrgb_openrgb::NetworkLights,
     /// Hardware displays: AIO screens and digital displays (3.1).
     pub displays: crate::displays::DisplaysConfig,
+    /// Fan speeds (3.2).
+    pub fans: crate::fans::FansConfig,
 }
 
 /// Updates from the GitHub releases (see `update.rs`).
@@ -291,6 +296,7 @@ impl Default for Config {
             hardware_modes: BTreeMap::new(),
             network: Default::default(),
             displays: Default::default(),
+            fans: Default::default(),
             dismissed_notices: BTreeSet::new(),
         }
     }

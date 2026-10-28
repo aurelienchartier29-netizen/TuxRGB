@@ -74,21 +74,8 @@ pub(crate) use device::CpuSensors;
 
 #[cfg(windows)]
 mod device {
+    use crate::pawnio::{AMD_FAMILY_17, INTEL_MSR, PawnIo as Module};
     use std::time::Instant;
-    use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE};
-    use windows::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-    };
-    use windows::Win32::System::IO::DeviceIoControl;
-    use windows::core::w;
-
-    const DEVICE_TYPE: u32 = 41394 << 16;
-    const IOCTL_LOAD_BINARY: u32 = DEVICE_TYPE | (0x821 << 2);
-    const IOCTL_EXECUTE: u32 = DEVICE_TYPE | (0x841 << 2);
-    const NAME_LEN: usize = 32;
-
-    static AMD_MODULE: &[u8] = include_bytes!("../assets/pawnio/AMDFamily17.bin");
-    static INTEL_MODULE: &[u8] = include_bytes!("../assets/pawnio/IntelMSR.bin");
 
     const THM_TCON_CUR_TMP: u64 = 0x0005_9800;
     const IA32_PACKAGE_THERM_STATUS: u64 = 0x1B1;
@@ -102,74 +89,6 @@ mod device {
     enum Vendor {
         Amd,
         Intel,
-    }
-
-    /// One PawnIO handle with its module loaded.
-    struct Module(HANDLE);
-
-    impl Module {
-        fn load(blob: &[u8]) -> Option<Self> {
-            // SAFETY: plain Win32 calls; the handle is closed on drop.
-            unsafe {
-                let h = CreateFileW(
-                    w!("\\\\?\\GLOBALROOT\\Device\\PawnIO"),
-                    (GENERIC_READ | GENERIC_WRITE).0,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE,
-                    None,
-                    OPEN_EXISTING,
-                    FILE_ATTRIBUTE_NORMAL,
-                    None,
-                )
-                .ok()?;
-                let m = Module(h);
-                DeviceIoControl(
-                    h,
-                    IOCTL_LOAD_BINARY,
-                    Some(blob.as_ptr().cast()),
-                    blob.len() as u32,
-                    None,
-                    0,
-                    None,
-                    None,
-                )
-                .ok()?;
-                Some(m)
-            }
-        }
-
-        /// Runs `name(arg)` in the module; its single 64-bit result.
-        fn call(&self, name: &str, arg: u64) -> Option<u64> {
-            let mut input = [0u8; NAME_LEN + 8];
-            let n = name.len().min(NAME_LEN - 1);
-            input[..n].copy_from_slice(&name.as_bytes()[..n]);
-            input[NAME_LEN..].copy_from_slice(&arg.to_le_bytes());
-            let mut out = [0u8; 8];
-            let mut got = 0u32;
-            // SAFETY: valid buffers for the synchronous call.
-            unsafe {
-                DeviceIoControl(
-                    self.0,
-                    IOCTL_EXECUTE,
-                    Some(input.as_ptr().cast()),
-                    input.len() as u32,
-                    Some(out.as_mut_ptr().cast()),
-                    out.len() as u32,
-                    Some(&mut got),
-                    None,
-                )
-                .ok()?;
-            }
-            (got >= 8).then(|| u64::from_le_bytes(out))
-        }
-    }
-
-    impl Drop for Module {
-        fn drop(&mut self) {
-            // SAFETY: the handle was opened by `load`.
-            unsafe {
-                let _ = CloseHandle(self.0);
-            }
-        }
     }
 
     fn cpuid(leaf: u32) -> [u32; 4] {
@@ -229,8 +148,8 @@ mod device {
         pub(crate) fn open() -> Option<Self> {
             let (vendor, brand) = vendor_and_brand()?;
             let module = Module::load(match vendor {
-                Vendor::Amd => AMD_MODULE,
-                Vendor::Intel => INTEL_MODULE,
+                Vendor::Amd => AMD_FAMILY_17,
+                Vendor::Intel => INTEL_MSR,
             })?;
             let (tj_max, unit) = match vendor {
                 Vendor::Amd => (

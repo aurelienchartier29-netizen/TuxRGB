@@ -400,6 +400,62 @@ pub fn build(diag: Option<&Diagnostics>, devices: &[DeviceInfo]) -> (String, Fin
         }
     }
 
+    // Fans (TuxRGB 3.2): hwmon chips, PWM channels and the service.
+    {
+        use crate::fans::hwmon;
+        let hw = hwmon::discover(Path::new(hwmon::SYSFS_ROOT));
+        let _ = writeln!(s, "\n[Ventilation]");
+        let _ = writeln!(
+            s,
+            "Service tuxrgb-fans : {}",
+            if Path::new("/run/tuxrgb/fans.sock").exists() {
+                "actif"
+            } else if Path::new("/etc/systemd/system/tuxrgb-fans.service").exists() {
+                "installé, arrêté"
+            } else {
+                "non installé"
+            }
+        );
+        for m in [
+            "it87",
+            "nct6775",
+            "nct6683",
+            "asus_ec_sensors",
+            "gigabyte_waterforce",
+        ] {
+            if module_loaded(m) {
+                let _ = writeln!(s, "Module    : {m}");
+            }
+        }
+        for fan in &hw.fans {
+            let _ = writeln!(
+                s,
+                "- {} : {} tr/min, pwm {} (mode {}){}",
+                fan.id,
+                hwmon::read_rpm(fan).map_or("–".into(), |v| v.to_string()),
+                hwmon::read_pwm(fan).map_or("–".into(), |v| v.to_string()),
+                hwmon::read_enable(fan).map_or("–".into(), |v| v.to_string()),
+                if fan.controllable() {
+                    ""
+                } else {
+                    ", lecture seule"
+                }
+            );
+        }
+        if hw.fans.is_empty() {
+            let _ = writeln!(s, "Aucun ventilateur dans /sys/class/hwmon");
+        }
+        for t in &hw.temps {
+            let _ = writeln!(
+                s,
+                "  {} {} : {}",
+                t.id,
+                t.label.as_deref().unwrap_or(""),
+                hwmon::read_temp(t).map_or("–".into(), |v| format!("{v:.1} °C"))
+            );
+        }
+    }
+
     // OpenRGB log: detection lines first, then the end of the file.
     let log = fs::read_to_string(&crate::paths::paths().openrgb_log).unwrap_or_default();
     let _ = writeln!(s, "\n[Journal OpenRGB – détection I2C/SMBus/RAM]");

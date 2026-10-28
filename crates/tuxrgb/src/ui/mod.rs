@@ -9,6 +9,8 @@ mod dashboard;
 mod devices;
 mod displays;
 mod effects;
+mod fan_curve;
+mod fans;
 #[rustfmt::skip]
 pub mod icons;
 pub mod motion;
@@ -158,6 +160,7 @@ fn nav_rail(app: &App) -> Element<'_, Message> {
         (Page::Effects, icons::AUTO_AWESOME, "Effets"),
         (Page::Devices, icons::DEVICES, "Appareils"),
         (Page::Displays, icons::BROWSE_ACTIVITY, "Afficheurs"),
+        (Page::Fans, icons::MODE_FAN, "Ventilation"),
         (Page::Settings, icons::SETTINGS, "Réglages"),
     ];
     let mut col = column![
@@ -252,6 +255,7 @@ fn page_body(app: &App, page: Page, settings_view: SettingsView) -> Element<'_, 
         Page::Effects => effects::view(app),
         Page::Devices => devices::view(app),
         Page::Displays => displays::view(app),
+        Page::Fans => fans::view(app),
         Page::Settings => match settings_view {
             SettingsView::Main => settings::view(app),
             SettingsView::Credits => credits::view(app),

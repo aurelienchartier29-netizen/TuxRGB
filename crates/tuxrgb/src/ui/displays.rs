@@ -402,6 +402,28 @@ fn card<'a>(app: &'a App, d: &'a DisplayState) -> Element<'a, Message> {
             .align_y(Alignment::Center),
         );
     }
+    // Windows gives the CPU temperature to no program without a driver:
+    // say what is missing instead of a silent "--".
+    #[cfg(windows)]
+    if !d.demo
+        && d.shown
+            .iter()
+            .any(|(m, v)| *m == Metric::CpuTemp && v.is_none())
+    {
+        let why = if crate::win::elevation::is_elevated() {
+            "Température du CPU illisible : installez le pilote PawnIO (Réglages → Accès matériel → Configurer l'accès) ou ouvrez LibreHardwareMonitor."
+        } else {
+            "Température du CPU : TuxRGB doit tourner en mode administrateur (Réglages → Accès matériel → Configurer l'accès), Windows ne la donne à aucun programme sans pilote."
+        };
+        controls = controls.push(
+            row![
+                icon(icons::INFO, 16.0).color(r.tertiary),
+                small(why).color(r.on_surface_variant).width(Length::Fill),
+            ]
+            .spacing(space::XS)
+            .align_y(Alignment::Center),
+        );
+    }
 
     container(
         row![

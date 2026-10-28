@@ -881,6 +881,107 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Réduites", "Reduced"),
     ("Transitions douces des LED", "Smooth LED transitions"),
     ("Couleurs des LED", "LED colours"),
+    ("Ventilation", "Cooling"),
+    ("Fixe", "Fixed"),
+    ("Courbe", "Curve"),
+    ("Identifier", "Identify"),
+    ("Silencieux", "Silent"),
+    ("Performance", "Performance"),
+    ("Équilibré", "Balanced"),
+    ("Piloté", "Driven"),
+    ("Processeur", "Processor"),
+    ("Activer", "Enable"),
+    ("Lecture seule", "Read only"),
+    ("Sécurité 100 %", "Safety 100 %"),
+    ("Capteur perdu", "Sensor lost"),
+    ("Refusé par le pilote", "Refused by the driver"),
+    ("Carte mère {}", "Motherboard {}"),
+    ("Carte graphique · point chaud", "Graphics card · hotspot"),
+    ("Mémoire vidéo", "Video memory"),
+    ("Modèles :", "Presets:"),
+    ("Suit la température de", "Follows the temperature of"),
+    ("{} tr/min", "{} rpm"),
+    ("– tr/min", "– rpm"),
+    ("Aucun ventilateur trouvé", "No fan found"),
+    ("Recherche des ventilateurs…", "Looking for fans…"),
+    ("Activer le contrôle des ventilateurs", "Enable fan control"),
+    (
+        "TuxRGB installe une fois un petit service système (mot de passe administrateur) : il applique vos réglages dès le démarrage du PC et rend les ventilateurs à la carte mère s'il s'arrête. Le pilote du capteur de la carte mère (it87, nct6775) est chargé s'il manque.",
+        "TuxRGB installs a small system service once (administrator password): it applies your settings from the start of the PC and gives the fans back to the motherboard if it stops. The motherboard's sensor driver (it87, nct6775) is loaded if missing.",
+    ),
+    (
+        "Mettre à jour le service des ventilateurs",
+        "Update the fan service",
+    ),
+    (
+        "Le service installé vient de TuxRGB {} : mettez-le à jour pour cette version.",
+        "The installed service comes from TuxRGB {}: update it for this version.",
+    ),
+    (
+        "Mode administrateur nécessaire",
+        "Administrator mode needed",
+    ),
+    (
+        "Sous Windows, régler les ventilateurs de la carte mère demande le pilote PawnIO et le mode administrateur de TuxRGB (Windows ne laisse aucun programme le faire autrement).",
+        "On Windows, setting the motherboard's fans needs the PawnIO driver and TuxRGB's administrator mode (Windows lets no program do it otherwise).",
+    ),
+    ("Pilote PawnIO nécessaire", "PawnIO driver needed"),
+    (
+        "Le pilote PawnIO donne accès au contrôleur des ventilateurs de la carte mère, comme pour l'éclairage de la RAM.",
+        "The PawnIO driver gives access to the motherboard's fan controller, as for the RAM lighting.",
+    ),
+    ("Installer PawnIO", "Install PawnIO"),
+    (
+        "Carte mère · {} · connecteur {}",
+        "Motherboard · {} · header {}",
+    ),
+    (
+        "Ce connecteur se lit mais ne se règle pas ici : la carte mère garde la main.",
+        "This header can be read but not set here: the motherboard keeps control.",
+    ),
+    (
+        "Vitesse décidée par la carte mère (ou la carte graphique), comme sans TuxRGB.",
+        "Speed decided by the motherboard (or the graphics card), as without TuxRGB.",
+    ),
+    (
+        "Sous 20 %, beaucoup de ventilateurs s'arrêtent : à éviter pour celui du processeur.",
+        "Below 20 %, many fans stop: avoid it for the processor's.",
+    ),
+    ("{} : {} °C", "{}: {} °C"),
+    ("{} : température illisible", "{}: temperature unreadable"),
+    (
+        "Sécurité : une température a atteint 90 °C, les ventilateurs pilotés tournent à fond.",
+        "Safety: a temperature reached 90 °C, the driven fans run at full speed.",
+    ),
+    (
+        "Vitesse de chaque ventilateur : réglage de la carte mère, vitesse fixe ou courbe selon une température.",
+        "Speed of every fan: the motherboard's setting, a fixed speed or a curve following a temperature.",
+    ),
+    (
+        "TuxRGB pilote les contrôleurs ITE et Nuvoton des cartes mères. Celui de cette carte mère n'est pas reconnu, ou l'accès n'est pas encore configuré.",
+        "TuxRGB drives the ITE and Nuvoton controllers of motherboards. This motherboard's is not recognised, or access is not set up yet.",
+    ),
+    (
+        "Aucun capteur de ventilateur dans /sys/class/hwmon : le pilote du contrôleur de la carte mère n'est pas chargé (« Activer » essaie it87 et nct6775).",
+        "No fan sensor in /sys/class/hwmon: the motherboard controller's driver is not loaded (“Enable” tries it87 and nct6775).",
+    ),
+    (
+        "Sécurité : à 90 °C (processeur ou carte graphique), tous les ventilateurs pilotés passent à 100 % jusqu'à 85 °C. Si la température suivie par une courbe devient illisible, la carte mère reprend le ventilateur. Quand le service s'arrête (ou TuxRGB sous Windows), chaque ventilateur retrouve son réglage d'origine.",
+        "Safety: at 90 °C (processor or graphics card), every driven fan goes to 100 % until 85 °C. If the temperature a curve follows becomes unreadable, the motherboard takes the fan back. When the service stops (or TuxRGB on Windows), every fan gets its original setting back.",
+    ),
+    (
+        "Service activé, mais aucun ventilateur pilotable : le capteur de la carte mère n'a pas de pilote ici",
+        "Service enabled, but no fan can be driven: the motherboard's sensor has no driver here",
+    ),
+    ("Contrôle des ventilateurs activé", "Fan control enabled"),
+    (
+        "Éteindre les LED avec l'écran",
+        "Turn the LEDs off with the screen",
+    ),
+    (
+        "Quand l'écran se met en veille, les LED s'éteignent en fondu ; elles se rallument dès qu'il se rallume (souris, clavier).",
+        "When the screen goes to sleep, the LEDs fade out; they come back as soon as it wakes up (mouse, keyboard).",
+    ),
     ("Couleurs fidèles à l'écran", "Colours true to the screen"),
     (
         "Corrige la courbe et la balance des blancs des LED pour qu'elles montrent les mêmes couleurs que l'application (sans correction, un rose part vers le violet et les teintes pastel paraissent délavées).",
@@ -1538,6 +1639,14 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Sous Windows, la charge et la température du GPU viennent de Windows (comme dans le Gestionnaire des tâches) ; la température et la puissance du CPU sont lues par le pilote PawnIO en mode administrateur, ou dans LibreHardwareMonitor s'il est ouvert.",
         "On Windows, the GPU load and temperature come from Windows (as in the Task Manager); the CPU temperature and power are read through the PawnIO driver in administrator mode, or from LibreHardwareMonitor while it is open.",
     ),
+    (
+        "Température du CPU illisible : installez le pilote PawnIO (Réglages → Accès matériel → Configurer l'accès) ou ouvrez LibreHardwareMonitor.",
+        "CPU temperature unreadable: install the PawnIO driver (Settings → Hardware access → Set up access) or open LibreHardwareMonitor.",
+    ),
+    (
+        "Température du CPU : TuxRGB doit tourner en mode administrateur (Réglages → Accès matériel → Configurer l'accès), Windows ne la donne à aucun programme sans pilote.",
+        "CPU temperature: TuxRGB must run in administrator mode (Settings → Hardware access → Set up access); Windows gives it to no program without a driver.",
+    ),
     ("Aucun afficheur", "No display"),
     (
         "Branchez le câble USB de l'écran ou de l'afficheur sur la carte mère, puis lancez une recherche.",
@@ -1601,5 +1710,34 @@ pub static ENTRIES: &[(&str, &str)] = &[
     (
         "Dessin des écrans des afficheurs, lecture des images, JPEG des écrans Corsair.",
         "Drawing of the display screens, picture decoding, JPEG for the Corsair screens.",
+    ),
+    (
+        "Registres des contrôleurs de ventilateurs ITE et Nuvoton, prise en main et restitution (Windows), réimplémentés en Rust ; modules PawnIO.",
+        "Registers of the ITE and Nuvoton fan controllers, taking over and giving back (Windows), re-implemented in Rust; PawnIO modules.",
+    ),
+    ("Ventilateurs de la carte graphique", "Graphics card fans"),
+    (
+        "Les ventilateurs de la carte graphique se règlent avec le logiciel de son fabricant : AMD Software: Adrenalin Edition (Radeon) ou l'application NVIDIA (GeForce). Ici, ce sont les ventilateurs du PC branchés sur la carte mère (processeur, boîtier, pompe) qui se règlent.",
+        "Graphics card fans are set with its maker's software: AMD Software: Adrenalin Edition (Radeon) or the NVIDIA app (GeForce). This page sets the PC fans plugged into the motherboard (processor, case, pump).",
+    ),
+    (
+        "Les ventilateurs de la carte graphique se règlent avec LACT (Linux GPU Configuration Tool, pour les cartes AMD, NVIDIA et Intel). Ici, ce sont les ventilateurs du PC branchés sur la carte mère (processeur, boîtier, pompe) qui se règlent.",
+        "Graphics card fans are set with LACT (Linux GPU Configuration Tool, for AMD, NVIDIA and Intel cards). This page sets the PC fans plugged into the motherboard (processor, case, pump).",
+    ),
+    (
+        "Michael Möller, contributeurs LibreHardwareMonitor",
+        "Michael Möller, LibreHardwareMonitor contributors",
+    ),
+    (
+        "lm-sensors · pilotes hwmon de Linux",
+        "lm-sensors · Linux hwmon drivers",
+    ),
+    (
+        "Principe du service de ventilation (fancontrol : pwmN, pwmN_enable) ; pilotes it87 et nct6775 des cartes mères.",
+        "Design of the fan service (fancontrol: pwmN, pwmN_enable); it87 and nct6775 motherboard drivers.",
+    ),
+    (
+        "Projet lm-sensors, Jean Delvare, Guenter Roeck et contributeurs",
+        "lm-sensors project, Jean Delvare, Guenter Roeck and contributors",
     ),
 ];

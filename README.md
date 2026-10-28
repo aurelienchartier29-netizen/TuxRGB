@@ -13,7 +13,8 @@
 
 TuxRGB pilote l'éclairage de tout le PC (carte mère, RAM, carte graphique,
 ventilateurs, watercooling, claviers, souris, bandes LED…) depuis une seule
-interface. Les appareils sont placés sur un **canevas** qui reproduit votre
+interface, ainsi que les **afficheurs** des watercoolings et des boîtiers et
+la **vitesse des ventilateurs** (courbes). Les appareils sont placés sur un **canevas** qui reproduit votre
 setup : une vague arc-en-ciel traverse réellement votre bureau, de gauche à
 droite, et en synchro écran chaque LED reprend exactement la zone de l'écran
 qu'elle couvre. Tout le fond du canevas diffuse un rendu adouci et flouté de
@@ -37,10 +38,12 @@ l'effet, avec les appareils nets par-dessus.
 | Ventilateurs | **Par ventilateur, par connecteur** : un connecteur ARGB se divise en ventilateurs (comme les segments d'OpenRGB, nombre de LED propre à chacun), chacun est un élément du canevas qui se place, se tourne et se redimensionne seul |
 | Canevas | **Rotation libre** de chaque élément (curseur 0–359°, poignée de rotation sur le canevas, angles droits magnétiques), éléments **masquables** (toujours connectés et éclairés), élément sélectionné au premier plan, miroir, taille |
 | Afficheurs | Page **Afficheurs** : écrans des watercoolings **NZXT Kraken** Z / 2023 / 2024 et **Corsair** (iCUE ELITE LCD, iCUE LINK LCD, XC7, Nautilus), afficheurs numériques **DeepCool** (AK, AG, LS, LD, LP, LQ, AK Digital Pro, boîtiers CH) : température / charge / puissance / fréquence CPU et GPU, mémoire, heure, texte ou image, activation, fréquence de rafraîchissement, luminosité et orientation des écrans, aperçu en direct ; pilotes libres en USB HID, sans logiciel du fabricant |
+| Ventilation | Page **Ventilation** : chaque ventilateur branché sur la carte mère (processeur, boîtier, pompe) avec sa vitesse en direct, laissé à la **carte mère**, à une **vitesse fixe** ou sur une **courbe** (points déplaçables à la souris, modèles Silencieux / Équilibré / Performance) qui suit le processeur, la carte graphique ou un capteur de la carte mère ; bouton « Identifier ». **Sécurité** : 100 % pour tous les ventilateurs pilotés à 90 °C (jusqu'à 85 °C), carte mère qui reprend la main si la température suivie devient illisible, réglages d'origine rendus à l'arrêt. Linux : petit service système `tuxrgb-fans` (installé une fois via Polkit, comme `fancontrol`), actif dès le démarrage, pilotes `it87` / `nct6775` chargés si besoin. Windows : contrôleurs ITE et Nuvoton via PawnIO en mode administrateur (registres de LibreHardwareMonitor), processus de garde qui rend les ventilateurs à la carte mère si TuxRGB s'arrête brutalement. Les ventilateurs de la carte graphique restent à ses propres outils : AMD Adrenalin / application NVIDIA sous Windows, LACT sous Linux |
 | Effets matériels | Un clavier, une souris ou une ampoule WiZ peut jouer **son propre effet** (réactions aux touches, scènes) au lieu de ceux de TuxRGB |
 | Lumières réseau | Contrôleurs **WLED** (DDP, nombre de LED détecté) et ampoules **Philips WiZ** (recherche sur le réseau) : des appareils comme les autres |
 | Accès matériel | Assistant de premier lancement + « Réinitialiser les permissions / Accès matériel » (Polkit/pkexec, programme d'aide vérifié), correctif SMBus sur toutes les distributions, appliqué seulement si nécessaire |
 | Zone de notification | StatusNotifierItem (ksni), catégorie *ApplicationStatus* (à côté de Steam, pas parmi les contrôles système) : effet, luminosité, extinction, sans fenêtre ouverte ; notifications de bureau avec action directe |
+| Écran éteint | Les LED s'éteignent en fondu quand l'écran se met en veille et reviennent dès qu'il se rallume (KDE : état DPMS de KWin ; GNOME : Mutter ; autres bureaux Wayland : inactivité ; Windows : état de l'écran), désactivable dans Réglages → Démarrage |
 | Extinction | **Toutes** les LED (carte mère et ventilateurs compris) éteintes à l'arrêt, au redémarrage, à la mise en veille et à la fermeture de session, avec un délai strict de 400 ms (inhibiteur logind / `WM_QUERYENDSESSION`) : l'arrêt du système n'est jamais ralenti ; état exact restauré au démarrage |
 | Mises à jour | Réglages → **Mises à jour** : version la plus récente lue sur les releases GitHub, téléchargement vérifié (taille, SHA-256, format), AppImage remplacée sur place puis redémarrage (Linux), installateur silencieux qui relance TuxRGB (Windows) ; vérification automatique au démarrage, au plus toutes les 6 heures (désactivable) ; Flatpak et paquets : page de la version |
 | Distribution | AppImage prête à l'emploi (Bazzite, Aurora…), manifest Flatpak, fichiers pour paquets natifs |
@@ -63,13 +66,13 @@ cd dist
 ```
 
 Gear Lever (préinstallé sur Bazzite) peut aussi intégrer
-`TuxRGB-3.1.3-x86_64.AppImage` au menu.
+`TuxRGB-3.2.0-x86_64.AppImage` au menu.
 
 ### Autres distributions
 
 ```sh
-chmod +x dist/TuxRGB-3.1.3-x86_64.AppImage
-./dist/TuxRGB-3.1.3-x86_64.AppImage
+chmod +x dist/TuxRGB-3.2.0-x86_64.AppImage
+./dist/TuxRGB-3.2.0-x86_64.AppImage
 ```
 
 L'AppImage nécessite glibc ≥ 2.39 (Fedora 40+, Ubuntu 24.04+, Debian 13,
@@ -115,9 +118,20 @@ nom qui contient le numéro de version est renommé) et redémarre TuxRGB.
 ### Sécurité du programme d'aide (`tuxrgb-helper`)
 
 * Seul composant exécuté en root, via Polkit (`pkexec`), le temps d'une
-  action. Il n'accepte que 4 verbes fixes (`install`, `enable-smbus`,
-  `reset`, `status`), sans aucun autre argument ; aucune commande ne passe
-  par un shell.
+  action. Il n'accepte que des verbes fixes (`install`, `enable-smbus`,
+  `enable-fans`, `reset`, `status`), sans aucun autre argument ; aucune
+  commande ne passe par un shell.
+* Ventilation : `enable-fans` copie le programme d'aide dans
+  `/usr/local/libexec/tuxrgb/` et installe `tuxrgb-fans.service`, qu'il
+  lance en root (`fan-daemon`). Le service n'écoute que sur
+  `/run/tuxrgb/fans.sock`, qui n'appartient qu'à l'utilisateur qui l'a
+  activé (0600) ; chaque ligne reçue est vérifiée (identifiants, bornes,
+  courbes croissantes) et il n'écrit que dans les fichiers `pwmN` /
+  `pwmN_enable` des ventilateurs qu'il a trouvés lui-même. L'état d'origine
+  de chaque ventilateur est noté avant toute modification et remis par
+  `ExecStopPost=… fan-restore` dès que le service s'arrête, plante ou que le
+  système s'éteint. « Réinitialiser les permissions » arrête et supprime
+  tout.
 * Environnement effacé, `PATH` réduit aux dossiers système (pas de
   `/usr/local`), `umask 022` ; un outil (`udevadm`, `modprobe`,
   `rpm-ostree`, `grubby`…) n'est lancé que s'il appartient à root et n'est
@@ -181,12 +195,12 @@ l'état du premier lancement et relance l'assistant (utile après un changement
 de carte mère, de RAM ou de périphérique). Même chose en ligne de commande :
 `tuxrgb --reset-hardware`.
 
-## Windows — `TuxRGB-3.1.3-Windows-Setup.exe`
+## Windows — `TuxRGB-3.2.0-Windows-Setup.exe`
 
 La version Windows (10 / 11, 64 bits) est publiée **en même temps que Linux,
 dans la même release**, avec les mêmes correctifs.
 
-**Installation** : télécharger `TuxRGB-3.1.3-Windows-Setup.exe` (page
+**Installation** : télécharger `TuxRGB-3.2.0-Windows-Setup.exe` (page
 Releases), double-cliquer, suivre l'installateur. Il installe TuxRGB dans
 `C:\Program Files\TuxRGB`, crée les raccourcis, puis :
 
@@ -227,13 +241,15 @@ lumières réseau WLED / Philips WiZ et le moteur OpenRGB. Ce qui **change**, pa
 | Instance unique : D-Bus | Mutex nommé + `WM_COPYDATA` |
 | Démarrage avec la session : `~/.config/autostart` | Clé `HKCU\…\Run` |
 | Accès matériel : udev, i2c-dev, Polkit | PawnIO + mode administrateur (UAC une seule fois) |
+| Ventilation : service système `tuxrgb-fans` (hwmon `pwmN`), actif dès le démarrage | Contrôleurs ITE / Nuvoton pilotés par TuxRGB en mode administrateur via PawnIO (`LpcIO`), processus de garde qui rend les ventilateurs à la carte mère si TuxRGB s'arrête brutalement ; ventilateurs du second contrôleur des cartes Gigabyte en lecture seule |
+| LED éteintes avec l'écran : DPMS de KWin, Mutter, ou inactivité | `GUID_CONSOLE_DISPLAY_STATE` (état de l'écran donné par Windows) |
 | Capteurs : hwmon, `/proc`, RAPL | Charge et fréquence CPU, mémoire ; charge et température de toute carte graphique par Windows (compteurs du Gestionnaire des tâches, noyau graphique), détails NVIDIA via `nvidia-smi` ; température et puissance du CPU (Ryzen, Intel Core) par le pilote signé **PawnIO** en mode administrateur, ou **LibreHardwareMonitor** s'il est ouvert |
 
 Compiler la version Windows :
 
 ```sh
 # Depuis Linux (compilation croisée) : mingw-w64 + nsis
-bash scripts/windows/build-windows.sh    # → dist/TuxRGB-3.1.3-Windows-Setup.exe
+bash scripts/windows/build-windows.sh    # → dist/TuxRGB-3.2.0-Windows-Setup.exe
 ```
 
 ```powershell
@@ -258,9 +274,9 @@ Réglages : `%APPDATA%\tuxrgb` — journaux et rapport matériel :
 |---|---|---|
 | ![](docs/screenshots/10-devices-fans.png) | ![](docs/screenshots/11-devices-hardware.png) | ![](docs/screenshots/12-network.png) |
 
-| Effet propre d'un ventilateur | Afficheurs (écran AIO, afficheur numérique) |
-|---|---|
-| ![](docs/screenshots/13-devices-own.png) | ![](docs/screenshots/14-displays.png) |
+| Effet propre d'un ventilateur | Afficheurs (écran AIO, afficheur numérique) | Ventilation (courbe, vitesse fixe) |
+|---|---|---|
+| ![](docs/screenshots/13-devices-own.png) | ![](docs/screenshots/14-displays.png) | ![](docs/screenshots/15-fans.png) |
 
 Les mêmes captures en anglais sont dans `docs/screenshots/en/` (utilisées par
 la fiche AppStream). Elles sont produites par `tuxrgb --screenshot-tour`, qui
@@ -387,10 +403,13 @@ crates/
   tuxrgb/                     application (GUI, services, tray, thème, privilèges)
     src/app.rs                état, messages, logique (architecture Elm)
     src/services.rs           services d'arrière-plan exposés en abonnement iced
+    src/fans/                 ventilation : mod.rs (réglages, page), linux.rs (client du service),
+                              windows.rs (contrôleur, processus de garde)
+    src/screen_watch.rs       écrans allumés / éteints (KWin DPMS, Mutter, ext-idle-notify)
     src/displays/             afficheurs : hardware_display.rs (modèles, réglages), hid.rs, usb.rs,
                               deepcool.rs, kraken.rs, corsair.rs, render.rs (dessin des écrans)
     src/theme/                tokens M3 Expressive, ressorts, couleurs HCT, KDE
-    src/ui/                   accueil, effets, appareils, afficheurs, réglages, crédits, assistant, canevas, sélecteur de couleur,
+    src/ui/                   accueil, effets, appareils, afficheurs, ventilation (fans.rs, fan_curve.rs), réglages, crédits, assistant, canevas, sélecteur de couleur,
                               motion (boutons, curseurs, interrupteurs), transition (fondus, dépliage, défilement fluide),
                               backdrop (fond flouté de l'aperçu)
     src/privileges/           diagnostic + lancement pkexec du programme d'aide (Windows : *_windows.rs)
@@ -400,8 +419,9 @@ crates/
   tuxrgb-core/                modèle, canevas, effets, moteur multithread (sans dépendance GUI)
   tuxrgb-openrgb/             superviseur du serveur OpenRGB + client SDK v6 + règles udev
   tuxrgb-capture/             capture audio PipeWire + FFT, capture d'écran portail + PipeWire
-                              (Windows : WASAPI, GDI, compteurs système)
-  tuxrgb-helper/              programme d'aide root (std uniquement, install|reset|status)
+                              (Windows : WASAPI, GDI, compteurs système, superio.rs : contrôleurs de ventilateurs)
+  tuxrgb-helper/              programme d'aide root (std uniquement, install|enable-smbus|enable-fans|reset|status),
+                              service de ventilation (fand.rs, fancurve.rs, hwmon.rs)
 vendor/openrgb2/              client SDK openrgb2 0.4.1 + correctif de compatibilité OpenRGB 1.0
 third_party/openrgb/          sources complètes d'OpenRGB 1.1 (non modifiées)
 data/                         .desktop, metainfo AppStream, action Polkit, icônes, règles udev de référence
@@ -473,6 +493,11 @@ permission `org.freedesktop.Flatpak` nécessaire à l'assistant d'accès matéri
 | Interface lente sur une machine sans GPU | Réglages → Performances → Rendu « Logiciel », ou `tuxrgb --software-render`. |
 | Luminosité | Appliquée par TuxRGB lui-même sur chaque couleur (valeur HSV), avant l'envoi à OpenRGB : elle agit pareil sur la RAM, les ventilateurs, la souris, le clavier et la carte mère. La luminosité matérielle reste au maximum. |
 | Journal du moteur OpenRGB | `~/.local/state/tuxrgb/openrgb-server.log` |
+| Ventilation : « Aucun ventilateur trouvé » (Linux) | Le pilote du contrôleur de la carte mère n'est pas chargé. « Activer » essaie `nct6775`, puis `it87`, puis `it87` avec son option `ignore_resource_conflict=1` (cartes Gigabyte dont le firmware réserve les ports du capteur) et le garde pour les démarrages suivants s'il fonctionne. Le rapport matériel (section « Ventilation ») liste les puces, les ventilateurs et leurs modes. |
+| Ventilation : un ventilateur « Refusé par le pilote » | Le pilote n'accepte pas le mode manuel sur ce connecteur : la carte mère le garde. |
+| Ventilation : « Mettre à jour le service des ventilateurs » | Le service installé vient d'une autre version de TuxRGB : il continue d'appliquer vos réglages, « Mettre à jour » installe celui de cette version (mot de passe administrateur). Journal du service : `journalctl -u tuxrgb-fans`. |
+| Ventilation : vitesses qui changent toutes seules | Un autre logiciel pilote aussi les ventilateurs : un seul à la fois (Linux : `fancontrol`, CoolerControl, fan2go ; Windows : FanControl, Gigabyte Control Center / SIV, Armoury Crate, MSI Center). Laissez ces ventilateurs sur « Carte mère » dans TuxRGB, ou fermez l'autre logiciel. |
+| Ventilation (Windows) : « Mode administrateur nécessaire » ou aucun ventilateur | Réglages → Accès matériel → Configurer l'accès (pilote PawnIO + mode administrateur), puis « Détecter ». Seuls les contrôleurs ITE et Nuvoton sont pris en charge ; sur les cartes Gigabyte à deux contrôleurs, ceux du second sont affichés en lecture seule. |
 
 ## Licences
 

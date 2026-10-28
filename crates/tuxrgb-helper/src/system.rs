@@ -113,6 +113,41 @@ pub fn run(name: &str, args: &[&str]) -> Result<(), String> {
     }
 }
 
+/// Runs a system tool by absolute path and returns its standard output
+/// (bounded, with a deadline: a hung tool never blocks the caller).
+pub fn output(name: &str, args: &[&str]) -> Option<String> {
+    use std::io::Read;
+    let path = tool(name)?;
+    let mut child = Command::new(path)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) | Err(_) => return None,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
+        }
+    }
+    let mut out = String::new();
+    child
+        .stdout
+        .take()?
+        .take(64 * 1024)
+        .read_to_string(&mut out)
+        .ok()?;
+    Some(out)
+}
+
 /// Re-applies SELinux labels when available (Fedora Atomic: Bazzite, Aurora…).
 pub fn restorecon(paths: &[&str]) {
     if let Some(p) = tool("restorecon") {

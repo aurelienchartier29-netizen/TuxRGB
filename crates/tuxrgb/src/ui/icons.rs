@@ -142,3 +142,6 @@ pub const FOLDER_OPEN: char = '\u{e2c8}';
 pub const TEXT_FIELDS: char = '\u{e262}';
 pub const IMAGE: char = '\u{e3f4}';
 pub const THERMOSTAT: char = '\u{f076}';
+pub const EDIT: char = '\u{f097}';
+pub const MODE_FAN_OFF: char = '\u{ec17}';
+pub const DEVICE_THERMOSTAT: char = '\u{e1ff}';

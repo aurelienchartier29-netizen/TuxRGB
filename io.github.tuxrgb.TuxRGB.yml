@@ -38,8 +38,13 @@ finish-args:
   # COSMIC theme files.
   - --filesystem=xdg-config/kdeglobals:ro
   - --filesystem=xdg-config/cosmic:ro
-  # CPU / GPU temperatures for the "Hardware monitor" effect (read-only).
+  # CPU / GPU temperatures for the "Hardware monitor" effect and the fan
+  # speeds shown on the Fans page (read-only).
   - --filesystem=/sys/class/hwmon:ro
+  # Fans page: socket of the host service tuxrgb-fans (installed through the
+  # helper, owned by the user who enabled it, mode 0600). Only bound when the
+  # service already runs as the app starts.
+  - --filesystem=/run/tuxrgb
   # Turns the LEDs off before shutdown / sleep (logind delay inhibitor).
   - --system-talk-name=org.freedesktop.login1
   # Problems found while running in the tray (missing module, ARGB header).

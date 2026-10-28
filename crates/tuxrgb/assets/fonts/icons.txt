@@ -138,3 +138,6 @@ folder_open
 text_fields
 image
 thermostat
+edit
+mode_fan_off
+device_thermostat

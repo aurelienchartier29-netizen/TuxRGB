@@ -459,9 +459,13 @@ impl HardwareDisplay for Kraken {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::displays::hardware_display::{Content, DisplaySettings};
+    #[cfg(target_os = "linux")]
+    use crate::displays::hardware_display::Content;
+    use crate::displays::hardware_display::DisplaySettings;
     use crate::displays::hid::mock::MockHid;
+    #[cfg(target_os = "linux")]
     use crate::displays::usb::MockBulk;
+    #[cfg(target_os = "linux")]
     use std::sync::{Arc, Mutex};
     use tuxrgb_core::signal::HardwareSample;
 
@@ -498,6 +502,8 @@ mod tests {
     /// The Kraken Z static picture of liquidctl's test suite
     /// (tests/test_krakenz3_response.py, "static_hid" / "static_bulk"):
     /// same HID commands, same header, 800 bulk writes of 512 bytes.
+    /// (Pictures are Linux-only: Windows keeps the screen's own views.)
+    #[cfg(target_os = "linux")]
     #[test]
     fn static_picture_matches_liquidctl() {
         let (mock, log) = kraken_mock();

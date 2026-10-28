@@ -441,6 +441,13 @@ fn startup(app: &App) -> Element<'_, Message> {
                 switch(b.turn_off_on_exit, r, Message::SetTurnOffOnExit),
                 r,
             ),
+            setting_row(
+                icons::DARK_MODE,
+                "Éteindre les LED avec l'écran",
+                "Quand l'écran se met en veille, les LED s'éteignent en fondu ; elles se rallument dès qu'il se rallume (souris, clavier).",
+                switch(b.leds_off_with_screen, r, Message::SetLedsOffWithScreen),
+                r,
+            ),
         ],
     )
 }

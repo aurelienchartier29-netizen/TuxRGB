@@ -21,6 +21,7 @@ mod config;
 mod credits;
 mod desktop;
 mod displays;
+mod fans;
 #[cfg_attr(windows, path = "win/instance.rs")]
 mod instance;
 #[cfg_attr(windows, path = "win/integration.rs")]
@@ -28,6 +29,8 @@ mod integration;
 mod openrgb_fetch;
 mod paths;
 mod privileges;
+#[cfg(target_os = "linux")]
+mod screen_watch;
 mod services;
 mod theme;
 mod tour;
@@ -271,6 +274,11 @@ fn main() -> iced::Result {
     #[cfg(windows)]
     {
         let argv: Vec<String> = std::env::args().collect();
+        if argv.get(1).map(String::as_str) == Some("--fan-guard")
+            && let (Some(pid), Some(file)) = (argv.get(2), argv.get(3))
+        {
+            std::process::exit(fans::windows::guard_main(pid, std::path::Path::new(file)));
+        }
         if argv.get(1).map(String::as_str) == Some("--fetch-openrgb")
             && let Some(dest) = argv.get(2)
         {

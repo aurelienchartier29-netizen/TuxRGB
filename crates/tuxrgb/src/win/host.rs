@@ -39,6 +39,11 @@ pub const COPYDATA_ACTIVATE: usize = 0x5452_4742; // "TRGB"
 
 const WM_DWMCOLORIZATIONCOLORCHANGED: u32 = 0x0320;
 
+/// `GUID_CONSOLE_DISPLAY_STATE`: data 0 = off, 1 = on, 2 = dimmed.
+const CONSOLE_DISPLAY_STATE: windows::core::GUID =
+    windows::core::GUID::from_u128(0x6fe69556_704a_47a0_8f24_c28d936fda47);
+const PBT_POWERSETTINGCHANGE: u32 = 0x8013;
+
 /// Highest shutdown level of applications (0x100–0x3FF; default 0x280).
 const SHUTDOWN_LEVEL: u32 = 0x3FF;
 
@@ -58,6 +63,8 @@ pub enum PowerSignal {
     /// Going to sleep: turn the LEDs off, then answer.
     Suspend(std_mpsc::Sender<()>),
     Resumed,
+    /// The screens went off (`false`) or came back (`true`).
+    Display(bool),
 }
 
 #[derive(Default)]
@@ -167,6 +174,14 @@ fn create_window() -> Option<HWND> {
         for msg in [WM_COPYDATA, taskbar_created] {
             let _ = ChangeWindowMessageFilterEx(hwnd, msg, MSGFLT_ALLOW, None);
         }
+        // Screens on / off (GUID_CONSOLE_DISPLAY_STATE).
+        if let Err(e) = windows::Win32::System::Power::RegisterPowerSettingNotification(
+            windows::Win32::Foundation::HANDLE(hwnd.0),
+            &CONSOLE_DISPLAY_STATE,
+            windows::Win32::UI::WindowsAndMessaging::DEVICE_NOTIFY_WINDOW_HANDLE,
+        ) {
+            tracing::info!("screen state not followed: {e}");
+        }
         tracing::info!("Windows integration window ready");
         Some(hwnd)
     }
@@ -234,6 +249,26 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     tracing::info!("going to sleep: turning the LEDs off");
                     power_round_trip(PowerSignal::Suspend, SUSPEND_BUDGET);
                     SUSPENDED.store(true, Ordering::Relaxed);
+                }
+                // POWERBROADCAST_SETTING: GUID, data length, data.
+                PBT_POWERSETTINGCHANGE => {
+                    let p = lparam.0 as *const u8;
+                    if !p.is_null() {
+                        // SAFETY: Windows passes a POWERBROADCAST_SETTING
+                        // for this message; read unaligned, bounds by its
+                        // own length field.
+                        let (guid, len, state) = unsafe {
+                            (
+                                std::ptr::read_unaligned(p as *const windows::core::GUID),
+                                std::ptr::read_unaligned(p.add(16) as *const u32),
+                                std::ptr::read_unaligned(p.add(20) as *const u32),
+                            )
+                        };
+                        if guid == CONSOLE_DISPLAY_STATE && len >= 4 {
+                            // Dimmed still counts as on.
+                            notify_power(PowerSignal::Display(state != 0));
+                        }
+                    }
                 }
                 // Both arrive after a user-initiated wake: one restore.
                 PBT_APMRESUMEAUTOMATIC | PBT_APMRESUMESUSPEND => {

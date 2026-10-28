@@ -20,10 +20,14 @@ pub mod analyzer;
 #[cfg_attr(windows, path = "audio_windows.rs")]
 pub mod audio;
 pub mod hardware;
+#[cfg(windows)]
+pub mod pawnio;
 mod sampling;
 #[cfg_attr(windows, path = "screen_windows.rs")]
 pub mod screen;
 pub mod shader;
+#[cfg(windows)]
+pub mod superio;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CaptureError {

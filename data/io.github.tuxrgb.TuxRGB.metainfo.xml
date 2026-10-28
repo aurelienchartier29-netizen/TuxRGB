@@ -27,14 +27,16 @@
       <li>Audio visualiser on every device (PipeWire) and per-LED screen sync (ScreenCast portal)</li>
       <li>Hardware monitor: CPU / GPU temperature and load, memory, in colour</li>
       <li>Smooth crossfades, global brightness and 0–200 % saturation</li>
-      <li>LEDs off at shutdown and sleep, exact state restored at the next start</li>
+      <li>Fan speed control: fixed speeds or temperature curves for motherboard fans, with safety rules</li>
+      <li>LEDs off at shutdown, at sleep and while the screen is off, exact state restored afterwards</li>
       <li>Guided, reversible setup of hardware access (udev rules, I2C/SMBus) through Polkit, on every major distribution</li>
       <li>Runs from the system tray with near-zero CPU usage</li>
     </ul>
     <p xml:lang="fr">
       TuxRGB synchronise l'éclairage RGB de la carte mère, de la RAM, de la carte graphique,
-      des ventilateurs, du watercooling, des claviers, souris et bandes LED. Le moteur
-      OpenRGB (1.0 et ajouts récents) est intégré : rien d'autre à installer. Interface Wayland native,
+      des ventilateurs, du watercooling, des claviers, souris et bandes LED, ainsi que la
+      vitesse des ventilateurs. Le moteur
+      OpenRGB 1.1 est intégré : rien d'autre à installer. Interface Wayland native,
       Material 3 Expressive, en français et en anglais, couleurs reprises de l'accent du bureau
       (KDE Plasma, GNOME, COSMIC).
     </p>
@@ -76,6 +78,10 @@
       <caption>AIO cooler screens and digital displays</caption>
       <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/14-displays.png</image>
     </screenshot>
+    <screenshot>
+      <caption>Fan speed curves</caption>
+      <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/15-fans.png</image>
+    </screenshot>
   </screenshots>
   <categories>
     <category>Settings</category>
@@ -96,6 +102,19 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.2.0" date="2026-10-27">
+      <description>
+        <p>Fan control, and LEDs that turn off with the screen.</p>
+        <ul>
+          <li>New Fans page: every fan plugged into the motherboard with its live speed, left to the motherboard, set to a fixed speed or driven by a curve that follows the CPU, the GPU or a motherboard sensor (draggable points, Silent, Balanced and Performance presets)</li>
+          <li>Safety: every driven fan at full speed at 90 °C, the motherboard takes a fan back if its temperature can no longer be read, original settings restored on exit</li>
+          <li>Linux: a small system service applies the fan settings from boot, set up once through Polkit</li>
+          <li>Graphics card fans stay with their own tools (LACT on Linux, AMD Adrenalin or the NVIDIA app on Windows)</li>
+          <li>Windows: ITE and Nuvoton motherboard controllers through PawnIO in administrator mode</li>
+          <li>The LEDs fade out when the screen goes to sleep and come back with it (KDE Plasma, GNOME, other Wayland desktops after 10 minutes of inactivity, Windows)</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.1.3" date="2026-10-26">
       <description>
         <p>The LEDs show the same colours as the app.</p>

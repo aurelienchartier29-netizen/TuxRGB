@@ -58,7 +58,7 @@ EXE="target/$TARGET/release/tuxrgb.exe"
 # A Windows program built with MinGW must not need any MinGW DLL.
 if command -v x86_64-w64-mingw32-objdump >/dev/null; then
   extra_dlls="$(x86_64-w64-mingw32-objdump -p "$EXE" | awk '/DLL Name/ {print $3}' |
-    grep -viE '^(kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|ws2_32|ntdll|bcrypt|bcryptprimitives|userenv|comctl32|comdlg32|dwmapi|uxtheme|imm32|winmm|dxgi|d3d12|d3dcompiler_47|opengl32|setupapi|version|shlwapi|propsys|uiautomationcore|api-ms-win-.*|msvcrt|crypt32|secur32|powrprof|dbghelp|winspool\.drv|hid|cfgmgr32|oleacc|dcomp|d2d1|dwrite|windowscodecs|mfplat|avrt|ksuser|mmdevapi|synchronization|combase|rpcrt4|iphlpapi|ncrypt|netapi32|psapi|wtsapi32)\.dll$' || true)"
+    grep -viE '^(kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|ws2_32|ntdll|bcrypt|bcryptprimitives|userenv|comctl32|comdlg32|dwmapi|uxtheme|imm32|winmm|dxgi|d3d12|d3dcompiler_47|opengl32|setupapi|version|shlwapi|propsys|uiautomationcore|api-ms-win-.*|msvcrt|crypt32|secur32|powrprof|dbghelp|winspool\.drv|hid|cfgmgr32|oleacc|dcomp|d2d1|dwrite|windowscodecs|mfplat|avrt|ksuser|mmdevapi|synchronization|combase|rpcrt4|iphlpapi|ncrypt|netapi32|psapi|wtsapi32|pdh)\.dll$' || true)"
   [ -z "$extra_dlls" ] || echo "Attention : DLL non système requises : $extra_dlls"
 fi
 
