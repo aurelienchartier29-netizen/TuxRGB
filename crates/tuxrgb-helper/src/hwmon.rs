@@ -26,6 +26,9 @@ pub struct Fan {
     pub pwm: Option<PathBuf>,
     /// `pwmN_enable`: 1 = manual, other values = the hardware's modes.
     pub enable: Option<PathBuf>,
+    /// IT8689E: its control register, fixed by TuxRGB itself (see
+    /// [`IteCtl`]).
+    pub ite: Option<IteCtl>,
 }
 
 impl Fan {
@@ -117,6 +120,11 @@ pub fn discover(root: &Path) -> Hwmon {
             let pwm = chip.join(format!("pwm{i}"));
             let enable = chip.join(format!("pwm{i}_enable"));
             let (has_rpm, has_pwm) = (rpm.is_file(), pwm.is_file());
+            let ite = if has_pwm {
+                ite_ctl(&name, device.as_deref(), i)
+            } else {
+                None
+            };
             if has_rpm || has_pwm {
                 out.fans.push(Fan {
                     id: format!("{tag}-fan{i}"),
@@ -126,6 +134,7 @@ pub fn discover(root: &Path) -> Hwmon {
                     rpm: has_rpm.then_some(rpm),
                     pwm: has_pwm.then_some(pwm),
                     enable: (has_pwm && enable.is_file()).then_some(enable),
+                    ite,
                 });
             }
             let input = chip.join(format!("temp{i}_input"));
@@ -140,6 +149,37 @@ pub fn discover(root: &Path) -> Hwmon {
         }
     }
     out
+}
+
+/// IT8689E: the PWM control registers of the chip (environment controller
+/// base + 5 / + 6), one per output.
+pub const ITE_CTRL: [u8; 6] = [0x15, 0x16, 0x17, 0x7F, 0xA7, 0xAF];
+
+/// Direct access to an output's control register, for the chips whose
+/// manual mode the Linux `it87` driver gets wrong (see `fand.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IteCtl {
+    /// Environment controller base address (`it87.<base>` platform device).
+    pub base: u16,
+    /// PWM control register of the output.
+    pub reg: u8,
+}
+
+/// A plausible ITE environment controller address.
+pub fn valid_ite_base(base: u16) -> bool {
+    base >= 0x100 && base & 0x7 == 0 && base <= 0xFFF0
+}
+
+/// The `it87` driver's manual mode keeps the output tied to a temperature
+/// source on these chips, which then ignore the speed written (frankcrawford
+/// /it87 issue 11, checked on a Gigabyte B650 AORUS ELITE AX V2).
+fn ite_ctl(chip_name: &str, device: Option<&str>, index: u8) -> Option<IteCtl> {
+    if chip_name != "it8689" {
+        return None;
+    }
+    let base: u16 = device?.strip_prefix("it87.")?.parse().ok()?;
+    let reg = *ITE_CTRL.get(usize::from(index).checked_sub(1)?)?;
+    valid_ite_base(base).then_some(IteCtl { base, reg })
 }
 
 /// °C, or `None` when unreadable or absurd.

@@ -441,6 +441,17 @@ pub fn build(diag: Option<&Diagnostics>, devices: &[DeviceInfo]) -> (String, Fin
                     ", lecture seule"
                 }
             );
+            // IT8689E: the control register TuxRGB fixes itself.
+            if let Some(c) = fan.ite {
+                let _ = writeln!(
+                    s,
+                    "    pilotage : registre 0x{:02X} de la puce (0x{:X}) corrigé par le service",
+                    c.reg, c.base
+                );
+            }
+        }
+        if let Ok(l) = std::fs::read_to_string("/sys/kernel/security/lockdown") {
+            let _ = writeln!(s, "Lockdown  : {}", l.trim());
         }
         if hw.fans.is_empty() {
             let _ = writeln!(s, "Aucun ventilateur dans /sys/class/hwmon");

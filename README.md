@@ -66,13 +66,13 @@ cd dist
 ```
 
 Gear Lever (préinstallé sur Bazzite) peut aussi intégrer
-`TuxRGB-3.2.0-x86_64.AppImage` au menu.
+`TuxRGB-3.2.1-x86_64.AppImage` au menu.
 
 ### Autres distributions
 
 ```sh
-chmod +x dist/TuxRGB-3.2.0-x86_64.AppImage
-./dist/TuxRGB-3.2.0-x86_64.AppImage
+chmod +x dist/TuxRGB-3.2.1-x86_64.AppImage
+./dist/TuxRGB-3.2.1-x86_64.AppImage
 ```
 
 L'AppImage nécessite glibc ≥ 2.39 (Fedora 40+, Ubuntu 24.04+, Debian 13,
@@ -195,12 +195,12 @@ l'état du premier lancement et relance l'assistant (utile après un changement
 de carte mère, de RAM ou de périphérique). Même chose en ligne de commande :
 `tuxrgb --reset-hardware`.
 
-## Windows — `TuxRGB-3.2.0-Windows-Setup.exe`
+## Windows — `TuxRGB-3.2.1-Windows-Setup.exe`
 
 La version Windows (10 / 11, 64 bits) est publiée **en même temps que Linux,
 dans la même release**, avec les mêmes correctifs.
 
-**Installation** : télécharger `TuxRGB-3.2.0-Windows-Setup.exe` (page
+**Installation** : télécharger `TuxRGB-3.2.1-Windows-Setup.exe` (page
 Releases), double-cliquer, suivre l'installateur. Il installe TuxRGB dans
 `C:\Program Files\TuxRGB`, crée les raccourcis, puis :
 
@@ -249,7 +249,7 @@ Compiler la version Windows :
 
 ```sh
 # Depuis Linux (compilation croisée) : mingw-w64 + nsis
-bash scripts/windows/build-windows.sh    # → dist/TuxRGB-3.2.0-Windows-Setup.exe
+bash scripts/windows/build-windows.sh    # → dist/TuxRGB-3.2.1-Windows-Setup.exe
 ```
 
 ```powershell
@@ -494,6 +494,7 @@ permission `org.freedesktop.Flatpak` nécessaire à l'assistant d'accès matéri
 | Luminosité | Appliquée par TuxRGB lui-même sur chaque couleur (valeur HSV), avant l'envoi à OpenRGB : elle agit pareil sur la RAM, les ventilateurs, la souris, le clavier et la carte mère. La luminosité matérielle reste au maximum. |
 | Journal du moteur OpenRGB | `~/.local/state/tuxrgb/openrgb-server.log` |
 | Ventilation : « Aucun ventilateur trouvé » (Linux) | Le pilote du contrôleur de la carte mère n'est pas chargé. « Activer » essaie `nct6775`, puis `it87`, puis `it87` avec son option `ignore_resource_conflict=1` (cartes Gigabyte dont le firmware réserve les ports du capteur) et le garde pour les démarrages suivants s'il fonctionne. Le rapport matériel (section « Ventilation ») liste les puces, les ventilateurs et leurs modes. |
+| Ventilation : la vitesse ne change pas (Linux, cartes Gigabyte) | Le mode manuel du pilote `it87` est ignoré par la puce ITE IT8689E. Depuis la 3.2.1, le service corrige lui-même le registre de la puce : Ventilation → « Mettre à jour » pour installer le nouveau service. Avec Secure Boot, le noyau interdit cet accès : les ventilateurs restent alors à la carte mère (« Refusé par le pilote »). |
 | Ventilation : un ventilateur « Refusé par le pilote » | Le pilote n'accepte pas le mode manuel sur ce connecteur : la carte mère le garde. |
 | Ventilation : « Mettre à jour le service des ventilateurs » | Le service installé vient d'une autre version de TuxRGB : il continue d'appliquer vos réglages, « Mettre à jour » installe celui de cette version (mot de passe administrateur). Journal du service : `journalctl -u tuxrgb-fans`. |
 | Ventilation : vitesses qui changent toutes seules | Un autre logiciel pilote aussi les ventilateurs : un seul à la fois (Linux : `fancontrol`, CoolerControl, fan2go ; Windows : FanControl, Gigabyte Control Center / SIV, Armoury Crate, MSI Center). Laissez ces ventilateurs sur « Carte mère » dans TuxRGB, ou fermez l'autre logiciel. |

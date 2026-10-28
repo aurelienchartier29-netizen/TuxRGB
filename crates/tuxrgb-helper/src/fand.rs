@@ -20,6 +20,7 @@
 
 use crate::fancurve::{self, Driver, Mode, Output, Setting, Status};
 use crate::hwmon::{self, Fan, Hwmon};
+use crate::ioport::{self, Ports};
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -51,13 +52,37 @@ const TEST_DURATION: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(60);
 const RESCAN: Duration = Duration::from_secs(30);
 
-/// Original `pwmN_enable` / `pwmN` of a fan.
+/// Original `pwmN_enable` / `pwmN` of a fan (and, for an IT8689E output,
+/// its control register: base, register, value).
 #[derive(Clone, Debug, PartialEq)]
 struct Original {
     pwm: PathBuf,
     enable: PathBuf,
     mode: u8,
     value: u8,
+    ite: Option<(u16, u8, u8)>,
+}
+
+/// IT8689E control register value in manual mode: no temperature source
+/// (what LibreHardwareMonitor writes; the `it87` driver keeps the source,
+/// and the chip then ignores the speed).
+const ITE_MANUAL: u8 = 0x7F;
+
+/// Puts a fan back as it was: its speed and mode (the speed before and
+/// after the mode: some drivers only take it in manual mode, others latch
+/// it), then, for an IT8689E output, the exact control register the
+/// firmware had set (the driver's own value for the mode is not it).
+fn put_back(o: &Original, ports: &mut dyn Ports) {
+    let _ = write_value(&o.pwm, o.value);
+    let _ = write_value(&o.enable, o.mode);
+    if let Some((base, reg, value)) = o.ite
+        && ioport::is_ite(ports, base)
+    {
+        ports.write(base, reg, value);
+    }
+    if o.mode == 1 {
+        let _ = write_value(&o.pwm, o.value);
+    }
 }
 
 /// Paths of a restore record must be hwmon channel files.
@@ -82,13 +107,18 @@ fn channel_file(p: &Path, enable: bool) -> bool {
 fn format_restore(list: &[Original]) -> String {
     list.iter()
         .map(|o| {
-            format!(
-                "{} {} {} {}\n",
+            let mut line = format!(
+                "{} {} {} {}",
                 o.pwm.display(),
                 o.enable.display(),
                 o.mode,
                 o.value
-            )
+            );
+            if let Some((base, reg, value)) = o.ite {
+                line.push_str(&format!(" {base} {reg} {value}"));
+            }
+            line.push('\n');
+            line
         })
         .collect()
 }
@@ -97,11 +127,29 @@ fn parse_restore(text: &str, check_paths: bool) -> Vec<Original> {
     text.lines()
         .filter_map(|l| {
             let mut w = l.split_ascii_whitespace();
+            let pwm = PathBuf::from(w.next()?);
+            let enable = PathBuf::from(w.next()?);
+            let mode = w.next()?.parse().ok()?;
+            let value = w.next()?.parse().ok()?;
+            let rest: Vec<&str> = w.collect();
+            let ite = match rest.as_slice() {
+                [] => None,
+                [base, reg, value] => {
+                    let base: u16 = base.parse().ok()?;
+                    let reg: u8 = reg.parse().ok()?;
+                    let value: u8 = value.parse().ok()?;
+                    (hwmon::valid_ite_base(base) && hwmon::ITE_CTRL.contains(&reg))
+                        .then_some((base, reg, value))?;
+                    Some((base, reg, value))
+                }
+                _ => return None,
+            };
             let o = Original {
-                pwm: PathBuf::from(w.next()?),
-                enable: PathBuf::from(w.next()?),
-                mode: w.next()?.parse().ok()?,
-                value: w.next()?.parse().ok()?,
+                pwm,
+                enable,
+                mode,
+                value,
+                ite,
             };
             let ok = !check_paths || (channel_file(&o.pwm, false) && channel_file(&o.enable, true));
             ok.then_some(o)
@@ -137,10 +185,27 @@ pub struct Controller {
     temps: BTreeMap<String, f32>,
     nvidia: Option<(Instant, Option<f32>)>,
     last_scan: Instant,
+    /// Chip registers (IT8689E).
+    ports: Box<dyn Ports>,
+    ticks: u64,
 }
 
 impl Controller {
     pub fn new(root: &Path, restore_path: &Path, settings: Vec<Setting>) -> Self {
+        Self::with_ports(
+            root,
+            restore_path,
+            settings,
+            Box::new(ioport::DevPort::default()),
+        )
+    }
+
+    pub fn with_ports(
+        root: &Path,
+        restore_path: &Path,
+        settings: Vec<Setting>,
+        ports: Box<dyn Ports>,
+    ) -> Self {
         Self {
             root: root.to_owned(),
             restore_path: restore_path.to_owned(),
@@ -153,6 +218,8 @@ impl Controller {
             temps: BTreeMap::new(),
             nvidia: None,
             last_scan: Instant::now(),
+            ports,
+            ticks: 0,
         }
     }
 
@@ -224,26 +291,65 @@ impl Controller {
             let (Some(mode), Some(value)) = (hwmon::read_enable(fan), hwmon::read_pwm(fan)) else {
                 return false;
             };
+            // IT8689E: the control register as the firmware set it.
+            let ite = match fan.ite {
+                Some(c) => {
+                    if !ioport::is_ite(self.ports.as_mut(), c.base) {
+                        return false;
+                    }
+                    match ioport::read_stable(self.ports.as_mut(), c.base, c.reg) {
+                        Some(v) => Some((c.base, c.reg, v)),
+                        None => return false,
+                    }
+                }
+                None => None,
+            };
             self.originals.push(Original {
                 pwm,
                 enable,
                 mode,
                 value,
+                ite,
             });
             // Written before anything changes: a crash right after still
             // restores it.
             self.save_originals();
         }
-        hwmon::write_enable(fan, 1).is_ok() && hwmon::read_enable(fan) == Some(1)
+        if hwmon::write_enable(fan, 1).is_err() || hwmon::read_enable(fan) != Some(1) {
+            return false;
+        }
+        match fan.ite {
+            // Manual mode of the driver, then the right control register.
+            Some(c) => {
+                self.ports.write(c.base, c.reg, ITE_MANUAL)
+                    && ioport::read_stable(self.ports.as_mut(), c.base, c.reg) == Some(ITE_MANUAL)
+            }
+            None => true,
+        }
+    }
+
+    /// The fan is still driven by TuxRGB (the firmware can take it back
+    /// after a resume). The IT8689E register is checked every few seconds
+    /// only: the `it87` driver uses the chip too.
+    fn is_taken(&mut self, fan: &Fan, check_chip: bool) -> bool {
+        if hwmon::read_enable(fan) != Some(1) {
+            return false;
+        }
+        match fan.ite {
+            Some(c) if check_chip => {
+                // Two reads that disagree prove nothing: checked next time.
+                ioport::read_stable(self.ports.as_mut(), c.base, c.reg)
+                    .is_none_or(|v| v == ITE_MANUAL)
+            }
+            _ => true,
+        }
     }
 
     /// Gives a fan back to the hardware.
     fn release(&mut self, pwm: &Path) {
         if let Some(i) = self.originals.iter().position(|o| o.pwm == pwm) {
             let o = self.originals.remove(i);
-            // Speed first, then the mode (some drivers latch the value).
-            let _ = write_value(&o.pwm, o.value);
-            let _ = write_value(&o.enable, o.mode);
+            put_back(&o, self.ports.as_mut());
             self.save_originals();
         }
     }
@@ -285,6 +391,9 @@ impl Controller {
             .reduce(f32::max);
         self.safety = fancurve::safety_state(self.safety, hottest);
         let now = Instant::now();
+        // The IT8689E registers are looked at every 5 s.
+        self.ticks += 1;
+        let check_chip = self.ticks % 5 == 1;
         self.tests.retain(|_, (_, until)| *until > now);
 
         let fans: Vec<Fan> = self
@@ -330,10 +439,10 @@ impl Controller {
                         continue;
                     }
                     let value = fancurve::pwm_of(pct);
-                    // Manual mode (again, if the firmware took it back
-                    // after a resume).
-                    let manual = hwmon::read_enable(&fan) == Some(1);
+                    // Taken over (again, if the firmware took it back after
+                    // a resume).
                     let entry_written = entry.written;
+                    let manual = self.is_taken(&fan, check_chip);
                     if !manual && !self.take(&fan) {
                         let e = self.driven.get_mut(&fan.id).expect("just inserted");
                         e.refused_until = Some(now + RETRY);
@@ -533,9 +642,9 @@ pub fn daemon() -> Result<(), String> {
 /// `fan-restore`: every fan back to its original mode and speed.
 pub fn restore(path: &str) {
     let text = std::fs::read_to_string(path).unwrap_or_default();
+    let mut ports = ioport::DevPort::default();
     for o in parse_restore(&text, true) {
-        let _ = write_value(&o.pwm, o.value);
-        let _ = write_value(&o.enable, o.mode);
+        put_back(&o, &mut ports);
         println!("STEP fan-restored {}", o.pwm.display());
     }
     let _ = std::fs::remove_file(path);
@@ -570,6 +679,16 @@ pub fn unit(helper: &str) -> String {
 mod tests {
     use super::*;
     use crate::hwmon::fake::Tree;
+
+    /// A controller whose IT8689E registers are faked (0xA40, as the board
+    /// of the tests).
+    fn fake_controller(root: &Path, restore: &Path, settings: Vec<Setting>) -> Controller {
+        let ports = crate::ioport::fake::FakePorts::ite(0xA40);
+        for r in hwmon::ITE_CTRL {
+            ports.set(0xA40, r, 0xD0);
+        }
+        Controller::with_ports(root, restore, settings, Box::new(ports))
+    }
 
     fn board(t: &Tree) {
         t.chip(
@@ -613,7 +732,7 @@ mod tests {
         let settings = fancurve::parse_settings(&format!(
             "FAN {fan1} curve cpu 40:20,80:100\nFAN it8689-it87.2624-fan2 auto\n"
         ));
-        let mut c = Controller::new(&t.class(), &restore_path, settings);
+        let mut c = fake_controller(&t.class(), &restore_path, settings);
         c.tick(1.0);
         // 50 °C → 40 %: manual mode, PWM 102.
         assert_eq!(t.read("hwmon3", "pwm1_enable"), "1");
@@ -653,7 +772,7 @@ mod tests {
         board(&t);
         let restore_path = t.0.join("fans.restore");
         let fan2 = "it8689-it87.2624-fan2";
-        let mut c = Controller::new(
+        let mut c = fake_controller(
             &t.class(),
             &restore_path,
             fancurve::parse_settings(&format!("FAN {fan2} curve cpu 40:20,80:100\n")),
@@ -680,6 +799,81 @@ mod tests {
     }
 
     #[test]
+    fn it8689_outputs_get_the_right_control_register() {
+        use crate::ioport::fake::FakePorts;
+        let t = Tree::new("fand-ite");
+        // `it87.2624`: environment controller at 0xA40.
+        t.chip(
+            "hwmon3",
+            Some("it87.2624"),
+            &[
+                ("name", "it8689"),
+                ("fan1_input", "1030"),
+                ("pwm1", "66"),
+                ("pwm1_enable", "2"),
+                ("fan6_input", "807"),
+                ("pwm6", "63"),
+                ("pwm6_enable", "2"),
+            ],
+        );
+        let ports = FakePorts::ite(0xA40);
+        ports.set(0xA40, 0x15, 0xD0);
+        ports.set(0xA40, 0xAF, 0xD0);
+        let restore_path = t.0.join("fans.restore");
+        let fan1 = "it8689-it87.2624-fan1";
+        let mut c = Controller::with_ports(
+            &t.class(),
+            &restore_path,
+            fancurve::parse_settings(&format!("FAN {fan1} fixed 100\n")),
+            Box::new(ports.clone()),
+        );
+        assert_eq!(
+            c.hw.fans[0].ite,
+            Some(hwmon::IteCtl {
+                base: 0xA40,
+                reg: 0x15
+            })
+        );
+        assert_eq!(c.hw.fans[1].ite.map(|i| i.reg), Some(0xAF));
+        c.tick(1.0);
+        // The driver's manual mode, the right register, the speed.
+        assert_eq!(t.read("hwmon3", "pwm1_enable"), "1");
+        assert_eq!(ports.get(0xA40, 0x15), Some(0x7F));
+        assert_eq!(t.read("hwmon3", "pwm1"), "255");
+        // fan6 is left alone.
+        assert_eq!(ports.get(0xA40, 0xAF), Some(0xD0));
+        assert_eq!(t.read("hwmon3", "pwm6_enable"), "2");
+        // The firmware's register is on disk before any change.
+        let saved = parse_restore(&std::fs::read_to_string(&restore_path).unwrap(), false);
+        assert_eq!(saved[0].ite, Some((0xA40, 0x15, 0xD0)));
+        // The firmware takes the register back (resume): fixed again at the
+        // next check.
+        ports.set(0xA40, 0x15, 0xD0);
+        for _ in 0..5 {
+            c.tick(1.0);
+        }
+        assert_eq!(ports.get(0xA40, 0x15), Some(0x7F));
+        // Back to the motherboard: exactly the firmware's register.
+        c.set_settings(Vec::new());
+        c.tick(1.0);
+        assert_eq!(t.read("hwmon3", "pwm1_enable"), "2");
+        assert_eq!(ports.get(0xA40, 0x15), Some(0xD0));
+        // Not an ITE chip at that address: nothing is written.
+        let other = FakePorts::default();
+        other.set(0xA40, 0x15, 0xD0);
+        let mut c = Controller::with_ports(
+            &t.class(),
+            &t.0.join("fans2.restore"),
+            fancurve::parse_settings(&format!("FAN {fan1} fixed 100\n")),
+            Box::new(other.clone()),
+        );
+        c.tick(1.0);
+        assert_eq!(other.get(0xA40, 0x15), Some(0xD0));
+        assert!(c.state().contains(&format!("FAN {fan1} ")));
+        assert!(c.state().contains(" refused\n"));
+    }
+
+    #[test]
     fn graphics_card_fans_are_never_driven() {
         let t = Tree::new("fand-gpu");
         board(&t);
@@ -696,7 +890,7 @@ mod tests {
             ],
         );
         let gpu = "amdgpu-0000:03:00.0-fan1";
-        let mut c = Controller::new(
+        let mut c = fake_controller(
             &t.class(),
             &t.0.join("fans.restore"),
             fancurve::parse_settings(&format!("FAN {gpu} fixed 100\n")),
@@ -714,12 +908,17 @@ mod tests {
     fn restore_records_only_name_channel_files() {
         let good = "/sys/devices/platform/it87.2624/hwmon/hwmon3/pwm1 /sys/devices/platform/it87.2624/hwmon/hwmon3/pwm1_enable 2 128\n";
         assert_eq!(parse_restore(good, true).len(), 1);
+        let ite = "/sys/devices/platform/it87.2624/hwmon/hwmon3/pwm1 /sys/devices/platform/it87.2624/hwmon/hwmon3/pwm1_enable 2 66 2624 21 208\n";
+        assert_eq!(parse_restore(ite, true)[0].ite, Some((0xA40, 0x15, 0xD0)));
         for bad in [
             "/etc/passwd /sys/x/pwm1_enable 2 1\n",
             "/sys/x/pwm1 /etc/shadow 2 1\n",
             "/sys/../etc/pwm1 /sys/x/pwm1_enable 2 1\n",
             "/sys/x/pwm1 /sys/x/pwm1_enable 300 1\n",
             "/sys/x/pwmA /sys/x/pwmA_enable 2 1\n",
+            "/sys/x/pwm1 /sys/x/pwm1_enable 2 1 2624 21\n",
+            "/sys/x/pwm1 /sys/x/pwm1_enable 2 1 2624 99 208\n",
+            "/sys/x/pwm1 /sys/x/pwm1_enable 2 1 7 21 208\n",
         ] {
             assert!(parse_restore(bad, true).is_empty(), "{bad}");
         }
@@ -732,7 +931,7 @@ mod tests {
         let dir = t.0.clone();
         let sock = dir.join("s.sock");
         let settings_path = dir.join("fans.conf");
-        let ctl = Arc::new(Mutex::new(Controller::new(
+        let ctl = Arc::new(Mutex::new(fake_controller(
             &t.class(),
             &dir.join("fans.restore"),
             Vec::new(),

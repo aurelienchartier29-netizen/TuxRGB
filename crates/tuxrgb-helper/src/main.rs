@@ -35,6 +35,7 @@ mod bootloader;
 mod fancurve;
 mod fand;
 mod hwmon;
+mod ioport;
 mod rules;
 mod system;
 

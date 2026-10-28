@@ -102,6 +102,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.2.1" date="2026-10-28">
+      <description>
+        <p>Fan control now works on Gigabyte motherboards under Linux.</p>
+        <ul>
+          <li>ITE IT8689E controllers: the fan service sets the chip's control register itself, as LibreHardwareMonitor does on Windows, since the manual mode of the it87 driver is ignored by this chip</li>
+          <li>The hardware report shows these outputs and the kernel lockdown state</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.2.0" date="2026-10-27">
       <description>
         <p>Fan control, and LEDs that turn off with the screen.</p>
