@@ -237,7 +237,7 @@ fn appearance(app: &App) -> Element<'_, Message> {
 }
 
 /// One slider of the LED colour correction, with its value on the right.
-fn led_slider<'a>(
+pub(super) fn led_slider<'a>(
     app: &'a App,
     range: std::ops::RangeInclusive<f32>,
     value: f32,
@@ -275,7 +275,7 @@ fn led_slider<'a>(
 
 /// LED colour correction: the LEDs show the colours of the interface.
 fn led_colors(app: &App) -> Element<'_, Message> {
-    use tuxrgb_core::led_color::{DEFAULT_GAMMA, DEFAULT_WHITE, GAMMA_RANGE};
+    use tuxrgb_core::led_color::{DEFAULT_GAMMA, GAMMA_RANGE};
     let r = &app.roles;
     let c = &app.config.led_color;
     let mut rows = vec![setting_row(
@@ -286,7 +286,6 @@ fn led_colors(app: &App) -> Element<'_, Message> {
         r,
     )];
     if c.enabled {
-        let percent: fn(f32) -> String = |v| format!("{:.0} %", v * 100.0);
         rows.push(setting_row(
             icons::CONTRAST,
             "Gamma",
@@ -309,49 +308,30 @@ fn led_colors(app: &App) -> Element<'_, Message> {
             ),
             r,
         ));
-        let channels = [
-            ("Rouge", iced::Color::from_rgb8(0xE5, 0x39, 0x35)),
-            ("Vert", iced::Color::from_rgb8(0x43, 0xA0, 0x47)),
-            ("Bleu", iced::Color::from_rgb8(0x1E, 0x88, 0xE5)),
-        ];
-        for (ch, (name, tint)) in channels.into_iter().enumerate() {
-            rows.push(setting_row(
-                icons::OPACITY,
-                name,
-                trf!(
-                    "Part du {} dans le blanc des LED.",
-                    crate::i18n::t(name).to_lowercase()
-                ),
-                led_slider(
-                    app,
-                    0.0..=1.0,
-                    c.white[ch],
-                    DEFAULT_WHITE[ch],
-                    percent,
-                    Some(tint),
-                    move |v| Message::LedWhite(ch, v),
-                ),
-                r,
-            ));
-        }
     }
-    rows.push(setting_row(
-        icons::LIGHTBULB,
-        "Blanc de test",
-        "Allume toutes les LED en blanc : réglez le vert et le bleu jusqu'à obtenir un blanc neutre, sans reflet bleuté ni verdâtre.",
-        row![
-            text_button(
-                "Réinitialiser",
-                ButtonKind::Text,
-                r,
-                Some(Message::LedColorReset)
-            ),
-            switch(app.led_test_white, r, Message::LedTestWhite),
-        ]
-        .spacing(space::M)
-        .align_y(Alignment::Center),
-        r,
-    ));
+    rows.push(
+        container(
+            column![
+                row![
+                    super::widgets::icon(icons::LIGHTBULB, 22.0).color(r.on_surface_variant),
+                    super::widgets::label("Balance des blancs, appareil par appareil"),
+                    super::widgets::hfill(),
+                    text_button(
+                        "Tout réinitialiser",
+                        ButtonKind::Text,
+                        r,
+                        Some(Message::LedColorReset)
+                    ),
+                ]
+                .spacing(space::M)
+                .align_y(Alignment::Center),
+                super::white_balance::panel(app),
+            ]
+            .spacing(space::M),
+        )
+        .padding(Padding::from([space::M, 0.0]))
+        .into(),
+    );
     group(app, icons::PALETTE, "Couleurs des LED", rows)
 }
 

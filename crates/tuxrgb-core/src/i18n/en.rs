@@ -807,8 +807,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Rien d'autre", "Nothing else"),
     (
-        "Aucun service permanent, aucun programme laissé en root, aucune commande libre : le programme d'aide n'accepte que 4 actions fixes. Réversible depuis Réglages → Réinitialiser.",
-        "No permanent service, no program left running as root, no free-form command: the helper only accepts 4 fixed actions. Reversible from Settings → Reset.",
+        "Aucun service permanent, aucun programme laissé en root, aucune commande libre : le programme d'aide n'accepte que quelques actions fixes. Réversible depuis Réglages → Réinitialiser.",
+        "No permanent service, no program left running as root, no free-form command: the helper only accepts a few fixed actions. Reversible from Settings → Reset.",
     ),
     (
         "Authentification annulée. Vous pouvez réessayer ou continuer avec un accès limité.",
@@ -1739,5 +1739,43 @@ pub static ENTRIES: &[(&str, &str)] = &[
     (
         "Projet lm-sensors, Jean Delvare, Guenter Roeck et contributeurs",
         "lm-sensors project, Jean Delvare, Guenter Roeck and contributors",
+    ),
+    ("Le blanc de vos LED", "The white of your LEDs"),
+    (
+        "Les LED de la RAM, du boîtier ou d'un clavier n'ont pas toutes le même blanc : réglez-les une par une pour qu'il ressemble à celui de l'écran, et vos couleurs seront les mêmes partout. Étape facultative.",
+        "The LEDs of the RAM, the case or a keyboard do not all have the same white: set them one by one so that it looks like the screen's, and your colours will be the same everywhere. Optional step.",
+    ),
+    ("Passer", "Skip"),
+    (
+        "Balance des blancs, appareil par appareil",
+        "White balance, device by device",
+    ),
+    ("Tout réinitialiser", "Reset everything"),
+    ("Tous les appareils", "All devices"),
+    ("Mémoire RAM · {} barrettes", "RAM · {} sticks"),
+    ("Le blanc de l'écran", "The screen's white"),
+    (
+        "Choisissez un appareil : ses LED s'allument en blanc et les autres s'éteignent. Réglez le rouge, le vert et le bleu jusqu'à ce que ce blanc ressemble au carré de l'écran, sans reflet bleuté, verdâtre ou rosé.",
+        "Choose a device: its LEDs light up in white and the others turn off. Set the red, green and blue until that white looks like the square on the screen, with no bluish, greenish or pinkish tint.",
+    ),
+    (
+        "Aucun appareil pour le moment : TuxRGB les cherche encore, ou l'accès au matériel n'est pas configuré. Ce réglage reste disponible dans Réglages → Couleurs des LED.",
+        "No devices yet: TuxRGB is still looking for them, or hardware access is not set up. This setting stays available in Settings → LED colours.",
+    ),
+    (
+        "Régler les barrettes de RAM ensemble",
+        "Set the RAM sticks together",
+    ),
+    (
+        "Réglage commun : tous les appareils qui n'ont pas de réglage propre le suivent.",
+        "Common setting: every device without a setting of its own follows it.",
+    ),
+    (
+        "Réglage propre à cet appareil.",
+        "Setting of this device only.",
+    ),
+    (
+        "Suit le réglage commun : bougez un curseur pour lui donner le sien.",
+        "Follows the common setting: move a slider to give it its own.",
     ),
 ];

@@ -12,10 +12,11 @@ use crate::theme::tokens::{shape, space};
 use iced::widget::{Space, center, column, container, row, scrollable};
 use iced::{Alignment, Element, Length, Padding};
 
-const STEPS: [(WizardStep, &str); 4] = [
+const STEPS: [(WizardStep, &str); 5] = [
     (WizardStep::Welcome, "Bienvenue"),
     (WizardStep::Checks, "Diagnostic"),
     (WizardStep::Access, "Accès matériel"),
+    (WizardStep::Colors, "Couleurs"),
     (WizardStep::Done, "Terminé"),
 ];
 
@@ -150,7 +151,7 @@ fn access<'a>(app: &'a App, w: &'a Wizard) -> Element<'a, Message> {
         ),
         bullet(app, icons::USB, "Installe les règles udev d'OpenRGB", "Générées par le moteur embarqué : accès USB/HID réservé à votre session (uaccess), jamais de droits pour tous."),
         bullet(app, icons::MEMORY, "Active l'accès SMBus/I2C", "Charge i2c-dev et le pilote de votre chipset (i2c-piix4 ou i2c-i801), aussi au démarrage."),
-        bullet(app, icons::SHIELD, "Rien d'autre", "Aucun service permanent, aucun programme laissé en root, aucune commande libre : le programme d'aide n'accepte que 4 actions fixes. Réversible depuis Réglages → Réinitialiser."),
+        bullet(app, icons::SHIELD, "Rien d'autre", "Aucun service permanent, aucun programme laissé en root, aucune commande libre : le programme d'aide n'accepte que quelques actions fixes. Réversible depuis Réglages → Réinitialiser."),
     ]
     .spacing(space::L);
     if let Some(Err(e)) = &w.result {
@@ -177,6 +178,23 @@ fn access<'a>(app: &'a App, w: &'a Wizard) -> Element<'a, Message> {
         );
     }
     col.into()
+}
+
+/// White balance of the LEDs, device by device.
+fn colors(app: &App) -> Element<'_, Message> {
+    let r = &app.roles;
+    column![
+        title("Le blanc de vos LED"),
+        muted(
+            "Les LED de la RAM, du boîtier ou d'un clavier n'ont pas toutes le même blanc : réglez-les \
+             une par une pour qu'il ressemble à celui de l'écran, et vos couleurs seront les mêmes \
+             partout. Étape facultative.",
+            r
+        ),
+        super::white_balance::panel(app),
+    ]
+    .spacing(space::L)
+    .into()
 }
 
 fn done<'a>(app: &'a App, w: &'a Wizard) -> Element<'a, Message> {
@@ -250,6 +268,7 @@ pub fn view<'a>(app: &'a App, w: &'a Wizard) -> Element<'a, Message> {
         WizardStep::Welcome => welcome(app, w),
         WizardStep::Checks => checks(app),
         WizardStep::Access => access(app, w),
+        WizardStep::Colors => colors(app),
         WizardStep::Done => done(app, w),
     };
     let back = (w.step != WizardStep::Welcome && w.step != WizardStep::Done)
@@ -296,6 +315,18 @@ pub fn view<'a>(app: &'a App, w: &'a Wizard) -> Element<'a, Message> {
         ]
         .spacing(space::S)
         .into(),
+        WizardStep::Colors => row![
+            widgets::text_button("Passer", ButtonKind::Outlined, r, Some(Message::WizardNext)),
+            icon_label_button(
+                icons::ARROW_FORWARD,
+                "Continuer",
+                ButtonKind::Filled,
+                r,
+                Some(Message::WizardNext),
+            ),
+        ]
+        .spacing(space::S)
+        .into(),
         WizardStep::Done => icon_label_button(
             icons::ROCKET_LAUNCH,
             "Ouvrir TuxRGB",
@@ -321,7 +352,9 @@ pub fn view<'a>(app: &'a App, w: &'a Wizard) -> Element<'a, Message> {
     )
     .padding(Padding::from([space::XXL, space::XXXL]))
     .width(Length::Fixed(820.0))
-    .height(Length::Fixed(640.0))
+    // As tall as the window allows, up to 720 px.
+    .height(Length::Fill)
+    .max_height(720.0)
     .style(style::card(*r, Surface::Default, shape::EXTRA_EXTRA_LARGE));
-    center(sheet).into()
+    center(sheet).padding(space::L).into()
 }

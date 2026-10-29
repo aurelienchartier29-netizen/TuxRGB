@@ -17,6 +17,7 @@ pub mod motion;
 mod onboarding;
 pub mod settings;
 pub mod transition;
+mod white_balance;
 pub mod widgets;
 
 use self::motion::button;

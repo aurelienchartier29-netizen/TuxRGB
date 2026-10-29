@@ -341,9 +341,11 @@ pub enum EngineCommand {
     /// ([`crate::led_color::LedCalibration::effective_gamma`], `1` = none):
     /// the brightness slider is mapped so that its feel does not change.
     SetLedGamma(f32),
-    /// Every LED in plain white (at the brightness of the slider), to set
-    /// the white balance of the LEDs.
-    SetTestWhite(bool),
+    /// Plain white (at the brightness of the slider), to set the white
+    /// balance of the LEDs: `None` off, `Some([])` every LED, `Some(ids)`
+    /// those controllers only, every other LED off (one device compared
+    /// with the screen at a time).
+    SetTestWhite(Option<Vec<u32>>),
     SetFps(u32),
     /// Desktop accent colour (faded in over ~1.2 s when it changes).
     SetAccent(Rgb),
@@ -538,7 +540,7 @@ struct Engine {
     /// See [`perceived_level`].
     level_exponent: f32,
     /// [`EngineCommand::SetTestWhite`].
-    test_white: bool,
+    test_white: Option<Vec<u32>>,
     /// A slider moved: render now instead of at the next frame tick.
     urgent: bool,
     fps: u32,
@@ -589,7 +591,7 @@ impl Engine {
             saturation: config.saturation.clamp(0.0, 2.0),
             saturation_cache: SaturationCache::default(),
             level_exponent: 2.0,
-            test_white: false,
+            test_white: None,
             urgent: false,
             fps: config.fps.clamp(1, 240),
             accent: config.accent,
@@ -785,11 +787,11 @@ impl Engine {
                 self.level_exponent = 2.0 / g;
                 self.urgent = true;
             }
-            EngineCommand::SetTestWhite(on) => {
-                if on != self.test_white {
+            EngineCommand::SetTestWhite(which) => {
+                if which != self.test_white {
                     self.begin_fade(fades::PARAMS);
                 }
-                self.test_white = on;
+                self.test_white = which;
             }
             EngineCommand::SetFps(fps) => {
                 self.fps = fps.clamp(1, 240);
@@ -991,8 +993,19 @@ impl Engine {
                 1.0,
                 &mut self.saturation_cache,
             );
-            if self.test_white {
-                self.buffer.fill(Rgb::WHITE);
+            match &self.test_white {
+                None => {}
+                Some(ids) if ids.is_empty() => self.buffer.fill(Rgb::WHITE),
+                Some(ids) => {
+                    for (c, p) in self.buffer.iter_mut().zip(&self.scene.leds) {
+                        let id = self.scene.devices.get(p.device).map(|d| d.0);
+                        *c = if id.is_some_and(|id| ids.contains(&id)) {
+                            Rgb::WHITE
+                        } else {
+                            Rgb::BLACK
+                        };
+                    }
+                }
             }
             if let Some(b) = &mut self.backdrop {
                 // No device kinds: per-device choices use their defaults.
@@ -1242,6 +1255,58 @@ mod tests {
     }
 
     type Frames = Arc<Mutex<Vec<Arc<Frame>>>>;
+
+    /// The white test lights every LED, or one device with every other LED
+    /// off, then gives the effect back.
+    #[test]
+    fn white_test_lights_the_chosen_devices_only() {
+        let (frames, sink) = collect();
+        let engine = spawn(
+            EngineConfig {
+                effect: EffectKind::Static,
+                params: static_params(Rgb::new(255, 0, 0)),
+                brightness: 1.0,
+                saturation: 1.0,
+                fps: 60,
+                accent: Rgb::WHITE,
+            },
+            SharedInputs::default(),
+            vec![sink],
+        );
+        engine.send(EngineCommand::SetTransitions(0.0));
+        engine.send(EngineCommand::SetScene(scene()));
+        std::thread::sleep(Duration::from_millis(150));
+        let last = || frames.lock().unwrap().last().cloned().unwrap();
+        let first = last().devices[0].id;
+        engine.send(EngineCommand::SetTestWhite(Some(vec![first])));
+        std::thread::sleep(Duration::from_millis(150));
+        let f = last();
+        assert!(f.devices.len() > 1);
+        for d in &f.devices {
+            let want = if d.id == first {
+                Rgb::WHITE
+            } else {
+                Rgb::BLACK
+            };
+            assert!(d.colors.iter().all(|c| *c == want), "device {}", d.id);
+        }
+        engine.send(EngineCommand::SetTestWhite(Some(Vec::new())));
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(
+            last()
+                .devices
+                .iter()
+                .all(|d| d.colors.iter().all(|c| *c == Rgb::WHITE))
+        );
+        engine.send(EngineCommand::SetTestWhite(None));
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(
+            last()
+                .devices
+                .iter()
+                .all(|d| d.colors.iter().all(|c| *c == Rgb::new(255, 0, 0)))
+        );
+    }
 
     /// The brightness slider reaches the LEDs at once and smoothly: the
     /// first frame already moves, ~95 % within 0.12 s, never backwards,

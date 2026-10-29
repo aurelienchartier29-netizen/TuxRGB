@@ -22,6 +22,7 @@
 
 use crate::Rgb;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Gamma of the screens (sRGB is close to a 2.2 power).
 pub const DEFAULT_GAMMA: f32 = 2.2;
@@ -30,7 +31,7 @@ pub const DEFAULT_GAMMA: f32 = 2.2;
 pub const DEFAULT_WHITE: [f32; 3] = [1.0, 0.80, 0.90];
 pub const GAMMA_RANGE: std::ops::RangeInclusive<f32> = 1.0..=3.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LedCalibration {
     /// Correct the colours. Off: the values go to the LEDs as they are
@@ -38,8 +39,15 @@ pub struct LedCalibration {
     pub enabled: bool,
     /// Curve applied to each channel, [`GAMMA_RANGE`].
     pub gamma: f32,
-    /// Weight of red, green and blue, `0..=1` each.
+    /// Weight of red, green and blue, `0..=1` each: every device without
+    /// its own white below.
     pub white: [f32; 3],
+    /// Devices whose LEDs have another white (RAM and case fans rarely
+    /// share the same LEDs), by device key ([`crate::DeviceKey`]).
+    pub devices: BTreeMap<String, [f32; 3]>,
+    /// The RAM sticks are set together (the interface writes the same white
+    /// to each).
+    pub link_ram: bool,
 }
 
 impl Default for LedCalibration {
@@ -48,37 +56,61 @@ impl Default for LedCalibration {
             enabled: true,
             gamma: DEFAULT_GAMMA,
             white: DEFAULT_WHITE,
+            devices: BTreeMap::new(),
+            link_ram: true,
         }
     }
 }
 
+/// A white brought back into `0..=1`.
+fn clean_white(w: [f32; 3]) -> [f32; 3] {
+    w.map(|v| {
+        if v.is_finite() {
+            v.clamp(0.0, 1.0)
+        } else {
+            1.0
+        }
+    })
+}
+
 impl LedCalibration {
     /// Values brought back into range (a hand-edited configuration).
-    pub fn sanitized(self) -> Self {
-        let clean =
-            |v: f32, lo: f32, hi: f32, d: f32| if v.is_finite() { v.clamp(lo, hi) } else { d };
+    pub fn sanitized(&self) -> Self {
+        let gamma = if self.gamma.is_finite() {
+            self.gamma.clamp(*GAMMA_RANGE.start(), *GAMMA_RANGE.end())
+        } else {
+            DEFAULT_GAMMA
+        };
         Self {
             enabled: self.enabled,
-            gamma: clean(
-                self.gamma,
-                *GAMMA_RANGE.start(),
-                *GAMMA_RANGE.end(),
-                DEFAULT_GAMMA,
-            ),
-            white: [
-                clean(self.white[0], 0.0, 1.0, 1.0),
-                clean(self.white[1], 0.0, 1.0, 1.0),
-                clean(self.white[2], 0.0, 1.0, 1.0),
-            ],
+            gamma,
+            white: clean_white(self.white),
+            devices: self
+                .devices
+                .iter()
+                .take(256)
+                .map(|(k, w)| (k.clone(), clean_white(*w)))
+                .collect(),
+            link_ram: self.link_ram,
         }
+    }
+
+    /// White of a device (its own, or the common one).
+    pub fn white_of(&self, device_key: &str) -> [f32; 3] {
+        self.devices
+            .get(device_key)
+            .copied()
+            .map_or(self.white, clean_white)
     }
 
     /// Gamma in force (1 when the correction is off).
     pub fn effective_gamma(&self) -> f32 {
-        if self.enabled {
-            self.sanitized().gamma
-        } else {
+        if !self.enabled {
             1.0
+        } else if self.gamma.is_finite() {
+            self.gamma.clamp(*GAMMA_RANGE.start(), *GAMMA_RANGE.end())
+        } else {
+            DEFAULT_GAMMA
         }
     }
 
@@ -90,13 +122,23 @@ impl LedCalibration {
         2.0 / self.effective_gamma()
     }
 
-    /// What the colours go through on their way to the hardware.
+    /// What the colours go through on their way to the hardware (devices
+    /// without a white of their own).
     pub fn grade(&self) -> LedGrade {
-        let c = self.sanitized();
-        let (gamma, white) = if self.enabled {
-            (c.gamma, c.white)
+        self.grade_with(self.white)
+    }
+
+    /// The same for one device.
+    pub fn grade_of(&self, device_key: &str) -> LedGrade {
+        self.grade_with(self.white_of(device_key))
+    }
+
+    fn grade_with(&self, white: [f32; 3]) -> LedGrade {
+        let gamma = self.effective_gamma();
+        let white = if self.enabled {
+            clean_white(white)
         } else {
-            (1.0, [1.0; 3])
+            [1.0; 3]
         };
         let mut table = [[0f32; 256]; 3];
         for (ch, t) in table.iter_mut().enumerate() {
@@ -282,9 +324,35 @@ mod tests {
             enabled: true,
             gamma: f32::NAN,
             white: [2.0, -1.0, 0.5],
+            devices: [("ram".to_owned(), [f32::NAN, 3.0, 0.2])].into(),
+            link_ram: true,
         }
         .sanitized();
         assert_eq!(c.gamma, DEFAULT_GAMMA);
         assert_eq!(c.white, [1.0, 0.0, 0.5]);
+        assert_eq!(c.devices["ram"], [1.0, 1.0, 0.2]);
+    }
+
+    #[test]
+    fn each_device_can_have_its_own_white() {
+        let mut c = LedCalibration::default();
+        c.devices.insert("ram".into(), [0.9, 1.0, 0.7]);
+        assert_eq!(c.white_of("ram"), [0.9, 1.0, 0.7]);
+        assert_eq!(c.white_of("case"), DEFAULT_WHITE);
+        assert_eq!(
+            c.grade_of("ram").apply(Rgb::WHITE, 1.0),
+            Rgb::new(230, 255, 179)
+        );
+        assert_eq!(
+            c.grade_of("case").apply(Rgb::WHITE, 1.0),
+            Rgb::new(255, 204, 230)
+        );
+        // Correction off: no white balance at all.
+        c.enabled = false;
+        assert_eq!(c.grade_of("ram").apply(Rgb::WHITE, 1.0), Rgb::WHITE);
+        // Older configurations: no devices, RAM linked.
+        let old: LedCalibration =
+            serde_json::from_str(r#"{"enabled":true,"gamma":2.2,"white":[1,0.8,0.9]}"#).unwrap();
+        assert!(old.devices.is_empty() && old.link_ram);
     }
 }

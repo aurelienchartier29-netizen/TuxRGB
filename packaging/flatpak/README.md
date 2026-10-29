@@ -1,6 +1,6 @@
 # Flatpak
 
-`io.github.tuxrgb.TuxRGB.yml` (à la racine du dépôt) construit, hors ligne :
+`io.github.tuxrgb.TuxRGB.yml` (dans ce dossier) construit, hors ligne :
 
 1. hidapi 0.14.0 et Mbed TLS 3.6.2 (absents du runtime KDE) ;
 2. OpenRGB 1.0 depuis `third_party/openrgb`, installé dans
@@ -10,7 +10,7 @@
 ```sh
 flatpak install flathub org.kde.Sdk//6.10 org.kde.Platform//6.10 \
   org.freedesktop.Sdk.Extension.rust-stable//25.08 org.freedesktop.Sdk.Extension.llvm20//25.08
-flatpak-builder --user --install --force-clean build-flatpak io.github.tuxrgb.TuxRGB.yml
+flatpak-builder --user --install --force-clean build-flatpak packaging/flatpak/io.github.tuxrgb.TuxRGB.yml
 flatpak run io.github.tuxrgb.TuxRGB
 ```
 

@@ -1,10 +1,10 @@
 # Flatpak manifest for TuxRGB.
 #
-# Build locally:
+# Build locally, from the root of the repository:
 #   python3 flatpak-cargo-generator.py Cargo.lock -o packaging/flatpak/cargo-sources.json
-#   flatpak-builder --user --install --force-clean build-flatpak io.github.tuxrgb.TuxRGB.yml
+#   flatpak-builder --user --install --force-clean build-flatpak packaging/flatpak/io.github.tuxrgb.TuxRGB.yml
 #
-# Flathub notes (see packaging/flatpak/README.md before submitting):
+# Flathub notes (see README.md next to this file before submitting):
 #  * The app id uses the io.github.<org>.<Repo> scheme: the GitHub organisation
 #    "tuxrgb" and repository "TuxRGB" must exist and be reachable.
 #  * Flathub requires manifests to be written by humans (no AI-generated or
@@ -100,7 +100,7 @@ modules:
       - install -Dm644 LICENSE ${FLATPAK_DEST}/share/licenses/tuxrgb/OpenRGB-LICENSE
     sources:
       - type: dir
-        path: third_party/openrgb
+        path: ../../third_party/openrgb
 
   # ---------------------------------------------------------------- TuxRGB
   - name: tuxrgb
@@ -127,7 +127,7 @@ modules:
       - install -Dm644 CREDITS.md ${FLATPAK_DEST}/share/licenses/tuxrgb/CREDITS.md
     sources:
       - type: dir
-        path: .
+        path: ../..
         skip:
           - target
           - build
@@ -135,4 +135,4 @@ modules:
           - build-flatpak
           - .flatpak-builder
           - third_party
-      - packaging/flatpak/cargo-sources.json
+      - cargo-sources.json

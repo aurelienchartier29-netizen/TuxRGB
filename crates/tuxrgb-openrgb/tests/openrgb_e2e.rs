@@ -136,15 +136,18 @@ async fn streams_frames_to_a_real_openrgb_server() {
 
     // LED colour correction: the same frame, written again through the
     // table at once (no new frame needed), as the hardware gets it.
-    let calibration = tuxrgb_core::led_color::LedCalibration::default();
+    // The first device has a white of its own (RAM and case LEDs differ).
+    let mut calibration = tuxrgb_core::led_color::LedCalibration::default();
+    calibration
+        .devices
+        .insert(devices[0].key.0.clone(), [0.5, 1.0, 0.25]);
     cmd_tx
-        .send(BridgeCommand::SetCalibration(calibration))
+        .send(BridgeCommand::SetCalibration(calibration.clone()))
         .unwrap();
     tokio::time::sleep(Duration::from_millis(700)).await;
-    let grade = calibration.grade();
     let group = client.get_all_controllers().await.expect("controllers");
     for (d, sent) in devices.iter().zip(palette) {
-        let expected = grade.apply(sent, 1.0);
+        let expected = calibration.grade_of(&d.key.0).apply(sent, 1.0);
         let c = group
             .iter()
             .find(|c| c.id() as u32 == d.id)

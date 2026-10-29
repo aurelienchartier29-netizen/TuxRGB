@@ -96,7 +96,19 @@ pub enum WizardStep {
     Welcome,
     Checks,
     Access,
+    /// White balance of the LEDs, device by device.
+    Colors,
     Done,
+}
+
+/// What the white balance panel sets.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WhiteItem {
+    /// Every device without a white of its own.
+    All,
+    /// The RAM sticks, together ([`tuxrgb_core::led_color::LedCalibration::link_ram`]).
+    Ram,
+    Device(tuxrgb_core::DeviceKey),
 }
 
 /// What fills the window: a page (and its sub-view) or a wizard step.
@@ -404,11 +416,16 @@ pub enum Message {
     /// LED colour correction (Réglages → Couleurs des LED).
     LedColorEnabled(bool),
     LedGamma(f32),
-    /// Weight of one channel (0 red, 1 green, 2 blue).
-    LedWhite(usize, f32),
     LedColorReset,
-    /// Every LED in white while on, to set the white balance.
-    LedTestWhite(bool),
+    /// White balance: the item set (its LEDs in white, the others off), or
+    /// `None` to stop.
+    WhiteSelect(Option<WhiteItem>),
+    /// Weight of one channel (0 red, 1 green, 2 blue) of the item set.
+    WhiteChannel(usize, f32),
+    /// The item set goes back to the common white (or its default).
+    WhiteReset,
+    /// The RAM sticks are set together.
+    WhiteLinkRam(bool),
     SetLanguage(LanguagePref),
     SetFps(u32),
     SetRenderer(RendererPref),
@@ -482,8 +499,9 @@ pub enum Message {
 
 pub struct App {
     pub config: Config,
-    /// [`Message::LedTestWhite`] (never saved: off when leaving Réglages).
-    pub led_test_white: bool,
+    /// White balance being set ([`Message::WhiteSelect`]; never saved, off
+    /// when leaving the page or the wizard step).
+    pub white_item: Option<WhiteItem>,
     pub onboarding: Onboarding,
     pub wizard: Option<Wizard>,
     pub page: Page,
@@ -698,7 +716,7 @@ impl App {
             own_picker_seen: None,
             license: None,
             restart_required: false,
-            led_test_white: false,
+            white_item: None,
             config_dirty: false,
             quitting: false,
             window_focused: false,
@@ -1022,7 +1040,12 @@ impl App {
     pub fn status_text(&self) -> String {
         match &self.bridge_status {
             BridgeStatus::Connected { controllable, .. } => {
-                trf!("{} périphérique(s) piloté(s)", controllable)
+                // The screenshot tour shows the demonstration setup.
+                if crate::args().screenshot_tour.is_some() {
+                    trf!("{} périphérique(s) piloté(s)", self.scene.devices.len())
+                } else {
+                    trf!("{} périphérique(s) piloté(s)", controllable)
+                }
             }
             BridgeStatus::Detecting { .. } => crate::i18n::t("Détection du matériel…").to_owned(),
             BridgeStatus::Starting => crate::i18n::t("Démarrage du moteur…").to_owned(),
@@ -1154,6 +1177,10 @@ impl App {
             readiness,
             Some(privileges::Readiness::NotConfigured) | Some(privileges::Readiness::Partial)
         ) && !self.onboarding.hardware_configured;
+        // Screenshots of the documentation: a configured machine.
+        if crate::args().screenshot_tour.is_some() {
+            return out;
+        }
         if access_missing {
             out.push(Issue {
                 key: "access",
@@ -1596,6 +1623,10 @@ impl App {
                 &self.scene,
             ))));
         }
+        // The devices (and their ids) may have changed under the white test.
+        if self.white_item.is_some() {
+            self.push_white_test();
+        }
     }
 
     fn push_params(&self) {
@@ -1723,7 +1754,7 @@ impl App {
             disabled: self.config.disabled_devices.clone(),
             hardware_modes: self.config.hardware_modes.clone(),
             network: self.config.network.clone(),
-            calibration: self.config.led_color,
+            calibration: self.config.led_color.clone(),
         }
     }
 
@@ -1732,7 +1763,7 @@ impl App {
     fn push_led_color(&mut self) {
         self.config.led_color = self.config.led_color.sanitized();
         if let Some(s) = &self.services {
-            s.bridge(BridgeCommand::SetCalibration(self.config.led_color));
+            s.bridge(BridgeCommand::SetCalibration(self.config.led_color.clone()));
             s.engine(EngineCommand::SetLedGamma(
                 self.config.led_color.effective_gamma(),
             ));
@@ -1740,12 +1771,94 @@ impl App {
         self.mark_dirty();
     }
 
-    fn set_test_white(&mut self, on: bool) {
-        if on != self.led_test_white {
-            self.led_test_white = on;
-            if let Some(s) = &self.services {
-                s.engine(EngineCommand::SetTestWhite(on));
-            }
+    /// The white test belongs to the white balance step of the wizard.
+    fn leave_white_step(&mut self) {
+        if self
+            .wizard
+            .as_ref()
+            .is_some_and(|w| w.step != WizardStep::Colors)
+        {
+            self.select_white(None);
+        }
+    }
+
+    /// Starts (or stops) the white test of the white balance panel.
+    pub fn select_white(&mut self, item: Option<WhiteItem>) {
+        if item == self.white_item {
+            return;
+        }
+        self.white_item = item;
+        self.push_white_test();
+    }
+
+    /// The engine lights the LEDs of the item set in white (the device ids
+    /// change when the engine restarts: sent again then).
+    fn push_white_test(&self) {
+        let ids = self.white_item.as_ref().map(|i| self.white_ids(i));
+        if let Some(s) = &self.services {
+            s.engine(EngineCommand::SetTestWhite(ids));
+        }
+    }
+
+    /// Devices whose white can be set: lit by TuxRGB (the demonstration
+    /// setup only in the screenshot tour).
+    pub fn white_devices(&self) -> Vec<&tuxrgb_core::DeviceInfo> {
+        let tour = crate::args().screenshot_tour.is_some();
+        self.scene
+            .devices
+            .iter()
+            .filter(|d| {
+                d.enabled
+                    && d.info.controllable
+                    && d.info.led_count > 0
+                    && (tour || !d.info.is_virtual)
+                    && !self.config.hardware_modes.contains_key(&d.info.key)
+            })
+            .map(|d| &d.info)
+            .collect()
+    }
+
+    fn ram_keys(&self) -> Vec<String> {
+        self.white_devices()
+            .into_iter()
+            .filter(|d| d.kind == tuxrgb_core::DeviceKind::Dram)
+            .map(|d| d.key.0.clone())
+            .collect()
+    }
+
+    /// Engine ids lit by an item (`[]`: every LED).
+    fn white_ids(&self, item: &WhiteItem) -> Vec<u32> {
+        let devices = self.white_devices();
+        match item {
+            WhiteItem::All => Vec::new(),
+            WhiteItem::Ram => devices
+                .iter()
+                .filter(|d| d.kind == tuxrgb_core::DeviceKind::Dram)
+                .map(|d| d.id)
+                .collect(),
+            WhiteItem::Device(k) => devices
+                .iter()
+                .filter(|d| d.key == *k)
+                .map(|d| d.id)
+                .collect(),
+        }
+    }
+
+    /// Keys of the devices an item sets (none: the common white).
+    fn white_keys(&self, item: &WhiteItem) -> Vec<String> {
+        match item {
+            WhiteItem::All => Vec::new(),
+            WhiteItem::Ram => self.ram_keys(),
+            WhiteItem::Device(k) => vec![k.0.clone()],
+        }
+    }
+
+    /// White of an item, and whether it is its own.
+    pub fn white_of(&self, item: &WhiteItem) -> ([f32; 3], bool) {
+        let c = &self.config.led_color;
+        match self.white_keys(item).first() {
+            None => (c.white, false),
+            Some(k) => (c.white_of(k), c.devices.contains_key(k)),
         }
     }
 
@@ -1807,7 +1920,7 @@ impl App {
                 | Message::SetBrightness(_)
                 | Message::SetSaturation(_)
                 | Message::LedGamma(_)
-                | Message::LedWhite(..)
+                | Message::WhiteChannel(..)
                 | Message::SetParam(..)
                 | Message::SetOwnParam(..)
                 | Message::DisplayInterval(..)
@@ -1968,7 +2081,7 @@ impl App {
             Message::Navigate(page) => {
                 if page != self.page {
                     // The white test belongs to the settings page.
-                    self.set_test_white(false);
+                    self.select_white(None);
                     self.page = page;
                     self.settings_view = SettingsView::Main;
                     self.picker = None;
@@ -2094,7 +2207,15 @@ impl App {
                 }
                 match *stop {
                     "onboarding" => {}
+                    "onboarding-colors" => {
+                        // The white balance step, the RAM sticks being set.
+                        if let Some(w) = &mut self.wizard {
+                            w.step = WizardStep::Colors;
+                        }
+                        self.select_white(Some(WhiteItem::Ram));
+                    }
                     "home" => {
+                        self.select_white(None);
                         self.wizard = None;
                         let _ = self.update(Message::Navigate(Page::Home));
                     }
@@ -2239,7 +2360,14 @@ impl App {
                         let _ = self.update(Message::Navigate(Page::Settings));
                     }
                     "settings-led" => {
-                        // The LED colour correction, right under Apparence.
+                        // The LED colour correction, right under Apparence,
+                        // the graphics card being set.
+                        let gpu = self
+                            .white_devices()
+                            .into_iter()
+                            .find(|d| d.kind == tuxrgb_core::DeviceKind::Gpu)
+                            .map(|d| WhiteItem::Device(d.key.clone()));
+                        self.select_white(gpu);
                         return Task::batch([
                             iced::widget::operation::snap_to(
                                 ui::settings::SCROLL_ID,
@@ -2252,6 +2380,7 @@ impl App {
                         ]);
                     }
                     "settings-network" => {
+                        self.select_white(None);
                         // A WLED strip and a WiZ bulb added, another bulb
                         // found by a search.
                         if self.config.network.is_empty() {
@@ -2372,7 +2501,7 @@ impl App {
             }
             Message::WindowClosed(id) => {
                 if self.window == Some(id) {
-                    self.set_test_white(false);
+                    self.select_white(None);
                     self.window = None;
                     self.window_focused = false;
                     if std::mem::take(&mut self.reopen_pending) {
@@ -3421,14 +3550,72 @@ impl App {
                 self.push_led_color();
                 Task::none()
             }
-            Message::LedWhite(ch, v) => {
-                if let Some(w) = self.config.led_color.white.get_mut(ch) {
-                    if (v - *w).abs() < 1e-3 {
-                        return Task::none();
-                    }
-                    *w = v;
-                    self.push_led_color();
+            Message::WhiteChannel(ch, v) => {
+                let item = self.white_item.clone().unwrap_or(WhiteItem::All);
+                let v = v.clamp(0.0, 1.0);
+                if ch > 2 || (self.white_of(&item).0[ch] - v).abs() < 1e-3 {
+                    return Task::none();
                 }
+                let keys = self.white_keys(&item);
+                let c = &mut self.config.led_color;
+                // Setting a white means correcting the colours.
+                c.enabled = true;
+                if keys.is_empty() {
+                    c.white[ch] = v;
+                } else {
+                    // Every device of the item gets the same white (the RAM
+                    // sticks together).
+                    let start = c.white_of(&keys[0]);
+                    for k in keys {
+                        c.devices.entry(k).or_insert(start)[ch] = v;
+                    }
+                }
+                self.push_led_color();
+                Task::none()
+            }
+            Message::WhiteReset => {
+                let item = self.white_item.clone().unwrap_or(WhiteItem::All);
+                let keys = self.white_keys(&item);
+                let c = &mut self.config.led_color;
+                if keys.is_empty() {
+                    c.white = tuxrgb_core::led_color::DEFAULT_WHITE;
+                } else {
+                    for k in keys {
+                        c.devices.remove(&k);
+                    }
+                }
+                self.push_led_color();
+                Task::none()
+            }
+            Message::WhiteLinkRam(on) => {
+                let ram = self.ram_keys();
+                let c = &mut self.config.led_color;
+                c.link_ram = on;
+                // Linked: every stick takes the white of the first one.
+                if on && let Some(first) = ram.first() {
+                    match c.devices.get(first).copied() {
+                        Some(w) => {
+                            for k in &ram {
+                                c.devices.insert(k.clone(), w);
+                            }
+                        }
+                        None => {
+                            for k in &ram {
+                                c.devices.remove(k);
+                            }
+                        }
+                    }
+                }
+                // The item being set follows.
+                let next = match &self.white_item {
+                    Some(WhiteItem::Ram) if !on => ram
+                        .first()
+                        .map(|k| WhiteItem::Device(tuxrgb_core::DeviceKey(k.clone()))),
+                    Some(WhiteItem::Device(k)) if on && ram.contains(&k.0) => Some(WhiteItem::Ram),
+                    other => other.clone(),
+                };
+                self.push_led_color();
+                self.select_white(next);
                 Task::none()
             }
             Message::LedColorReset => {
@@ -3436,8 +3623,8 @@ impl App {
                 self.push_led_color();
                 Task::none()
             }
-            Message::LedTestWhite(on) => {
-                self.set_test_white(on);
+            Message::WhiteSelect(item) => {
+                self.select_white(item);
                 Task::none()
             }
             Message::SetTransitions(on) => {
@@ -3667,7 +3854,7 @@ impl App {
                 if let Some(w) = &mut self.wizard {
                     w.result = Some(result);
                     if ok {
-                        w.step = WizardStep::Done;
+                        w.step = WizardStep::Colors;
                     }
                 } else if ok {
                     return Task::batch([
@@ -3773,13 +3960,14 @@ impl App {
                     w.step = match w.step {
                         WizardStep::Welcome => WizardStep::Checks,
                         WizardStep::Checks => WizardStep::Access,
-                        WizardStep::Access => WizardStep::Done,
-                        WizardStep::Done => WizardStep::Done,
+                        WizardStep::Access => WizardStep::Colors,
+                        WizardStep::Colors | WizardStep::Done => WizardStep::Done,
                     };
                     if w.step == WizardStep::Checks {
                         task = self.diagnostics_task();
                     }
                 }
+                self.leave_white_step();
                 task
             }
             Message::WizardBack => {
@@ -3787,16 +3975,18 @@ impl App {
                     w.step = match w.step {
                         WizardStep::Checks => WizardStep::Welcome,
                         WizardStep::Access => WizardStep::Checks,
-                        WizardStep::Done => WizardStep::Access,
+                        WizardStep::Colors => WizardStep::Access,
+                        WizardStep::Done => WizardStep::Colors,
                         s => s,
                     };
                 }
+                self.leave_white_step();
                 Task::none()
             }
             Message::WizardSkipAccess => {
                 self.onboarding.skipped_hardware = true;
                 if let Some(w) = &mut self.wizard {
-                    w.step = WizardStep::Done;
+                    w.step = WizardStep::Colors;
                 }
                 Task::none()
             }
@@ -3807,6 +3997,7 @@ impl App {
                 Task::none()
             }
             Message::WizardFinish => {
+                self.select_white(None);
                 let autostart = self.wizard.as_ref().map(|w| w.autostart);
                 self.finish_onboarding();
                 self.page = Page::Home;

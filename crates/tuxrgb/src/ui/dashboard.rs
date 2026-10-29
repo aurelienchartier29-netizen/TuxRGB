@@ -205,11 +205,13 @@ fn stat<'a>(app: &'a App, glyph: char, value: String, caption: String) -> Elemen
 }
 
 fn stats(app: &App) -> Element<'_, Message> {
+    // The screenshot tour shows the demonstration setup as a real one.
+    let tour = crate::args().screenshot_tour.is_some();
     let real: Vec<_> = app
         .scene
         .devices
         .iter()
-        .filter(|d| !d.info.is_virtual)
+        .filter(|d| tour || !d.info.is_virtual)
         .collect();
     let leds: usize = real
         .iter()

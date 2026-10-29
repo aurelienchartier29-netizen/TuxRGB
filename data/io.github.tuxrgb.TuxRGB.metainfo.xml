@@ -26,7 +26,7 @@
       <li>Harmonious System Palette: multi-colour effects built from your desktop accent</li>
       <li>Audio visualiser on every device (PipeWire) and per-LED screen sync (ScreenCast portal)</li>
       <li>Hardware monitor: CPU / GPU temperature and load, memory, in colour</li>
-      <li>Smooth crossfades, global brightness and 0–200 % saturation</li>
+      <li>Smooth crossfades, global brightness and 0–200 % saturation, LED colours matched to the screen with a white balance per device</li>
       <li>Fan speed control: fixed speeds or temperature curves for motherboard fans, with safety rules</li>
       <li>LEDs off at shutdown, at sleep and while the screen is off, exact state restored afterwards</li>
       <li>Guided, reversible setup of hardware access (udev rules, I2C/SMBus) through Polkit, on every major distribution</li>
@@ -102,6 +102,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.3.0" date="2026-10-29">
+      <description>
+        <p>White balance device by device.</p>
+        <ul>
+          <li>Settings, LED colours: the white of each device is set on its own, against a white square of the screen, with that device lit in white and every other LED off</li>
+          <li>RAM sticks are set together, or one by one when the box is unticked</li>
+          <li>A new optional step of the first-run wizard offers it right after hardware access</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.2.2" date="2026-10-28">
       <description>
         <p>Stable colours at low brightness.</p>

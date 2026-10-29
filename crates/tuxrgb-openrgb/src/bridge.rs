@@ -419,7 +419,41 @@ struct Managed {
     pending: Vec<usize>,
     /// [`BridgeConfig::calibration`], ready to apply (with each frame's
     /// brightness, see [`LedGrade`]).
-    grade: Arc<LedGrade>,
+    grades: Arc<Grades>,
+}
+
+/// The LED colour correction of each controller: its own white, or the
+/// common one.
+struct Grades {
+    common: LedGrade,
+    devices: std::collections::HashMap<u32, LedGrade>,
+}
+
+impl Grades {
+    fn build(
+        calibration: &tuxrgb_core::led_color::LedCalibration,
+        group: &ControllerGroup,
+    ) -> Self {
+        let devices = group
+            .iter()
+            .filter_map(|c| {
+                let key = device_key(c);
+                calibration
+                    .devices
+                    .contains_key(&key.0)
+                    .then(|| (c.id() as u32, calibration.grade_of(&key.0)))
+            })
+            .collect();
+        Self {
+            common: calibration.grade(),
+            devices,
+        }
+    }
+
+    #[inline]
+    fn of(&self, id: u32) -> &LedGrade {
+        self.devices.get(&id).unwrap_or(&self.common)
+    }
 }
 
 /// A controller left to a hardware effect.
@@ -746,9 +780,9 @@ fn push_frame_pipe<'a>(
     only: Option<u32>,
 ) -> BoxFut<'a, Result<(), String>> {
     Box::pin(async move {
-        let grade = managed.grade.clone();
-        let scale = grade.scale(frame.level);
-        let to_color = |c: Rgb| to_color(grade.apply(c, scale));
+        let grades = managed.grades.clone();
+        let scale = grades.common.scale(frame.level);
+        let to_color = |id: u32, c: Rgb| to_color(grades.of(id).apply(c, scale));
         for dev in &frame.devices {
             if only.is_some_and(|id| id != dev.id) {
                 continue;
@@ -761,7 +795,7 @@ fn push_frame_pipe<'a>(
             }
             match &mut target.drive {
                 Drive::ModeColor { mode, last } => {
-                    let avg = to_color(average(&dev.colors));
+                    let avg = to_color(dev.id, average(&dev.colors));
                     if mode.colors().first() == Some(&avg) || !p.claim(dev.id) {
                         continue;
                     }
@@ -788,13 +822,13 @@ fn push_frame_pipe<'a>(
                         && prev
                             .iter()
                             .zip(&dev.colors)
-                            .all(|(a, c)| *a == to_color(*c));
+                            .all(|(a, c)| *a == to_color(dev.id, *c));
                     if unchanged || !p.claim(dev.id) {
                         continue;
                     }
                     let buf = &mut managed.last_sent[slot].1;
                     buf.clear();
-                    buf.extend(dev.colors.iter().map(|c| to_color(*c)));
+                    buf.extend(dev.colors.iter().map(|c| to_color(dev.id, *c)));
                     p.send_leds(dev.id, buf).await?;
                 }
             }
@@ -929,8 +963,8 @@ fn session<'a>(
                         frames.mark_changed();
                     }
                     Some(BridgeCommand::SetCalibration(c)) => {
+                        managed.grades = Arc::new(Grades::build(&c, &managed.group));
                         config.calibration = c;
-                        managed.grade = Arc::new(c.grade());
                         // Everything is written again with the new table.
                         managed.last_sent.clear();
                         frames.mark_changed();
@@ -1186,6 +1220,7 @@ fn load<'a>(
                 Err(_) => tracing::warn!("{}: invalid mode data, skipped", c.name()),
             }
         }
+        let grades = Arc::new(Grades::build(&config.calibration, &group));
         Ok(Managed {
             group,
             active,
@@ -1193,7 +1228,7 @@ fn load<'a>(
             last_sent: Vec::new(),
             deferred_until: None,
             pending: Vec::new(),
-            grade: Arc::new(config.calibration.grade()),
+            grades,
         })
     })
 }
@@ -1362,9 +1397,9 @@ fn push_frame<'a>(
         // and copied into the reused `last_sent` buffers once written.
         let mut pending = std::mem::take(&mut managed.pending);
         pending.clear();
-        let grade = managed.grade.clone();
-        let scale = grade.scale(frame.level);
-        let to_color = |c: Rgb| to_color(grade.apply(c, scale));
+        let grades = managed.grades.clone();
+        let scale = grades.common.scale(frame.level);
+        let to_color = |id: u32, c: Rgb| to_color(grades.of(id).apply(c, scale));
         let mut mode_updates: Option<Vec<(u32, openrgb2::Color)>> = None;
         for (index, dev) in frame.devices.iter().enumerate() {
             let Some(target) = managed.active.get(&dev.id) else {
@@ -1376,7 +1411,7 @@ fn push_frame<'a>(
                 continue;
             }
             if let Drive::ModeColor { mode, last } = &target.drive {
-                let avg = to_color(average(&dev.colors));
+                let avg = to_color(dev.id, average(&dev.colors));
                 if mode.colors().first() != Some(&avg) {
                     match last.filter(|t| t.elapsed() < MODE_COLOR_INTERVAL) {
                         None => mode_updates.get_or_insert_default().push((dev.id, avg)),
@@ -1399,7 +1434,7 @@ fn push_frame<'a>(
                         && prev
                             .iter()
                             .zip(&dev.colors)
-                            .all(|(p, c)| *p == to_color(*c))
+                            .all(|(p, c)| *p == to_color(dev.id, *c))
                 });
             if !unchanged {
                 pending.push(index);
@@ -1429,7 +1464,13 @@ fn push_frame<'a>(
             managed.pending = pending;
             return Ok(());
         }
-        let colors_of = |i: usize| frame.devices[i].colors.iter().map(|c| to_color(*c));
+        let colors_of = |i: usize| {
+            let id = frame.devices[i].id;
+            frame.devices[i]
+                .colors
+                .iter()
+                .map(move |c| to_color(id, *c))
+        };
         let result = if protocol >= 6 {
             // Protocol v6 acknowledges every packet: pipeline them in one batch.
             let mut cmd = managed.group.cmd();

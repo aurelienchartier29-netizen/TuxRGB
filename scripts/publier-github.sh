@@ -18,8 +18,8 @@
 set -euo pipefail
 
 REPO_NAME="${1:-TuxRGB}"
-DESCRIPTION="Éclairage RGB pour Linux et Windows : Material 3 Expressive, OpenRGB intégré (AppImage et installateur Windows prêts à l'emploi)"
-TOPICS=(rgb openrgb linux windows wayland kde-plasma gnome rust iced appimage argb lighting)
+DESCRIPTION="Tout l'éclairage RGB du PC, la ventilation et les afficheurs, dans une seule application pour Linux (Wayland) et Windows. OpenRGB intégré, rien d'autre à installer."
+TOPICS=(rgb openrgb linux windows wayland kde-plasma gnome rust iced appimage argb lighting fan-control material-design)
 
 bleu() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 ok() { printf '\033[1;32m✔ %s\033[0m\n' "$*"; }
