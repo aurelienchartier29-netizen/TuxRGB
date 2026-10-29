@@ -10,9 +10,9 @@
 | Commit | `8e16de27858cf2be6af54a33ce003df74cb9fd3e` (2026-10-16), also in `openrgb.commit` |
 | Why 1.1 | The current stable release: everything added to master since 1.0 (MSI B650M/B850M ARGB, real ARGB header sizes on MSI 761-byte boards, ASUS Aura USB 500-LED Direct mode, ENE DIMM_LED-0103 RAM, Corsair Lighting Node / Hydro Platinum lock-up fixes, many GPUs…), plus a deadlock fix for ENE SMBus RAM and motherboards, mode and LED updates kept in order, hot-plug and Sinowealth fixes, Cooler Master ARGB Gen2 A1 V2, MSI RTX 3070 Gaming Trio Plus, Kreo Swarm (wired) |
 | Licence | GPL-2.0-or-later (see `openrgb/LICENSE`) |
-| Modifications | **None.** The tree is the unmodified upstream commit (without `.git`). |
+| Modifications | One small patch, in `patches/` and already applied to the tree: each controller's device thread waits for its updates instead of checking for them every millisecond (OpenRGB used about 10 % of a core while idle with six controllers; now next to nothing). Everything else is the unmodified upstream commit (without `.git`). |
 
-TuxRGB does not link OpenRGB: it runs the unmodified `openrgb` binary as a
+TuxRGB does not link OpenRGB: it runs the `openrgb` binary as a
 separate, private process (`openrgb --server --server-host 127.0.0.1
 --server-port 6743 --noautoconnect --config ~/.config/tuxrgb/openrgb`) and
 talks to it over the OpenRGB SDK protocol (v6, unchanged in master). This directory is shipped so

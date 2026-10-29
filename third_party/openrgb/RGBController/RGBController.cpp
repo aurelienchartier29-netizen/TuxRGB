@@ -5,6 +5,8 @@
 |   provides a generic representation of an RGB device      |
 |                                                           |
 |   Adam Honse (CalcProgrammer1)                02 Jun 2019 |
+|   Modified by TuxRGB: device thread woken on demand       |
+|   instead of polling every millisecond.       29 Oct 2026 |
 |                                                           |
 |   This file is part of the OpenRGB project                |
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
@@ -111,6 +113,7 @@ RGBController::~RGBController()
         LOG_ERROR("[RGBController] %s: Device thread still active in base class destructor, ensure Shutdown() was called from inherited destructor", name.c_str());
 
         DeviceThreadRunning = false;
+        WakeDeviceThread();
         DeviceCallThread->join();
         delete DeviceCallThread;
     }
@@ -1976,6 +1979,7 @@ void RGBController::Shutdown()
     | Stop device thread                                    |
     \*-----------------------------------------------------*/
     DeviceThreadRunning = false;
+    WakeDeviceThread();
     DeviceCallThread->join();
     delete DeviceCallThread;
 
@@ -2024,6 +2028,7 @@ void RGBController::WaitForDeviceUpdate()
 void RGBController::UpdateLEDs()
 {
     CallFlag_UpdateLEDs = true;
+    WakeDeviceThread();
 
     SignalUpdate(RGBCONTROLLER_UPDATE_REASON_UPDATELEDS);
 }
@@ -2053,6 +2058,7 @@ void RGBController::UpdateSingleLED(int led)
 void RGBController::UpdateMode()
 {
     CallFlag_UpdateMode = true;
+    WakeDeviceThread();
 
     SignalUpdate(RGBCONTROLLER_UPDATE_REASON_UPDATEMODE);
 }
@@ -2151,7 +2157,17 @@ void RGBController::DeviceCallThreadFunction()
         }
         else
         {
-           std::this_thread::sleep_for(1ms);
+            /*---------------------------------------------*\
+            | Modified by TuxRGB, 2026-10-29.               |
+            | Sleep until an update is queued (TuxRGB: was  |
+            | a 1 ms poll, a thousand wake-ups a second per |
+            | controller). The time limit is a safety net.  |
+            \*---------------------------------------------*/
+            std::unique_lock<std::mutex> wake_lock(DeviceCallWakeMutex);
+            DeviceCallWake.wait_for(wake_lock, 100ms, [this]
+            {
+                return(CallFlag_UpdateLEDs.load() || CallFlag_UpdateMode.load() || !DeviceThreadRunning.load());
+            });
         }
 
         /*-------------------------------------------------*\
@@ -2396,6 +2412,20 @@ void RGBController::SetupColors()
 void RGBController::UpdateLEDsInternal()
 {
     CallFlag_UpdateLEDs = true;
+    WakeDeviceThread();
+}
+
+void RGBController::WakeDeviceThread()
+{
+    /*-----------------------------------------------------*\
+    | Taking the mutex orders this wake-up with the device  |
+    | thread's check of the flags: it either sees the new   |
+    | flag or is already waiting and gets the notification  |
+    \*-----------------------------------------------------*/
+    {
+        std::lock_guard<std::mutex> wake_lock(DeviceCallWakeMutex);
+    }
+    DeviceCallWake.notify_one();
 }
 
 /*---------------------------------------------------------*\

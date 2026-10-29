@@ -46,9 +46,9 @@ fn items(app: &App) -> Vec<(WhiteItem, String)> {
         let n = seen.entry(d.name.as_str()).or_insert(0);
         *n += 1;
         let name = if same > 1 {
-            format!("{} · {}", d.name, n)
+            format!("{} · {}", d.display_name(), n)
         } else {
-            d.name.clone()
+            d.display_name().to_owned()
         };
         out.push((WhiteItem::Device(d.key.clone()), name));
     }

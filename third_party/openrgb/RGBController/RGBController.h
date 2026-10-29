@@ -5,6 +5,8 @@
 |   provides a generic representation of an RGB device      |
 |                                                           |
 |   Adam Honse (CalcProgrammer1)                02 Jun 2019 |
+|   Modified by TuxRGB: device thread woken on demand       |
+|   instead of polling every millisecond.       29 Oct 2026 |
 |                                                           |
 |   This file is part of the OpenRGB project                |
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
@@ -363,4 +365,15 @@ private:
     friend class            OpenRGBPluginAPI;
     friend class            ProfileManager;
     friend class            ResourceManager;
+
+    /*-----------------------------------------------------*\
+    | Device thread wake-up (modified by TuxRGB, 2026-10-29)|
+    | the thread sleeps                                     |
+    | until an update is queued instead of polling every    |
+    | millisecond. Kept last so that the offsets of every   |
+    | other member are unchanged.                           |
+    \*-----------------------------------------------------*/
+    std::mutex              DeviceCallWakeMutex;
+    std::condition_variable DeviceCallWake;
+    void                    WakeDeviceThread();
 };

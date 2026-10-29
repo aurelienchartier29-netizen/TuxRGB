@@ -150,7 +150,9 @@ crates/
   tuxrgb-helper/              programme d'aide root (std uniquement, install|enable-smbus|enable-fans|reset|status),
                               service de ventilation (fand.rs, fancurve.rs, hwmon.rs)
 vendor/openrgb2/              client SDK openrgb2 0.4.1 + correctif de compatibilité OpenRGB 1.0
-third_party/openrgb/          sources complètes d'OpenRGB 1.1 (non modifiées)
+third_party/openrgb/          sources complètes d'OpenRGB 1.1, avec le correctif de patches/
+                              (threads des contrôleurs réveillés à la demande au lieu d'une
+                              vérification toutes les millisecondes)
 data/                         .desktop, metainfo AppStream, action Polkit, icônes, règles udev de référence
 packaging/                    build-appimage.sh, AppRun, run-tuxrgb.sh, flatpak/ (manifest, cargo-sources.json),
                               windows/ (installateur NSIS, icône .ico, manifeste, installateur PawnIO signé dans vendor/)

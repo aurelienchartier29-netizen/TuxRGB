@@ -29,5 +29,11 @@ rm -rf "$HERE/openrgb"
 mkdir -p "$HERE/openrgb"
 git -C "$TMP/openrgb" archive HEAD | tar -x -C "$HERE/openrgb"
 echo "$COMMIT" > "$HERE/openrgb.commit"
+# TuxRGB's patches (see patches/ and README.md).
+for patch in "$HERE"/patches/*.patch; do
+  [ -e "$patch" ] || continue
+  patch -d "$HERE/openrgb" -p1 --forward --quiet < "$patch" \
+    || echo "warning: $(basename "$patch") does not apply to $REF, check it by hand" >&2
+done
 echo "OpenRGB $REF → $COMMIT ($DATE) → $HERE/openrgb"
 echo "Update OPENRGB_VERSION in crates/tuxrgb-openrgb/src/lib.rs and third_party/README.md."

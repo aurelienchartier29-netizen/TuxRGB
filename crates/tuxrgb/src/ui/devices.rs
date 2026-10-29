@@ -727,7 +727,7 @@ fn zones_panel<'a>(app: &'a App, index: usize, d: &'a SceneDevice) -> Element<'a
         }
         // Addressable header: how many fans, then one line per fan.
         let (k1, k2) = (info.key.clone(), info.key.clone());
-        let mut fans =
+        let fans =
             row![
                 container(icon(icons::MODE_FAN, 18.0).color(r.on_surface_variant))
                     .center_x(Length::Fixed(28.0)),
@@ -761,21 +761,26 @@ fn zones_panel<'a>(app: &'a App, index: usize, d: &'a SceneDevice) -> Element<'a
             ]
             .spacing(space::S)
             .align_y(Alignment::Center);
-        if parts == 1 {
-            fans = fans.push(part_controls(
-                app,
-                &info.key,
-                zi,
-                0,
-                Some(zl.part_ref(0)),
-                info.id,
-            ));
-        }
         col = col.push(container(fans).padding(Padding {
             left: space::L,
             ..Padding::ZERO
         }));
         if parts == 1 {
+            // A single fan: its lighting on a line of its own (on the line
+            // above, the text was squeezed and the counter pushed out).
+            col = col.push(
+                container(
+                    row![
+                        widgets::hfill(),
+                        part_controls(app, &info.key, zi, 0, Some(zl.part_ref(0)), info.id),
+                    ]
+                    .align_y(Alignment::Center),
+                )
+                .padding(Padding {
+                    left: space::L,
+                    ..Padding::ZERO
+                }),
+            );
             if let Some(p) = part_picker(app, &info.key, zi, 0, Some(zl.part_ref(0))) {
                 col = col.push(p);
             }

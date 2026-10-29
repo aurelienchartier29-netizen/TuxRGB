@@ -764,7 +764,7 @@ impl App {
 
         if args.screenshot_tour.is_some() {
             app.wizard = Some(Wizard {
-                step: WizardStep::Access,
+                step: WizardStep::Welcome,
                 result: None,
                 from_reset: false,
                 autostart: true,

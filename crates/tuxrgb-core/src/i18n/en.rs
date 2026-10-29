@@ -111,6 +111,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Free use and modification, with credit to the author",
     ),
     (
+        "Moteur matériel embarqué : détection et pilotage de tous les périphériques (SMBus/I2C, HID, USB, série, réseau). Lancé en serveur SDK privé, avec un petit correctif de TuxRGB (third_party/patches : ses contrôleurs attendent leurs couleurs au lieu de vérifier mille fois par seconde).",
+        "Embedded hardware engine: detects and drives every device (SMBus/I2C, HID, USB, serial, network). Started as a private SDK server, with a small TuxRGB patch (third_party/patches: its controllers wait for their colours instead of checking a thousand times a second).",
+    ),
+    (
         "Moteur matériel embarqué : détection et pilotage de tous les périphériques (SMBus/I2C, HID, USB, série, réseau). Lancé en serveur SDK privé.",
         "Bundled hardware engine: detects and drives every device (SMBus/I2C, HID, USB, serial, network). Runs as a private SDK server.",
     ),
@@ -996,15 +1000,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Vert", "Green"),
     ("Bleu", "Blue"),
     (
-        "Part du {} dans le blanc des LED.",
-        "Share of {} in the white of the LEDs.",
-    ),
-    ("Blanc de test", "White test"),
-    (
-        "Allume toutes les LED en blanc : réglez le vert et le bleu jusqu'à obtenir un blanc neutre, sans reflet bleuté ni verdâtre.",
-        "Lights every LED in white: adjust green and blue until the white is neutral, with no blue or green cast.",
-    ),
-    (
         "Fondus entre couleurs, effets, préréglages et accent du bureau sur tout le matériel.",
         "Crossfades between colours, effects, presets and the desktop accent on all hardware.",
     ),
@@ -1468,10 +1463,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Same setting for every zone and every fan.",
     ),
     ("Ventilateurs sur ce connecteur", "Fans on this header"),
-    (
-        "Chaque ventilateur peut suivre l'effet, garder sa couleur ou rester éteint.",
-        "Each fan can follow the effect, keep its own colour or stay off.",
-    ),
     ("Ventilateur {}", "Fan {}"),
     ("LED {} à {}", "LEDs {} to {}"),
     ("1 zone personnalisée", "1 custom zone"),

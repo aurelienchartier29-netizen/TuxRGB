@@ -32,7 +32,7 @@ pub const CREDITS: &[Credit] = &[
     },
     Credit {
         name: "OpenRGB 1.1",
-        role: "Moteur matériel embarqué : détection et pilotage de tous les périphériques (SMBus/I2C, HID, USB, série, réseau). Lancé en serveur SDK privé.",
+        role: "Moteur matériel embarqué : détection et pilotage de tous les périphériques (SMBus/I2C, HID, USB, série, réseau). Lancé en serveur SDK privé, avec un petit correctif de TuxRGB (third_party/patches : ses contrôleurs attendent leurs couleurs au lieu de vérifier mille fois par seconde).",
         authors: "Adam Honse (CalcProgrammer1) et les contributeurs OpenRGB",
         license: "GPL-2.0-or-later",
         url: "https://gitlab.com/CalcProgrammer1/OpenRGB",

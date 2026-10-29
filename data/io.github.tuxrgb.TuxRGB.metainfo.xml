@@ -103,6 +103,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.5.0" date="2026-10-29">
+      <description>
+        <p>A stability release: lighter, quicker to start, fully checked again.</p>
+        <ul>
+          <li>The bundled OpenRGB engine no longer polls its controllers a thousand times a second: about 10 % of a CPU core down to 0.3 % with a static effect (Linux)</li>
+          <li>LEDs light up sooner when the session opens</li>
+          <li>Devices: the settings of a single fan on an ARGB header are no longer squeezed</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.4.0" date="2026-10-29">
       <description>
         <p>Network lights of every brand, and prudence on the memory bus.</p>

@@ -7,7 +7,7 @@ l'application : **Réglages → À propos → Crédits & licences open source**.
 
 | Projet | Rôle | Auteurs | Licence |
 |---|---|---|---|
-| [OpenRGB 1.1](https://gitlab.com/CalcProgrammer1/OpenRGB) | Moteur matériel : détection et pilotage de tous les périphériques (SMBus/I2C, HID, USB, série, réseau), lancé en serveur SDK privé | Adam Honse (CalcProgrammer1) et les contributeurs OpenRGB | GPL-2.0-or-later |
+| [OpenRGB 1.1](https://gitlab.com/CalcProgrammer1/OpenRGB) | Moteur matériel : détection et pilotage de tous les périphériques (SMBus/I2C, HID, USB, série, réseau), lancé en serveur SDK privé ; sous Linux avec un petit correctif de TuxRGB (`third_party/patches`) | Adam Honse (CalcProgrammer1) et les contributeurs OpenRGB | GPL-2.0-or-later |
 | [Tux](https://isc.tamu.edu/~lewing/linux/) | Manchot de l'icône de l'application (sur fond RGB) | Larry Ewing (lewing@isc.tamu.edu), créé avec The GIMP | Utilisation et modification libres avec mention de l'auteur |
 | [Qt 6](https://www.qt.io/) | Bibliothèques utilisées par OpenRGB (mode serveur sans interface) | The Qt Company et contributeurs | LGPL-3.0 |
 | [hidapi](https://github.com/libusb/hidapi) | Accès HID d'OpenRGB | Alan Ott, Signal 11 Software, libusb/hidapi | BSD-3-Clause / GPL-3.0 / HIDAPI (au choix) |

@@ -230,6 +230,7 @@ pub async fn run(
 
         // 2. Connect (the server opens its port while detection still runs).
         let started = Instant::now();
+        let mut shown_seconds = None;
         let client = loop {
             let addr = (host.as_str(), port);
             match tokio::time::timeout(Duration::from_secs(3), OpenRgbClient::connect_to(addr, 6))
@@ -249,11 +250,20 @@ pub async fn run(
                 tokio::time::sleep(Duration::from_secs(3)).await;
                 continue 'outer;
             }
-            send.emit(BridgeEvent::Status(BridgeStatus::Detecting {
-                seconds: started.elapsed().as_secs() as u32,
-            }));
+            let seconds = started.elapsed().as_secs() as u32;
+            if shown_seconds != Some(seconds) {
+                shown_seconds = Some(seconds);
+                send.emit(BridgeEvent::Status(BridgeStatus::Detecting { seconds }));
+            }
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+                // The embedded server opens its port within a few hundred
+                // milliseconds: retry quickly at first (the LEDs light up
+                // sooner at login), then calmly.
+                _ = tokio::time::sleep(if started.elapsed() < Duration::from_secs(3) {
+                    Duration::from_millis(100)
+                } else {
+                    Duration::from_millis(500)
+                }) => {}
                 cmd = commands.recv() => match cmd {
                     None | Some(BridgeCommand::Shutdown { .. }) => break 'outer,
                     Some(BridgeCommand::Restart) => { server = None; continue 'outer; }
@@ -434,6 +444,9 @@ struct Managed {
     hardware: BTreeMap<u32, HardwareTarget>,
     /// Colours last written to each per-LED device (buffers reused).
     last_sent: Vec<(u32, Vec<openrgb2::Color>)>,
+    /// The colours of the device being written, converted once (swapped
+    /// with its `last_sent` buffer when they changed).
+    scratch: Vec<openrgb2::Color>,
     /// A single-colour device has a newer colour waiting for its rate cap.
     deferred_until: Option<Instant>,
     /// Frame devices to write this frame (indices, reused buffer).
@@ -849,6 +862,14 @@ fn push_frame_pipe<'a>(
                     p.send_mode(dev.id, mode).await?;
                 }
                 Drive::PerLed => {
+                    // Converted once, with the device's own correction.
+                    let grade = grades.of(dev.id);
+                    managed.scratch.clear();
+                    managed.scratch.extend(
+                        dev.colors
+                            .iter()
+                            .map(|c| self::to_color(grade.apply(*c, scale))),
+                    );
                     let slot = match managed.last_sent.iter().position(|(id, _)| *id == dev.id) {
                         Some(i) => i,
                         None => {
@@ -856,13 +877,7 @@ fn push_frame_pipe<'a>(
                             managed.last_sent.len() - 1
                         }
                     };
-                    let prev = &managed.last_sent[slot].1;
-                    let unchanged = prev.len() == dev.colors.len()
-                        && prev
-                            .iter()
-                            .zip(&dev.colors)
-                            .all(|(a, c)| *a == to_color(dev.id, *c));
-                    if unchanged {
+                    if managed.last_sent[slot].1 == managed.scratch {
                         continue;
                     }
                     if let Some(due) = target.held_until() {
@@ -873,11 +888,9 @@ fn push_frame_pipe<'a>(
                     if !p.claim(dev.id) {
                         continue;
                     }
-                    let buf = &mut managed.last_sent[slot].1;
-                    buf.clear();
-                    buf.extend(dev.colors.iter().map(|c| to_color(dev.id, *c)));
+                    std::mem::swap(&mut managed.last_sent[slot].1, &mut managed.scratch);
                     target.sent();
-                    p.send_leds(dev.id, buf).await?;
+                    p.send_leds(dev.id, &managed.last_sent[slot].1).await?;
                 }
             }
         }
@@ -1292,6 +1305,7 @@ fn load<'a>(
             active,
             hardware,
             last_sent: Vec::new(),
+            scratch: Vec::new(),
             deferred_until: None,
             pending: Vec::new(),
             grades,
@@ -1491,6 +1505,7 @@ fn push_frame<'a>(
                 continue;
             }
             // Skip devices whose colours did not change since the last frame.
+            let grade = grades.of(dev.id);
             let unchanged = managed
                 .last_sent
                 .iter()
@@ -1500,7 +1515,7 @@ fn push_frame<'a>(
                         && prev
                             .iter()
                             .zip(&dev.colors)
-                            .all(|(p, c)| *p == to_color(dev.id, *c))
+                            .all(|(p, c)| *p == self::to_color(grade.apply(*c, scale)))
                 });
             if unchanged {
                 continue;

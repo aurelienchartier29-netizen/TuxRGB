@@ -32,8 +32,12 @@ pub const EMBEDDED_PORT: u16 = 6743;
 /// Default port of a standalone OpenRGB server.
 pub const OPENRGB_DEFAULT_PORT: u16 = 6742;
 
-/// Bundled OpenRGB build (the latest release). Kept in sync with
-/// `third_party/README.md`.
+/// Bundled OpenRGB build (the latest release, with TuxRGB's patch on
+/// Linux, see `third_party/patches`). Kept in sync with
+/// `third_party/README.md`. Windows uses the official build.
+#[cfg(not(windows))]
+pub const OPENRGB_VERSION: &str = "1.1 (release_1.1 8e16de2, 16/10/2026, + correctif TuxRGB)";
+#[cfg(windows)]
 pub const OPENRGB_VERSION: &str = "1.1 (release_1.1 8e16de2, 16/10/2026)";
 /// Short label used in the interface.
 pub const OPENRGB_LABEL: &str = "OpenRGB 1.1";
