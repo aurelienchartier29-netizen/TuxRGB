@@ -102,6 +102,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.2.2" date="2026-10-28">
+      <description>
+        <p>Stable colours at low brightness.</p>
+        <ul>
+          <li>Lowering the brightness no longer makes the LEDs flicker towards a close hue: brightness, colour curve and white balance are computed in one step, and the channels keep their exact proportions</li>
+          <li>Windows: updates from the app replace TuxRGB again</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.2.1" date="2026-10-28">
       <description>
         <p>Fan control now works on Gigabyte motherboards under Linux.</p>

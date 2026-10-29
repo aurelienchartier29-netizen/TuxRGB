@@ -544,6 +544,8 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
         // Thin ring in the canvas colour around each LED: crisp dots on the
         // glow, whatever the effect.
         let ring = with_alpha(r.surface_container_lowest, 0.85);
+        // The frame's colours are at full brightness (see `Frame::level`).
+        let level = self.frame.map(|f| f.as_ref());
         let colors: HashMap<u32, &[tuxrgb_core::Rgb]> = self
             .frame
             .map(|f| {
@@ -589,7 +591,7 @@ impl canvas::Program<Message> for SetupCanvas<'_> {
                 };
                 let c = device_colors
                     .and_then(|cs| cs.get(li).copied())
-                    .map(to_iced)
+                    .map(|c| to_iced(level.map_or(c, |f| f.shown(c))))
                     .unwrap_or(with_alpha(r.outline, 0.35));
                 let center = to_screen(&rect, x, y);
                 if d.enabled && device_colors.is_some() {

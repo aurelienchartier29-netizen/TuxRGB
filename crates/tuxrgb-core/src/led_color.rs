@@ -90,59 +90,94 @@ impl LedCalibration {
         2.0 / self.effective_gamma()
     }
 
-    /// The table the colours go through on their way to the hardware.
-    pub fn lut(&self) -> ColorLut {
-        if !self.enabled {
-            return ColorLut::IDENTITY;
-        }
+    /// What the colours go through on their way to the hardware.
+    pub fn grade(&self) -> LedGrade {
         let c = self.sanitized();
-        let mut t = [[0u8; 256]; 3];
-        for (ch, table) in t.iter_mut().enumerate() {
-            for (v, out) in table.iter_mut().enumerate() {
-                let x = (v as f32 / 255.0).powf(c.gamma) * c.white[ch];
-                *out = (x * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+        let (gamma, white) = if self.enabled {
+            (c.gamma, c.white)
+        } else {
+            (1.0, [1.0; 3])
+        };
+        let mut table = [[0f32; 256]; 3];
+        for (ch, t) in table.iter_mut().enumerate() {
+            for (v, out) in t.iter_mut().enumerate() {
+                *out = (v as f32 / 255.0).powf(gamma) * white[ch] * 255.0;
             }
         }
-        ColorLut(t)
+        LedGrade { table, gamma }
     }
 }
 
-/// Per-channel 8-bit table.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ColorLut([[u8; 256]; 3]);
-
-impl ColorLut {
-    pub const IDENTITY: Self = {
-        let mut t = [[0u8; 256]; 3];
-        let mut v = 0;
-        while v < 256 {
-            t[0][v] = v as u8;
-            t[1][v] = v as u8;
-            t[2][v] = v as u8;
-            v += 1;
-        }
-        Self(t)
-    };
-
-    #[inline]
-    pub fn apply(&self, c: Rgb) -> Rgb {
-        Rgb::new(
-            self.0[0][c.r as usize],
-            self.0[1][c.g as usize],
-            self.0[2][c.b as usize],
-        )
-    }
+/// Brightness, curve and white balance of the LED colours, in one step.
+///
+/// The colours arrive at full brightness with the frame's level beside them
+/// ([`crate::engine::Frame::level`]). Done in 8 bits one after the other,
+/// the dimming and the curve round each channel on its own: at low
+/// brightness a weak channel drops to 0 at one step of the slider and comes
+/// back at the next, and the colour flickers between close hues (a white
+/// going magenta, a pink going red). Here the brightest channel is rounded
+/// first, and the two others keep their exact share of it: a colour only
+/// gets darker when the slider moves, never another hue.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LedGrade {
+    /// Light of each channel value at full brightness, `0..=255`.
+    table: [[f32; 256]; 3],
+    gamma: f32,
 }
 
-impl Default for ColorLut {
+impl Default for LedGrade {
     fn default() -> Self {
-        Self::IDENTITY
+        LedCalibration {
+            enabled: false,
+            ..LedCalibration::default()
+        }
+        .grade()
+    }
+}
+
+impl LedGrade {
+    /// Factor on the light for a frame `level` (the colours are dimmed
+    /// before the curve: the curve raises the level to its gamma).
+    pub fn scale(&self, level: f32) -> f32 {
+        if level.is_finite() {
+            level.clamp(0.0, 1.0).powf(self.gamma)
+        } else {
+            1.0
+        }
+    }
+
+    /// `c` (full brightness) as sent to the LEDs at `scale`.
+    #[inline]
+    pub fn apply(&self, c: Rgb, scale: f32) -> Rgb {
+        let f = [
+            self.table[0][c.r as usize],
+            self.table[1][c.g as usize],
+            self.table[2][c.b as usize],
+        ];
+        let max = f[0].max(f[1]).max(f[2]);
+        if max <= 0.0 {
+            return Rgb::BLACK;
+        }
+        let top = (max * scale + 0.5).floor().min(255.0);
+        if top <= 0.0 {
+            return Rgb::BLACK;
+        }
+        let k = top / max;
+        // Ties (a share of exactly x.5) always round up: the same colour one
+        // step brighter never loses a step on another channel.
+        let q = |x: f32| (x * k + 0.5 + 1e-3).floor().clamp(0.0, 255.0) as u8;
+        Rgb::new(q(f[0]), q(f[1]), q(f[2]))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::perceived_level;
+
+    fn full(c: &LedCalibration, rgb: Rgb) -> Rgb {
+        c.grade().apply(rgb, 1.0)
+    }
 
     #[test]
     fn off_changes_nothing() {
@@ -150,11 +185,17 @@ mod tests {
             enabled: false,
             ..LedCalibration::default()
         };
-        let lut = c.lut();
         for v in [0u8, 1, 80, 128, 255] {
-            assert_eq!(lut.apply(Rgb::new(v, v, v)), Rgb::new(v, v, v));
+            assert_eq!(full(&c, Rgb::new(v, v, v)), Rgb::new(v, v, v));
         }
+        assert_eq!(full(&c, Rgb::new(230, 80, 106)), Rgb::new(230, 80, 106));
         assert_eq!(c.level_exponent(), 2.0);
+        // Without correction: a plain dimming.
+        let g = c.grade();
+        assert_eq!(
+            g.apply(Rgb::new(200, 100, 0), g.scale(0.5)),
+            Rgb::new(100, 50, 0)
+        );
     }
 
     #[test]
@@ -165,7 +206,7 @@ mod tests {
             white: [1.0; 3],
             ..LedCalibration::default()
         };
-        let out = neutral.lut().apply(pink);
+        let out = full(&neutral, pink);
         // Raw, blue was 46 % of red (purple on LEDs); as light on a
         // screen it is ~18 %: the LEDs now get that.
         let ratio = out.b as f32 / out.r as f32;
@@ -175,16 +216,50 @@ mod tests {
 
     #[test]
     fn ends_and_white_balance() {
-        let lut = LedCalibration::default().lut();
-        assert_eq!(lut.apply(Rgb::BLACK), Rgb::BLACK);
+        let c = LedCalibration::default();
+        assert_eq!(full(&c, Rgb::BLACK), Rgb::BLACK);
         // Full white goes through the white balance only.
-        assert_eq!(lut.apply(Rgb::WHITE), Rgb::new(255, 204, 230));
+        assert_eq!(full(&c, Rgb::WHITE), Rgb::new(255, 204, 230));
         // Monotonic on every channel.
         let mut prev = Rgb::BLACK;
         for v in 0..=255u8 {
-            let c = lut.apply(Rgb::new(v, v, v));
-            assert!(c.r >= prev.r && c.g >= prev.g && c.b >= prev.b);
-            prev = c;
+            let o = full(&c, Rgb::new(v, v, v));
+            assert!(o.r >= prev.r && o.g >= prev.g && o.b >= prev.b);
+            prev = o;
+        }
+    }
+
+    /// Lowering the brightness only darkens a colour: no channel comes back
+    /// up, and the hue stays (no white turning magenta at low light).
+    #[test]
+    fn lowering_the_brightness_never_changes_the_hue() {
+        let c = LedCalibration::default();
+        let g = c.grade();
+        for colour in [
+            Rgb::WHITE,
+            Rgb::new(230, 80, 106),
+            Rgb::new(61, 174, 233),
+            Rgb::new(255, 128, 0),
+        ] {
+            let ideal = g.apply(colour, 1.0);
+            let mut prev = ideal;
+            for i in (0..=1000).rev() {
+                let level = perceived_level(i as f32 / 1000.0, c.level_exponent());
+                let now = g.apply(colour, g.scale(level));
+                assert!(
+                    now.r <= prev.r && now.g <= prev.g && now.b <= prev.b,
+                    "{colour:?}: {prev:?} -> {now:?}"
+                );
+                prev = now;
+            }
+            assert_eq!(prev, Rgb::BLACK);
+        }
+        // White stays white down to the last step (independent rounding
+        // gave (1, 0, 1), magenta).
+        for i in 1..=60 {
+            let level = perceived_level(i as f32 / 1000.0, c.level_exponent());
+            let w = g.apply(Rgb::WHITE, g.scale(level));
+            assert!(w == Rgb::BLACK || (w.g > 0 && w.b > 0), "{w:?} at {i}");
         }
     }
 
@@ -195,9 +270,9 @@ mod tests {
             white: [1.0; 3],
             ..LedCalibration::default()
         };
-        let level = 0.5f32.powf(c.level_exponent());
-        let v = (255.0 * level).round() as u8;
-        let light = c.lut().apply(Rgb::new(v, v, v)).r as f32 / 255.0;
+        let g = c.grade();
+        let level = perceived_level(0.5, c.level_exponent());
+        let light = g.apply(Rgb::WHITE, g.scale(level)).r as f32 / 255.0;
         assert!((light - 0.25).abs() < 0.01, "{light}");
     }
 

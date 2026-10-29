@@ -2,7 +2,7 @@
 ;
 ; Built by scripts/windows/build-windows.sh (from Linux) or
 ; scripts/windows/build-windows.ps1 (on Windows):
-;   makensis -DVERSION=3.2.1 -DSTAGE=<dir> -DOUTFILE=<setup.exe> tuxrgb.nsi
+;   makensis -DVERSION=3.2.2 -DSTAGE=<dir> -DOUTFILE=<setup.exe> tuxrgb.nsi
 ;
 ; <STAGE> holds tuxrgb.exe, tuxrgb.ico, installer-side.bmp, PawnIO_setup.exe, LICENSE.txt,
 ; LIRE-MOI-Windows.txt and licenses\.
@@ -20,10 +20,10 @@ SetCompressor /SOLID lzma
 ManifestDPIAware true
 
 !ifndef VERSION
-  !define VERSION "3.2.1"
+  !define VERSION "3.2.2"
 !endif
 !ifndef VERSION_NUM
-  !define VERSION_NUM "3.2.1.0"
+  !define VERSION_NUM "3.2.2.0"
 !endif
 !ifndef STAGE
   !define STAGE "stage"
@@ -124,20 +124,47 @@ LangString DescDesktop ${LANG_ENGLISH} "TuxRGB shortcut on the desktop."
 ; ---------------------------------------------------------------------------
 ; Helpers
 ; ---------------------------------------------------------------------------
+Var UpdateMode
+
 !macro CloseTuxRGB
-  FindWindow $0 "TuxRGB.Host"
-  ${If} $0 <> 0
-    IfSilent +2
-      MessageBox MB_OK|MB_ICONINFORMATION "$(Running)"
-    nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM tuxrgb.exe'
-    Pop $0
-    Sleep 1500
+  ; In update mode TuxRGB closes by itself right after starting this
+  ; installer, which can take a few seconds (LEDs, displays, fans given
+  ; back): it gets 8 s, then every tuxrgb.exe left is stopped. Otherwise it
+  ; is stopped at once. Either way the installer waits until tuxrgb.exe can
+  ; really be replaced: a file still in use would be skipped silently and
+  ; the old version started again.
+  ${If} ${FileExists} "$INSTDIR\tuxrgb.exe"
+    StrCpy $3 0
+    ${If} $UpdateMode == 1
+      StrCpy $3 16
+    ${Else}
+      FindWindow $0 "TuxRGB.Host"
+      ${If} $0 <> 0
+        IfSilent +2
+          MessageBox MB_OK|MB_ICONINFORMATION "$(Running)"
+      ${EndIf}
+    ${EndIf}
+    StrCpy $1 0
+    ${Do}
+      ClearErrors
+      FileOpen $2 "$INSTDIR\tuxrgb.exe" a
+      ${IfNot} ${Errors}
+        FileClose $2
+        ${Break}
+      ${EndIf}
+      ${If} $1 == $3
+        DetailPrint "TuxRGB est encore ouvert : fermeture"
+        nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM tuxrgb.exe'
+        Pop $0
+      ${EndIf}
+      Sleep 500
+      IntOp $1 $1 + 1
+    ${LoopUntil} $1 >= 40
   ${EndIf}
   ; The embedded OpenRGB server belongs to TuxRGB's job object: it stops
   ; with it (a separately installed OpenRGB is left alone).
 !macroend
 
-Var UpdateMode
 
 ; Started from the elevated installer, TuxRGB must still run with the
 ; user's normal rights (it hands over to administrator mode by itself).

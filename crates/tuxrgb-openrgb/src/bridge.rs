@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 use tuxrgb_core::engine::Frame;
-use tuxrgb_core::led_color::ColorLut;
+use tuxrgb_core::led_color::LedGrade;
 use tuxrgb_core::{DeviceInfo, DeviceKey, DeviceKind, Rgb, ZoneInfo, ZoneKind};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -417,8 +417,9 @@ struct Managed {
     deferred_until: Option<Instant>,
     /// Frame devices to write this frame (indices, reused buffer).
     pending: Vec<usize>,
-    /// [`BridgeConfig::calibration`] as a table.
-    lut: Arc<ColorLut>,
+    /// [`BridgeConfig::calibration`], ready to apply (with each frame's
+    /// brightness, see [`LedGrade`]).
+    grade: Arc<LedGrade>,
 }
 
 /// A controller left to a hardware effect.
@@ -745,8 +746,9 @@ fn push_frame_pipe<'a>(
     only: Option<u32>,
 ) -> BoxFut<'a, Result<(), String>> {
     Box::pin(async move {
-        let lut = managed.lut.clone();
-        let to_color = |c: Rgb| to_color(lut.apply(c));
+        let grade = managed.grade.clone();
+        let scale = grade.scale(frame.level);
+        let to_color = |c: Rgb| to_color(grade.apply(c, scale));
         for dev in &frame.devices {
             if only.is_some_and(|id| id != dev.id) {
                 continue;
@@ -928,7 +930,7 @@ fn session<'a>(
                     }
                     Some(BridgeCommand::SetCalibration(c)) => {
                         config.calibration = c;
-                        managed.lut = Arc::new(c.lut());
+                        managed.grade = Arc::new(c.grade());
                         // Everything is written again with the new table.
                         managed.last_sent.clear();
                         frames.mark_changed();
@@ -1191,7 +1193,7 @@ fn load<'a>(
             last_sent: Vec::new(),
             deferred_until: None,
             pending: Vec::new(),
-            lut: Arc::new(config.calibration.lut()),
+            grade: Arc::new(config.calibration.grade()),
         })
     })
 }
@@ -1360,8 +1362,9 @@ fn push_frame<'a>(
         // and copied into the reused `last_sent` buffers once written.
         let mut pending = std::mem::take(&mut managed.pending);
         pending.clear();
-        let lut = managed.lut.clone();
-        let to_color = |c: Rgb| to_color(lut.apply(c));
+        let grade = managed.grade.clone();
+        let scale = grade.scale(frame.level);
+        let to_color = |c: Rgb| to_color(grade.apply(c, scale));
         let mut mode_updates: Option<Vec<(u32, openrgb2::Color)>> = None;
         for (index, dev) in frame.devices.iter().enumerate() {
             let Some(target) = managed.active.get(&dev.id) else {

@@ -276,8 +276,15 @@ pub fn guard_main(pid: &str, file: &Path) -> i32 {
         }
     }
     // A normal exit removed the file: nothing to do.
+    let _ = restore_leftovers(file);
+    0
+}
+
+/// Puts back the fans recorded in `file` (left by a run that ended without
+/// giving them back), then removes it.
+fn restore_leftovers(file: &Path) -> bool {
     let Ok(text) = std::fs::read_to_string(file) else {
-        return 0;
+        return false;
     };
     let records: Vec<_> = text.lines().filter_map(superio::parse_saved).collect();
     let mut chips = superio::detect();
@@ -287,7 +294,7 @@ pub fn guard_main(pid: &str, file: &Path) -> i32 {
         }
     }
     let _ = std::fs::remove_file(file);
-    0
+    true
 }
 
 pub fn run(inputs: SharedInputs, rx: Receiver<Command>, events: Events) {
@@ -298,6 +305,13 @@ pub fn run(inputs: SharedInputs, rx: Receiver<Command>, events: Events) {
     } else {
         Access::Ready
     };
+    // TuxRGB was stopped by force while it drove fans, its guard with it
+    // (an update, the task manager…): the fans go back to the motherboard
+    // before anything else.
+    if access == Access::Ready && restore_path().is_file() {
+        tracing::info!("fans left driven by a previous run: given back");
+        let _ = restore_leftovers(&restore_path());
+    }
     // The chips are only looked for once fan control is used (page opened,
     // or a fan set): nothing touches them otherwise.
     let mut ctl: Option<Controller> = None;

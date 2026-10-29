@@ -25,13 +25,44 @@ pub struct DeviceFrame {
     pub colors: Vec<Rgb>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
     pub seq: u64,
+    /// Colours at full brightness: [`Frame::level`] is applied by whoever
+    /// shows them (see [`Frame::shown`]).
     pub devices: Vec<DeviceFrame>,
+    /// Global brightness of these colours, `0..=1`, as a factor on each
+    /// channel ([`perceived_level`] of the slider).
+    ///
+    /// It is not baked into `devices`: the LED colour correction raises the
+    /// colours to its gamma, and an 8-bit colour dimmed first loses its
+    /// weaker channels at low brightness (a pink turned red, channels
+    /// blinking between two values while the slider moves). The bridge
+    /// dims and corrects in one step, with full precision.
+    pub level: f32,
     /// The effect over the whole canvas (GUI preview only, see
-    /// [`EngineCommand::SetBackdrop`]).
+    /// [`EngineCommand::SetBackdrop`]), brightness included.
     pub backdrop: Option<Arc<Backdrop>>,
+}
+
+impl Default for Frame {
+    fn default() -> Self {
+        Self {
+            seq: 0,
+            devices: Vec::new(),
+            level: 1.0,
+            backdrop: None,
+        }
+    }
+}
+
+impl Frame {
+    /// A colour of `devices` as the LEDs show it, without the LED colour
+    /// correction (the interface's previews).
+    #[inline]
+    pub fn shown(&self, c: Rgb) -> Rgb {
+        c.dim(self.level)
+    }
 }
 
 /// Grid of the full-canvas rendering (16:9, like the canvas).
@@ -952,14 +983,16 @@ impl Engine {
             // Fixed colours / dark parts replace the effect where set.
             apply_lighting(&mut self.buffer, &self.scene.lighting);
             let level = perceived_level(self.brightness, self.level_exponent);
+            // The brightness goes with the frame (`Frame::level`), not into
+            // the 8-bit colours.
             grade(
                 &mut self.buffer,
                 self.saturation,
-                level,
+                1.0,
                 &mut self.saturation_cache,
             );
             if self.test_white {
-                self.buffer.fill(Rgb::WHITE.scale(level));
+                self.buffer.fill(Rgb::WHITE);
             }
             if let Some(b) = &mut self.backdrop {
                 // No device kinds: per-device choices use their defaults.
@@ -1094,6 +1127,7 @@ impl Engine {
             }
         }
         frame.devices.truncate(used);
+        frame.level = perceived_level(self.brightness, self.level_exponent);
         self.seq += 1;
         frame.seq = self.seq;
         for sink in &self.sinks {
@@ -1190,16 +1224,20 @@ mod tests {
         // 50 % on the slider -> 25 % intensity, hue kept (2:1 ratio R:G).
         for d in &last.devices {
             for c in &d.colors {
-                assert_eq!(*c, Rgb::new(64, 32, 0), "device {}", d.id);
+                // Full colour in the frame, the level beside it.
+                assert_eq!(*c, Rgb::new(255, 128, 0), "device {}", d.id);
+                assert_eq!(last.shown(*c), Rgb::new(64, 32, 0), "device {}", d.id);
             }
         }
+        assert!((last.level - 0.25).abs() < 1e-4);
         engine.send(EngineCommand::SetBrightness(0.0));
         std::thread::sleep(Duration::from_millis(200));
         let last = frames.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(last.level, 0.0);
         assert!(
             last.devices
                 .iter()
-                .all(|d| d.colors.iter().all(|c| *c == Rgb::BLACK))
+                .all(|d| d.colors.iter().all(|c| last.shown(*c) == Rgb::BLACK))
         );
     }
 
@@ -1230,7 +1268,7 @@ mod tests {
         engine.send(EngineCommand::SetBrightness(0.0));
         std::thread::sleep(Duration::from_millis(400));
         let got = frames.lock().unwrap().clone();
-        let level = |f: &Frame| f.devices[0].colors[0].r;
+        let level = |f: &Frame| f.shown(f.devices[0].colors[0]).r;
         assert!(!got.is_empty());
         assert!(level(&got[0]) < 255, "the first frame must already move");
         assert!(got.windows(2).all(|w| level(&w[1]) <= level(&w[0])));
@@ -1278,7 +1316,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
         let last = frames.lock().unwrap().last().cloned().unwrap();
         let b = last.backdrop.as_ref().unwrap();
-        assert_eq!(b.colors[0], last.devices[0].colors[0]);
+        assert_eq!(b.colors[0], last.shown(last.devices[0].colors[0]));
         assert_eq!(b.colors[0], Rgb::new(64, 0, 0));
         engine.send(EngineCommand::SetBackdrop(false));
         std::thread::sleep(Duration::from_millis(150));

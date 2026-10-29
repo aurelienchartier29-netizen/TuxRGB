@@ -105,6 +105,7 @@ async fn streams_frames_to_a_real_openrgb_server() {
                 colors: vec![c; d.led_count],
             })
             .collect(),
+        level: 1.0,
         backdrop: None,
     };
     frame_tx.send_replace(Arc::new(frame));
@@ -140,10 +141,10 @@ async fn streams_frames_to_a_real_openrgb_server() {
         .send(BridgeCommand::SetCalibration(calibration))
         .unwrap();
     tokio::time::sleep(Duration::from_millis(700)).await;
-    let lut = calibration.lut();
+    let grade = calibration.grade();
     let group = client.get_all_controllers().await.expect("controllers");
     for (d, sent) in devices.iter().zip(palette) {
-        let expected = lut.apply(sent);
+        let expected = grade.apply(sent, 1.0);
         let c = group
             .iter()
             .find(|c| c.id() as u32 == d.id)
@@ -228,6 +229,7 @@ async fn streams_frames_to_a_real_openrgb_server() {
             .iter()
             .map(|d| solid(d, d.led_count, reference))
             .collect(),
+        level: 1.0,
         backdrop: None,
     };
     frame_tx.send_replace(Arc::new(good.clone()));
@@ -246,6 +248,7 @@ async fn streams_frames_to_a_real_openrgb_server() {
     frame_tx.send_replace(Arc::new(Frame {
         seq: 3,
         devices: stale,
+        level: 1.0,
         backdrop: None,
     }));
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -339,6 +342,7 @@ async fn streams_frames_to_a_real_openrgb_server() {
                 colors: vec![Rgb::new(255, 0, 0); c.num_leds()],
             })
             .collect(),
+        level: 1.0,
         backdrop: None,
     }));
     tokio::time::sleep(Duration::from_millis(600)).await;
@@ -598,6 +602,7 @@ async fn network_lights_through_openrgb() {
                 colors: vec![Rgb::new(0, 0, 255)],
             },
         ],
+        level: 1.0,
         backdrop: None,
     }));
     tokio::time::sleep(Duration::from_millis(600)).await;
@@ -665,6 +670,7 @@ async fn network_lights_through_openrgb() {
                 colors: vec![Rgb::new(255, 255, 0)],
             },
         ],
+        level: 1.0,
         backdrop: None,
     }));
     tokio::time::sleep(Duration::from_millis(500)).await;
