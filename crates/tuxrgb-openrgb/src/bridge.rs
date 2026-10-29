@@ -37,9 +37,12 @@ pub struct BridgeConfig {
     /// TuxRGB sets that mode once and sends them no colours (until the
     /// blackout of a shutdown, which still turns them off).
     pub hardware_modes: BTreeMap<DeviceKey, String>,
-    /// WLED and Philips WiZ lights, written into the embedded server's
-    /// settings before it starts (see [`crate::network`]).
+    /// Network lights, written into the embedded server's settings before
+    /// it starts (see [`crate::network`]).
     pub network: crate::network::NetworkLights,
+    /// RAM and SMBus motherboards detected (see [`crate::detectors`]):
+    /// off unless the user turned it on.
+    pub smbus_lighting: bool,
     /// Colour correction of the LEDs (gamma, white balance), applied to
     /// every colour written to the hardware; the frames themselves keep the
     /// colours as shown in the interface.
@@ -88,7 +91,9 @@ pub enum BridgeCommand {
     /// See [`BridgeConfig::hardware_modes`].
     SetHardwareModes(BTreeMap<DeviceKey, String>),
     /// New network lights: the embedded server restarts with them.
-    SetNetwork(crate::network::NetworkLights),
+    SetNetwork(Box<crate::network::NetworkLights>),
+    /// See [`BridgeConfig::smbus_lighting`]: the embedded server restarts.
+    SetSmbusLighting(bool),
     SetMode(ServerMode),
     /// Sets the number of LEDs of resizable zones (ARGB headers / channels),
     /// then reloads the devices once. OpenRGB stores the sizes in its
@@ -193,7 +198,10 @@ pub async fn run(
                                 Ok(Some(BridgeCommand::SetHardwareModes(h))) => {
                                     config.hardware_modes = h
                                 }
-                                Ok(Some(BridgeCommand::SetNetwork(n))) => config.network = n,
+                                Ok(Some(BridgeCommand::SetNetwork(n))) => config.network = *n,
+                                Ok(Some(BridgeCommand::SetSmbusLighting(on))) => {
+                                    config.smbus_lighting = on
+                                }
                                 Ok(Some(BridgeCommand::SetCalibration(c))) => {
                                     config.calibration = c
                                 }
@@ -254,8 +262,16 @@ pub async fn run(
                     Some(BridgeCommand::SetHardwareModes(h)) => config.hardware_modes = h,
                     Some(BridgeCommand::SetCalibration(c)) => config.calibration = c,
                     Some(BridgeCommand::SetNetwork(n)) => {
-                        let changed = n != config.network;
-                        config.network = n;
+                        let changed = *n != config.network;
+                        config.network = *n;
+                        if changed && matches!(config.mode, ServerMode::Embedded) {
+                            server = None;
+                            continue 'outer;
+                        }
+                    }
+                    Some(BridgeCommand::SetSmbusLighting(on)) => {
+                        let changed = on != config.smbus_lighting;
+                        config.smbus_lighting = on;
                         if changed && matches!(config.mode, ServerMode::Embedded) {
                             server = None;
                             continue 'outer;
@@ -312,15 +328,20 @@ fn spawn_embedded(config: &BridgeConfig) -> Result<EmbeddedServer, BridgeStatus>
     let Some(found) = locate::find_openrgb() else {
         return Err(BridgeStatus::NoServerBinary);
     };
-    // Network lights: OpenRGB reads them from its settings at start-up.
-    match crate::network::write_settings(&config.openrgb_config_dir, &config.network) {
+    // Network lights and the SMBus detectors: OpenRGB reads them from its
+    // settings at start-up.
+    match crate::network::write_settings(
+        &config.openrgb_config_dir,
+        &config.network,
+        config.smbus_lighting,
+    ) {
         Ok(true) => tracing::info!(
-            wled = config.network.wled.len(),
-            wiz = config.network.wiz.len(),
-            "network lights written to the OpenRGB settings"
+            network_lights = config.network.len(),
+            smbus_lighting = config.smbus_lighting,
+            "OpenRGB settings written"
         ),
         Ok(false) => {}
-        Err(e) => tracing::warn!("cannot write the network lights to the OpenRGB settings: {e}"),
+        Err(e) => tracing::warn!("cannot write the OpenRGB settings: {e}"),
     }
     if found.origin == Origin::System {
         tracing::info!(
@@ -477,6 +498,24 @@ struct Target {
     /// (device list changed, zone resized, not yet seen by the GUI) is
     /// skipped instead of being written to the wrong LEDs.
     leds: usize,
+    /// Slow network lights: shortest time between two colour updates (see
+    /// [`crate::network::min_interval`]), and when the last one was sent.
+    pace: Option<(Duration, Option<Instant>)>,
+}
+
+impl Target {
+    /// Paced and not due yet: when it will be (the colours wait).
+    fn held_until(&self) -> Option<Instant> {
+        let (every, last) = self.pace?;
+        let due = last? + every;
+        (Instant::now() < due).then_some(due)
+    }
+
+    fn sent(&mut self) {
+        if let Some((_, last)) = self.pace.as_mut() {
+            *last = Some(Instant::now());
+        }
+    }
 }
 
 /// Ids of the server's controllers: cheap to ask for, to notice
@@ -823,12 +862,21 @@ fn push_frame_pipe<'a>(
                             .iter()
                             .zip(&dev.colors)
                             .all(|(a, c)| *a == to_color(dev.id, *c));
-                    if unchanged || !p.claim(dev.id) {
+                    if unchanged {
+                        continue;
+                    }
+                    if let Some(due) = target.held_until() {
+                        managed.deferred_until =
+                            Some(managed.deferred_until.map_or(due, |d| d.min(due)));
+                        continue;
+                    }
+                    if !p.claim(dev.id) {
                         continue;
                     }
                     let buf = &mut managed.last_sent[slot].1;
                     buf.clear();
                     buf.extend(dev.colors.iter().map(|c| to_color(dev.id, *c)));
+                    target.sent();
                     p.send_leds(dev.id, buf).await?;
                 }
             }
@@ -926,10 +974,19 @@ fn session<'a>(
                     }
                     Some(BridgeCommand::Restart) => return SessionEnd::Restart,
                     Some(BridgeCommand::SetNetwork(n)) => {
-                        let changed = n != config.network;
-                        config.network = n;
+                        let changed = *n != config.network;
+                        config.network = *n;
                         if changed && matches!(config.mode, ServerMode::Embedded) {
                             tracing::info!("network lights changed: restarting the engine");
+                            if let Some(p) = pipeline.as_mut() { p.drain(DRAIN).await; }
+                            return SessionEnd::Restart;
+                        }
+                    }
+                    Some(BridgeCommand::SetSmbusLighting(on)) => {
+                        let changed = on != config.smbus_lighting;
+                        config.smbus_lighting = on;
+                        if changed && matches!(config.mode, ServerMode::Embedded) {
+                            tracing::info!(on, "RAM / SMBus lighting changed: restarting the engine");
                             if let Some(p) = pipeline.as_mut() { p.drain(DRAIN).await; }
                             return SessionEnd::Restart;
                         }
@@ -1208,11 +1265,20 @@ fn load<'a>(
                     } else {
                         Drive::PerLed
                     };
+                    let pace = crate::network::min_interval(c.description()).map(|d| (d, None));
+                    if let Some((d, _)) = pace {
+                        tracing::info!(
+                            "{}: network light, at most one update every {} ms",
+                            c.name(),
+                            d.as_millis()
+                        );
+                    }
                     active.insert(
                         c.id() as u32,
                         Target {
                             drive,
                             leds: c.num_leds(),
+                            pace,
                         },
                     );
                 }
@@ -1436,8 +1502,15 @@ fn push_frame<'a>(
                             .zip(&dev.colors)
                             .all(|(p, c)| *p == to_color(dev.id, *c))
                 });
-            if !unchanged {
-                pending.push(index);
+            if unchanged {
+                continue;
+            }
+            match target.held_until() {
+                Some(due) => {
+                    managed.deferred_until =
+                        Some(managed.deferred_until.map_or(due, |d| d.min(due)));
+                }
+                None => pending.push(index),
             }
         }
         // Single-colour devices: write the mode colour.
@@ -1499,6 +1572,9 @@ fn push_frame<'a>(
             Ok(Ok(())) => {
                 for &i in &pending {
                     let dev = &frame.devices[i];
+                    if let Some(t) = managed.active.get_mut(&dev.id) {
+                        t.sent();
+                    }
                     match managed.last_sent.iter_mut().find(|(id, _)| *id == dev.id) {
                         Some((_, slot)) => {
                             slot.clear();

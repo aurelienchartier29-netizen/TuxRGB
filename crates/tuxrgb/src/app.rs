@@ -25,7 +25,9 @@ use tuxrgb_core::layout::Target;
 use tuxrgb_core::{
     DeviceInfo, DeviceKey, EffectKind, ParamValue, PartLighting, Placement, Rgb, Scene,
 };
-use tuxrgb_openrgb::{BridgeCommand, BridgeConfig, BridgeEvent, BridgeStatus, ZoneResize};
+use tuxrgb_openrgb::{
+    Brand, BridgeCommand, BridgeConfig, BridgeEvent, BridgeStatus, NetLight, ZoneResize,
+};
 
 /// LED count given to an empty ARGB header by "Configuration automatique":
 /// enough for three 8-to-20-LED fans or a short strip. Addressable LEDs
@@ -247,21 +249,40 @@ pub struct Wizard {
 }
 
 /// The "network lights" form of the settings.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct NetForm {
-    pub wled_host: String,
-    pub wled_leds: String,
-    /// Name reported by the controller (`/json/info`).
-    pub wled_name: String,
-    pub wled_probing: bool,
-    /// Result of the last detection (text for the user), `Err` in red.
-    pub wled_status: Option<Result<String, String>>,
-    pub wiz_host: String,
-    pub wiz_searching: bool,
-    /// Bulbs that answered the last search (not added yet).
-    pub wiz_found: Vec<tuxrgb_openrgb::network::WizFound>,
+    /// Brand of the light typed in by hand.
+    pub brand: Brand,
+    pub host: String,
+    /// LED count of a WLED controller (used when it does not answer).
+    pub leds: String,
+    /// The address typed in is being checked.
+    pub probing: bool,
+    /// Result of the last check or pairing (text for the user), `Err` in red.
+    pub status: Option<Result<String, String>>,
+    pub searching: bool,
     /// A search ran (so "none found" can be said).
-    pub wiz_searched: bool,
+    pub searched: bool,
+    /// Lights found by the search, or typed in and waiting to be paired.
+    pub found: Vec<NetLight>,
+    /// The light being paired (brand, address).
+    pub pairing: Option<(Brand, String)>,
+}
+
+impl Default for NetForm {
+    fn default() -> Self {
+        Self {
+            brand: Brand::Wled,
+            host: String::new(),
+            leds: String::new(),
+            probing: false,
+            status: None,
+            searching: false,
+            searched: false,
+            found: Vec::new(),
+            pairing: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -310,20 +331,25 @@ pub enum Message {
     ToggleHidden(DeviceKey),
     /// Leaves a device to one of its own effects (`None`: TuxRGB's).
     SetHardwareMode(DeviceKey, Option<String>),
-    // Network lights (WLED, Philips WiZ)
-    NetWledHost(String),
-    NetWledLeds(String),
-    /// Asks the WLED controller typed in for its name and LED count.
-    NetWledProbe,
-    NetWledProbed(Result<tuxrgb_openrgb::network::WledInfo, String>),
-    NetAddWled,
-    NetRemoveWled(usize),
-    NetWizHost(String),
-    NetAddWiz(String),
-    NetRemoveWiz(usize),
-    /// Looks for WiZ bulbs on the local network.
-    NetWizSearch,
-    NetWizFound(Vec<tuxrgb_openrgb::network::WizFound>),
+    // Network lights
+    NetBrand(Brand),
+    NetHost(String),
+    NetLeds(String),
+    /// Checks the address typed in, then adds the light (or offers to pair
+    /// it).
+    NetAddManual,
+    NetProbed(Result<NetLight, String>),
+    /// Adds a light found by the search (pairs it first if it asks).
+    NetAdd(NetLight),
+    NetPaired(Result<NetLight, String>),
+    NetRemove(Brand, String),
+    /// Hue entertainment areas instead of the lights one by one.
+    NetHueEntertainment(bool),
+    /// Looks for lights of every brand on the local network.
+    NetSearch,
+    NetFound(Vec<NetLight>),
+    /// RAM and SMBus motherboard lighting (prudence: off by default).
+    SetSmbusLighting(bool),
     ToggleDevice(DeviceKey, bool),
     /// Text typed in the LED-count field of a resizable zone.
     ZoneSizeInput(DeviceKey, usize, String),
@@ -1286,6 +1312,7 @@ impl App {
                 info: true,
             });
         } else if let Some(f) = &self.findings
+            && self.config.smbus_lighting
             && f.smbus_unbound
             && !f.acpi_lax
             && !access_missing
@@ -1754,6 +1781,7 @@ impl App {
             disabled: self.config.disabled_devices.clone(),
             hardware_modes: self.config.hardware_modes.clone(),
             network: self.config.network.clone(),
+            smbus_lighting: self.config.smbus_lighting,
             calibration: self.config.led_color.clone(),
         }
     }
@@ -1865,9 +1893,25 @@ impl App {
     /// The network lights changed: the engine restarts with them.
     fn push_network(&mut self) {
         if let Some(s) = &self.services {
-            s.bridge(BridgeCommand::SetNetwork(self.config.network.clone()));
+            s.bridge(BridgeCommand::SetNetwork(Box::new(
+                self.config.network.clone(),
+            )));
         }
         self.mark_dirty();
+    }
+
+    /// Adds a network light (paired already, if it needs to be).
+    fn add_net_light(&mut self, light: NetLight) -> Task<Message> {
+        let name = light.name();
+        self.net
+            .found
+            .retain(|f| !(f.brand() == light.brand() && f.host() == light.host()));
+        self.config.network.add(light);
+        self.net.host.clear();
+        self.net.leds.clear();
+        self.net.status = None;
+        self.push_network();
+        self.snackbar(trf!("« {} » ajouté : le moteur redémarre…", name))
     }
 
     /// The canvas item selected (device, or one of its fans).
@@ -1938,9 +1982,8 @@ impl App {
                 | Message::ResizeSelected(_)
                 | Message::SetRotation(_)
                 | Message::ZoneSizeInput(..)
-                | Message::NetWledHost(_)
-                | Message::NetWledLeds(_)
-                | Message::NetWizHost(_)
+                | Message::NetHost(_)
+                | Message::NetLeds(_)
         );
         let task = self.handle(message);
         self.after_update(light);
@@ -2207,6 +2250,12 @@ impl App {
                 }
                 match *stop {
                     "onboarding" => {}
+                    "onboarding-access" => {
+                        // Hardware access, with the choice about the RAM.
+                        if let Some(w) = &mut self.wizard {
+                            w.step = WizardStep::Access;
+                        }
+                    }
                     "onboarding-colors" => {
                         // The white balance step, the RAM sticks being set.
                         if let Some(w) = &mut self.wizard {
@@ -2379,34 +2428,77 @@ impl App {
                             ),
                         ]);
                     }
-                    "settings-network" => {
+                    "settings-hardware" => {
+                        // Hardware access and the prudence on the memory bus.
                         self.select_white(None);
-                        // A WLED strip and a WiZ bulb added, another bulb
-                        // found by a search.
-                        if self.config.network.is_empty() {
-                            self.config.network.wled.push(tuxrgb_openrgb::WledLight {
-                                name: "Étagère".into(),
-                                host: "192.168.1.40".into(),
-                                port: tuxrgb_openrgb::network::DDP_PORT,
-                                leds: 144,
-                            });
-                            self.config.network.wiz.push(tuxrgb_openrgb::WizLight {
-                                host: "192.168.1.41".into(),
-                                warm_white: false,
-                            });
-                        }
-                        self.net.wled_host = "192.168.1.42".into();
-                        self.net.wled_leds = "60".into();
-                        self.net.wled_status = Some(Ok(trf!("WLED « {} » · {} LED", "Bureau", 60)));
-                        self.net.wiz_found = vec![tuxrgb_openrgb::network::WizFound {
-                            host: "192.168.1.43".into(),
-                            mac: "a8bb50e5f1c2".into(),
-                        }];
-                        self.net.wiz_searched = true;
                         return Task::batch([
                             iced::widget::operation::snap_to(
                                 ui::settings::SCROLL_ID,
-                                iced::widget::scrollable::RelativeOffset { x: 0.0, y: 0.61 },
+                                iced::widget::scrollable::RelativeOffset { x: 0.0, y: 0.425 },
+                            ),
+                            Task::perform(
+                                tokio::time::sleep(Duration::from_millis(1800)),
+                                move |_| Message::TourShoot(i),
+                            ),
+                        ]);
+                    }
+                    "settings-network" => {
+                        self.select_white(None);
+                        // Lights of several brands added, more found by a
+                        // search (a Nanoleaf waiting to be paired).
+                        if self.config.network.is_empty() {
+                            use tuxrgb_openrgb::network::{GoveeLight, HueBridge};
+                            self.config
+                                .network
+                                .add(NetLight::Wled(tuxrgb_openrgb::WledLight {
+                                    name: "Étagère".into(),
+                                    host: "192.168.1.40".into(),
+                                    port: tuxrgb_openrgb::network::DDP_PORT,
+                                    leds: 144,
+                                }));
+                            self.config.network.add(NetLight::Hue(HueBridge {
+                                host: "192.168.1.2".into(),
+                                mac: "ec:b5:fa:00:00:01".into(),
+                                name: "Hue Bridge".into(),
+                                username: "demo".into(),
+                                clientkey: "demo".into(),
+                                entertainment: true,
+                            }));
+                            self.config.network.add(NetLight::Govee(GoveeLight {
+                                host: "192.168.1.44".into(),
+                                model: "H6199".into(),
+                            }));
+                            self.config
+                                .network
+                                .add(NetLight::Wiz(tuxrgb_openrgb::WizLight {
+                                    host: "192.168.1.41".into(),
+                                    warm_white: false,
+                                }));
+                        }
+                        {
+                            use tuxrgb_openrgb::network::{LifxLight, NanoleafLight};
+                            self.net.found = vec![
+                                NetLight::Nanoleaf(NanoleafLight {
+                                    host: "192.168.1.45".into(),
+                                    port: tuxrgb_openrgb::network::NANOLEAF_PORT,
+                                    token: String::new(),
+                                    name: "Shapes 4F2A".into(),
+                                }),
+                                NetLight::Lifx(LifxLight {
+                                    host: "192.168.1.46".into(),
+                                    name: "Beam".into(),
+                                    multizone: true,
+                                    extended_multizone: true,
+                                }),
+                            ];
+                        }
+                        self.net.searched = true;
+                        self.net.brand = Brand::Elgato;
+                        self.net.host = "192.168.1.48".into();
+                        return Task::batch([
+                            iced::widget::operation::snap_to(
+                                ui::settings::SCROLL_ID,
+                                iced::widget::scrollable::RelativeOffset { x: 0.0, y: 0.645 },
                             ),
                             Task::perform(
                                 tokio::time::sleep(Duration::from_millis(1800)),
@@ -2816,142 +2908,179 @@ impl App {
                 self.mark_dirty();
                 Task::none()
             }
-            Message::NetWledHost(h) => {
-                self.net.wled_host = h;
-                self.net.wled_status = None;
+            Message::NetBrand(b) => {
+                self.net.brand = b;
+                self.net.status = None;
                 Task::none()
             }
-            Message::NetWledLeds(n) => {
-                self.net.wled_leds = n.chars().filter(char::is_ascii_digit).take(5).collect();
+            Message::NetHost(h) => {
+                self.net.host = h;
+                self.net.status = None;
                 Task::none()
             }
-            Message::NetWledProbe => {
-                let host = self.net.wled_host.trim().to_owned();
+            Message::NetLeds(n) => {
+                self.net.leds = n.chars().filter(char::is_ascii_digit).take(5).collect();
+                Task::none()
+            }
+            Message::NetAddManual => {
+                let host = self.net.host.trim().to_owned();
                 if !tuxrgb_openrgb::network::valid_host(&host) {
-                    self.net.wled_status = Some(Err(crate::i18n::t("Adresse invalide").to_owned()));
+                    self.net.status = Some(Err(crate::i18n::t("Adresse invalide").to_owned()));
                     return Task::none();
                 }
-                self.net.wled_probing = true;
+                if self.net.probing {
+                    return Task::none();
+                }
+                self.net.probing = true;
+                self.net.status = None;
+                let brand = self.net.brand;
+                let leds = self.net.leds.parse::<usize>().ok().map(|n| n.min(4096));
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            tuxrgb_openrgb::network::wled_info(&host, Duration::from_secs(3))
+                            tuxrgb_openrgb::network::probe(
+                                brand,
+                                &host,
+                                leds,
+                                Duration::from_secs(3),
+                            )
                         })
                         .await
                         .unwrap_or_else(|e| Err(e.to_string()))
                     },
-                    Message::NetWledProbed,
+                    Message::NetProbed,
                 )
             }
-            Message::NetWledProbed(result) => {
-                self.net.wled_probing = false;
-                self.net.wled_status = Some(match result {
-                    Ok(info) => {
-                        self.net.wled_leds = info.leds.to_string();
-                        self.net.wled_name = info.name.clone();
-                        Ok(trf!("WLED « {} » · {} LED", info.name, info.leds))
+            Message::NetProbed(result) => {
+                self.net.probing = false;
+                match result {
+                    Ok(light) if light.needs_pairing() => {
+                        let name = light.name();
+                        self.net
+                            .found
+                            .retain(|f| !(f.brand() == light.brand() && f.host() == light.host()));
+                        self.net.found.insert(0, light);
+                        self.net.host.clear();
+                        self.net.status = Some(Ok(trf!(
+                            "« {} » trouvé : suivez l'indication, puis « Associer ».",
+                            name
+                        )));
+                        Task::none()
                     }
-                    Err(e) => Err(trf!("WLED introuvable : {}", crate::i18n::t(&e))),
-                });
-                Task::none()
+                    Ok(light) => self.add_net_light(light),
+                    Err(e) => {
+                        self.net.status = Some(Err(trf!(
+                            "{} introuvable : {}",
+                            self.net.brand.label(),
+                            crate::i18n::t(&e)
+                        )));
+                        Task::none()
+                    }
+                }
             }
-            Message::NetAddWled => {
-                let host = self.net.wled_host.trim().to_owned();
-                let leds = self.net.wled_leds.parse::<usize>().unwrap_or(0).min(4096);
-                if !tuxrgb_openrgb::network::valid_host(&host) || leds == 0 {
-                    self.net.wled_status = Some(Err(crate::i18n::t(
-                        "Indiquez l'adresse du contrôleur et son nombre de LED (bouton Détecter).",
-                    )
-                    .to_owned()));
+            Message::NetAdd(light) => {
+                if !light.needs_pairing() {
+                    return self.add_net_light(light);
+                }
+                if self.net.pairing.is_some() {
                     return Task::none();
                 }
-                let name = if self.net.wled_name.trim().is_empty() {
-                    format!("WLED {host}")
-                } else {
-                    self.net.wled_name.trim().to_owned()
-                };
-                self.config.network.wled.retain(|l| l.host.trim() != host);
-                self.config.network.wled.push(tuxrgb_openrgb::WledLight {
-                    name: name.clone(),
-                    host,
-                    port: tuxrgb_openrgb::network::DDP_PORT,
-                    leds,
-                });
-                self.net = NetForm {
-                    wiz_found: std::mem::take(&mut self.net.wiz_found),
-                    wiz_searched: self.net.wiz_searched,
-                    ..Default::default()
-                };
-                self.push_network();
-                self.snackbar(trf!("« {} » ajouté : le moteur redémarre…", name))
+                self.net.pairing = Some((light.brand(), light.host().to_owned()));
+                self.net.status = None;
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            tuxrgb_openrgb::network::pair(light, Duration::from_secs(5))
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    Message::NetPaired,
+                )
             }
-            Message::NetRemoveWled(i) => {
-                if i < self.config.network.wled.len() {
-                    self.config.network.wled.remove(i);
+            Message::NetPaired(result) => {
+                self.net.pairing = None;
+                match result {
+                    Ok(light) => self.add_net_light(light),
+                    Err(e) => {
+                        self.net.status =
+                            Some(Err(trf!("Association impossible : {}", crate::i18n::t(&e))));
+                        Task::none()
+                    }
+                }
+            }
+            Message::NetRemove(brand, host) => {
+                if self.config.network.remove(brand, &host) {
                     self.push_network();
                 }
                 Task::none()
             }
-            Message::NetWizHost(h) => {
-                self.net.wiz_host = h;
-                Task::none()
-            }
-            Message::NetAddWiz(host) => {
-                let host = host.trim().to_owned();
-                if !tuxrgb_openrgb::network::valid_host(&host) {
-                    return self.snackbar("Adresse invalide");
-                }
-                if !self
-                    .config
-                    .network
-                    .wiz
-                    .iter()
-                    .any(|l| l.host.trim() == host)
+            Message::NetHueEntertainment(on) => {
+                if let Some(b) = self.config.network.hue.as_mut()
+                    && b.entertainment != on
                 {
-                    self.config.network.wiz.push(tuxrgb_openrgb::WizLight {
-                        host: host.clone(),
-                        warm_white: false,
-                    });
-                    self.push_network();
-                }
-                self.net.wiz_host.clear();
-                self.net.wiz_found.retain(|f| f.host != host);
-                self.snackbar(trf!("Ampoule WiZ {} ajoutée : le moteur redémarre…", host))
-            }
-            Message::NetRemoveWiz(i) => {
-                if i < self.config.network.wiz.len() {
-                    self.config.network.wiz.remove(i);
+                    b.entertainment = on;
                     self.push_network();
                 }
                 Task::none()
             }
-            Message::NetWizSearch => {
-                if self.net.wiz_searching {
+            Message::NetSearch => {
+                if self.net.searching {
                     return Task::none();
                 }
-                self.net.wiz_searching = true;
+                self.net.searching = true;
+                self.net.status = None;
                 Task::perform(
                     async {
                         tokio::task::spawn_blocking(|| {
-                            tuxrgb_openrgb::network::discover_wiz(
-                                &tuxrgb_openrgb::network::wiz_broadcast(),
-                                Duration::from_millis(1500),
-                            )
+                            tuxrgb_openrgb::network::discover(Duration::from_millis(1500))
                         })
                         .await
                         .unwrap_or_default()
                     },
-                    Message::NetWizFound,
+                    Message::NetFound,
                 )
             }
-            Message::NetWizFound(found) => {
-                self.net.wiz_searching = false;
-                self.net.wiz_searched = true;
-                self.net.wiz_found = found
-                    .into_iter()
-                    .filter(|f| !self.config.network.wiz.iter().any(|l| l.host == f.host))
+            Message::NetFound(found) => {
+                self.net.searching = false;
+                self.net.searched = true;
+                // Typed in and waiting to be paired: kept.
+                let mut list: Vec<NetLight> = self
+                    .net
+                    .found
+                    .drain(..)
+                    .filter(|f| f.needs_pairing())
                     .collect();
+                for f in found {
+                    let known = self.config.network.contains(f.brand(), f.host())
+                        // A paired Hue bridge or Nanoleaf found again.
+                        || list
+                            .iter()
+                            .any(|l| l.brand() == f.brand() && l.host() == f.host());
+                    if !known {
+                        list.push(f);
+                    }
+                }
+                self.net.found = list;
                 Task::none()
+            }
+            Message::SetSmbusLighting(on) => {
+                if self.config.smbus_lighting == on {
+                    return Task::none();
+                }
+                self.config.smbus_lighting = on;
+                if let Some(s) = &self.services {
+                    s.bridge(BridgeCommand::SetSmbusLighting(on));
+                }
+                self.mark_dirty();
+                if self.config.server.kind != ServerKind::Embedded {
+                    return Task::none();
+                }
+                self.snackbar(if on {
+                    "RAM et carte mère SMBus activées : le moteur redémarre…"
+                } else {
+                    "RAM et carte mère SMBus désactivées : le moteur redémarre…"
+                })
             }
             Message::SetHardwareMode(key, mode) => {
                 match mode {

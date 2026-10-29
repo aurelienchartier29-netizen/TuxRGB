@@ -1,0 +1,68 @@
+name: Bug / Problème
+description: Something does not work (a device, an effect, the fans…) · Quelque chose ne marche pas
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! The hardware report helps a lot: **Settings → Hardware access → Copy the hardware report**, then paste it below.
+        Merci ! Le rapport matériel aide beaucoup : **Réglages → Accès matériel → Copier le rapport matériel**, puis collez-le plus bas.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens? · Que se passe-t-il ?
+      description: What you did, what you expected, what you got. · Ce que vous avez fait, ce que vous attendiez, ce qui s'est passé.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: TuxRGB version · Version de TuxRGB
+      placeholder: "3.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: System · Système
+      options:
+        - Linux
+        - Windows 10
+        - Windows 11
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Linux distribution, desktop and kernel · Distribution, bureau et noyau
+      placeholder: "Bazzite 44, KDE Plasma 6.5, kernel 7.2.8"
+  - type: input
+    id: board
+    attributes:
+      label: Motherboard · Carte mère
+      placeholder: "Gigabyte B650 AORUS ELITE AX V2"
+  - type: textarea
+    id: devices
+    attributes:
+      label: Device(s) concerned · Appareil(s) concerné(s)
+      description: The name of the controller as TuxRGB / OpenRGB shows it (RAM, fan hub, keyboard…). · Le nom du contrôleur tel que TuxRGB / OpenRGB l'affiche.
+  - type: dropdown
+    id: openrgb
+    attributes:
+      label: Does OpenRGB 1.1 on its own see the device? · OpenRGB 1.1 seul voit-il l'appareil ?
+      options:
+        - "Yes · Oui"
+        - "No · Non"
+        - "Not tried · Pas essayé"
+  - type: textarea
+    id: report
+    attributes:
+      label: Hardware report · Rapport matériel
+      description: Settings → Hardware access → Copy the hardware report · Réglages → Accès matériel → Copier le rapport matériel
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Log (optional) · Journal (facultatif)
+      description: "Linux: ~/.local/state/tuxrgb/tuxrgb.log · Windows: %LOCALAPPDATA%\\tuxrgb\\tuxrgb.log"
+      render: text

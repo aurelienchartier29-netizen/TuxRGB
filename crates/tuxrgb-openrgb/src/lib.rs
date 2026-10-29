@@ -10,17 +10,21 @@
 //! * [`server`] spawns / supervises / stops that private server.
 //! * [`bridge`] is the async SDK client loop that streams engine frames.
 //! * [`rules`]  generates the udev rules from the bundled binary.
-//! * [`network`] WLED (DDP) and Philips WiZ lights, written into the
-//!   private server's settings.
+//! * [`network`] network lights (WLED, Philips Hue and WiZ, Govee, LIFX,
+//!   Nanoleaf, Yeelight, Elgato, TP-Link Kasa), written into the private
+//!   server's settings.
+//! * [`detectors`] the RAM / SMBus motherboard detectors, off unless the
+//!   user turns them on.
 
 pub mod bridge;
+pub mod detectors;
 pub mod locate;
 pub mod network;
 pub mod rules;
 pub mod server;
 
 pub use bridge::{BridgeCommand, BridgeConfig, BridgeEvent, BridgeStatus, ServerMode, ZoneResize};
-pub use network::{NetworkLights, WizLight, WledLight};
+pub use network::{Brand, NetLight, NetworkLights, WizLight, WledLight};
 
 /// Port used by the private embedded server (6742 is OpenRGB's default and
 /// is left free for a separately installed OpenRGB).

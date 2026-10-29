@@ -54,6 +54,7 @@ async fn streams_frames_to_a_real_openrgb_server() {
         disabled: BTreeSet::new(),
         hardware_modes: Default::default(),
         network: Default::default(),
+        smbus_lighting: true,
         // Raw colours: the test compares what the server received.
         calibration: tuxrgb_core::led_color::LedCalibration {
             enabled: false,
@@ -524,6 +525,56 @@ async fn network_lights_through_openrgb() {
             }
         });
     }
+    // Simulated LIFX bulb (fixed port 56700): the packet types received.
+    let lifx = std::net::UdpSocket::bind("127.0.0.1:56700").expect("port 56700 free for LIFX");
+    lifx.set_read_timeout(Some(Duration::from_millis(100)))
+        .unwrap();
+    let lifx_types: Arc<Mutex<Vec<u16>>> = Arc::default();
+    {
+        let (types, stop) = (lifx_types.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 2048];
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Ok((n, _)) = lifx.recv_from(&mut buf)
+                    && n >= 36
+                {
+                    types
+                        .lock()
+                        .unwrap()
+                        .push(u16::from_le_bytes([buf[32], buf[33]]));
+                }
+            }
+        });
+    }
+    // Simulated Yeelight (fixed TCP port 55443): one command per connection.
+    let yeelight =
+        std::net::TcpListener::bind("127.0.0.1:55443").expect("port 55443 free for Yeelight");
+    yeelight.set_nonblocking(true).unwrap();
+    let yeelight_cmds: Arc<Mutex<Vec<(Instant, String)>>> = Arc::default();
+    {
+        let (cmds, stop) = (yeelight_cmds.clone(), stop.clone());
+        std::thread::spawn(move || {
+            use std::io::Read;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                match yeelight.accept() {
+                    Ok((mut s, _)) => {
+                        let _ = s.set_nonblocking(false);
+                        let _ = s.set_read_timeout(Some(Duration::from_millis(300)));
+                        let mut text = Vec::new();
+                        let _ = s.read_to_end(&mut text);
+                        let text = String::from_utf8_lossy(&text)
+                            .trim_matches('\0')
+                            .trim()
+                            .to_owned();
+                        if !text.is_empty() {
+                            cmds.lock().unwrap().push((Instant::now(), text));
+                        }
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(10)),
+                }
+            }
+        });
+    }
 
     let (frame_tx, frame_rx) = watch::channel(Arc::new(Frame::default()));
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
@@ -535,18 +586,34 @@ async fn network_lights_through_openrgb() {
         client_name: "TuxRGB e2e".into(),
         disabled: BTreeSet::new(),
         hardware_modes: Default::default(),
-        network: tuxrgb_openrgb::NetworkLights {
-            wled: vec![tuxrgb_openrgb::WledLight {
+        network: {
+            use tuxrgb_openrgb::network::{LifxLight, YeelightLight};
+            use tuxrgb_openrgb::{NetLight, WizLight, WledLight};
+            let mut n = tuxrgb_openrgb::NetworkLights::default();
+            n.add(NetLight::Wled(WledLight {
                 name: "WLED bureau".into(),
                 host: "127.0.0.1".into(),
                 port: ddp_port,
                 leds: 30,
-            }],
-            wiz: vec![tuxrgb_openrgb::WizLight {
+            }));
+            n.add(NetLight::Wiz(WizLight {
                 host: "127.0.0.1".into(),
                 warm_white: false,
-            }],
+            }));
+            n.add(NetLight::Lifx(LifxLight {
+                host: "127.0.0.1".into(),
+                name: "Étagère".into(),
+                multizone: false,
+                extended_multizone: false,
+            }));
+            n.add(NetLight::Yeelight(YeelightLight {
+                host: "127.0.0.1".into(),
+                name: String::new(),
+            }));
+            n
         },
+        // Prudence: the memory bus detectors are written off.
+        smbus_lighting: false,
         calibration: tuxrgb_core::led_color::LedCalibration {
             enabled: false,
             ..Default::default()
@@ -560,7 +627,7 @@ async fn network_lights_through_openrgb() {
 
     let deadline = Instant::now() + Duration::from_secs(60);
     let mut devices = Vec::new();
-    while Instant::now() < deadline && devices.len() < 2 {
+    while Instant::now() < deadline && devices.len() < 4 {
         if let Ok(Some(BridgeEvent::Devices(d))) =
             tokio::time::timeout(Duration::from_secs(5), ev_rx.recv()).await
         {
@@ -581,11 +648,30 @@ async fn network_lights_through_openrgb() {
         .clone();
     let bulb = devices
         .iter()
-        .find(|d| d.kind == tuxrgb_core::DeviceKind::Light)
+        .find(|d| d.kind == tuxrgb_core::DeviceKind::Light && d.name.contains("Wiz"))
         .expect("WiZ bulb detected")
         .clone();
     assert_eq!(strip.name, "WLED bureau");
     assert!(strip.controllable && bulb.controllable);
+    let lifx_dev = devices
+        .iter()
+        .find(|d| d.name.contains("Étagère"))
+        .expect("LIFX bulb detected")
+        .clone();
+    let yeelight_dev = devices
+        .iter()
+        .find(|d| d.name.contains("Yeelight"))
+        .expect("Yeelight detected")
+        .clone();
+    assert!(lifx_dev.controllable && yeelight_dev.controllable);
+    // The memory bus was left alone.
+    let settings: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(tmp.join("openrgb/OpenRGB.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        settings.pointer("/Detectors/detectors/ENE SMBus DRAM"),
+        Some(&serde_json::json!(false))
+    );
     assert!(
         bulb.hardware_modes.iter().any(|m| m == "Ocean"),
         "{:?}",
@@ -604,11 +690,61 @@ async fn network_lights_through_openrgb() {
                 id: bulb.id,
                 colors: vec![Rgb::new(0, 0, 255)],
             },
+            DeviceFrame {
+                id: lifx_dev.id,
+                colors: vec![Rgb::new(0, 255, 0)],
+            },
+            DeviceFrame {
+                id: yeelight_dev.id,
+                colors: vec![Rgb::new(255, 0, 255)],
+            },
         ],
         level: 1.0,
         backdrop: None,
     }));
     tokio::time::sleep(Duration::from_millis(600)).await;
+    // LIFX: SetColor (102); Yeelight: a one-frame colour flow.
+    assert!(
+        lifx_types.lock().unwrap().contains(&102),
+        "{:?}",
+        lifx_types.lock().unwrap()
+    );
+    assert!(
+        yeelight_cmds
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, c)| c.contains("start_cf")),
+        "{:?}",
+        yeelight_cmds.lock().unwrap()
+    );
+    // A fast effect on the Yeelight: paced to its quota (one per 1.1 s).
+    let before = yeelight_cmds.lock().unwrap().len();
+    for i in 0..20u8 {
+        frame_tx.send_replace(Arc::new(Frame {
+            seq: 100 + i as u64,
+            devices: vec![DeviceFrame {
+                id: yeelight_dev.id,
+                colors: vec![Rgb::new(i * 10, 0, 255 - i * 10)],
+            }],
+            level: 1.0,
+            backdrop: None,
+        }));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let cmds = yeelight_cmds.lock().unwrap()[before..].to_vec();
+    eprintln!("Yeelight: {} commands for 20 frames", cmds.len());
+    assert!((1..=3).contains(&cmds.len()), "{cmds:?}");
+    for w in cmds.windows(2) {
+        assert!(w[1].0 - w[0].0 >= Duration::from_millis(1000), "{cmds:?}");
+    }
+    // The last colour lands.
+    let last = (190u32 << 16) | (255 - 190);
+    assert!(
+        cmds.last().unwrap().1.contains(&last.to_string()),
+        "{cmds:?}"
+    );
     let last_ddp = |packets: &Mutex<Vec<Vec<u8>>>| {
         packets.lock().unwrap().last().cloned().expect("DDP packet")
     };

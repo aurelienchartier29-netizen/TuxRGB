@@ -27,6 +27,7 @@
       <li>Audio visualiser on every device (PipeWire) and per-LED screen sync (ScreenCast portal)</li>
       <li>Hardware monitor: CPU / GPU temperature and load, memory, in colour</li>
       <li>Smooth crossfades, global brightness and 0–200 % saturation, LED colours matched to the screen with a white balance per device</li>
+      <li>Network lights: WLED, Philips Hue and WiZ, Govee, LIFX, Nanoleaf, Yeelight, Elgato and TP-Link Kasa, found with one search</li>
       <li>Fan speed control: fixed speeds or temperature curves for motherboard fans, with safety rules</li>
       <li>LEDs off at shutdown, at sleep and while the screen is off, exact state restored afterwards</li>
       <li>Guided, reversible setup of hardware access (udev rules, I2C/SMBus) through Polkit, on every major distribution</li>
@@ -67,7 +68,7 @@
       <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/10-devices-fans.png</image>
     </screenshot>
     <screenshot>
-      <caption>Network lights: WLED and Philips WiZ</caption>
+      <caption>Network lights: WLED, Philips Hue, Govee, LIFX, Nanoleaf and more, found with one search</caption>
       <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/12-network.png</image>
     </screenshot>
     <screenshot>
@@ -102,6 +103,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.4.0" date="2026-10-29">
+      <description>
+        <p>Network lights of every brand, and prudence on the memory bus.</p>
+        <ul>
+          <li>Philips Hue, Govee, LIFX, Nanoleaf, Yeelight, Elgato and TP-Link Kasa lights join WLED and Philips WiZ, found with one search of the network or added by IP address</li>
+          <li>Hue bridges and Nanoleaf controllers are paired with a button press, guided on screen; Hue entertainment areas for fast effects</li>
+          <li>Slow lights receive their colours at their own pace, the latest one always applied</li>
+          <li>RAM and SMBus motherboard lighting is off by default on a new installation, with a clear warning; existing installations keep it on</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.3.0" date="2026-10-29">
       <description>
         <p>White balance device by device.</p>

@@ -22,7 +22,7 @@ use crate::theme::tokens::{shape, space};
 use iced::widget::{Space, column, container, row, scrollable};
 use iced::{Alignment, Element, Length, Padding};
 use tuxrgb_core::Rgb;
-use tuxrgb_openrgb::BridgeStatus;
+use tuxrgb_openrgb::{Brand, BridgeStatus, NetLight};
 
 /// The settings page scroller (the screenshot tour scrolls it).
 pub const SCROLL_ID: &str = "settings-scroll";
@@ -658,9 +658,58 @@ pub fn diagnostics_list(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-/// Shown when OpenRGB is connected but no RAM module was detected.
+/// Prudence on the memory bus (3.4): the RAM and the SMBus motherboards
+/// are only lit when the user asks for it. Settings and first-run wizard.
+pub fn smbus_choice(app: &App) -> Element<'_, Message> {
+    let r = &app.roles;
+    let on = app.config.smbus_lighting;
+    container(
+        column![
+            row![
+                icon_filled(icons::MEMORY_ALT, 24.0).color(if on {
+                    r.primary
+                } else {
+                    r.on_surface_variant
+                }),
+                column![
+                    title_medium("Éclairage de la RAM et des cartes mères SMBus"),
+                    small(if on {
+                        "Activé : OpenRGB détecte la RAM et les cartes mères pilotées par le bus SMBus."
+                    } else {
+                        "Désactivé par prudence : la RAM et ces cartes mères ne sont pas détectées."
+                    })
+                    .color(r.on_surface_variant),
+                ]
+                .spacing(space::XXS)
+                .width(Length::Fill),
+                switch(on, r, Message::SetSmbusLighting),
+            ]
+            .spacing(space::M)
+            .align_y(Alignment::Center),
+            small(
+                "Pour les allumer, OpenRGB lit et écrit sur le bus SMBus, celui des puces SPD des \
+                 barrettes de RAM. Ça fonctionne sur la plupart des PC, mais de rares cas de \
+                 barrettes devenues illisibles ont été signalés. Les cartes mères récentes \
+                 (pilotées en USB), la carte graphique, les ventilateurs et le reste ne sont pas \
+                 concernés.",
+            )
+            .color(r.on_surface_variant),
+        ]
+        .spacing(space::S),
+    )
+    .padding(space::L)
+    .width(Length::Fill)
+    .style(style::card(*r, Surface::High, shape::LARGE))
+    .into()
+}
+
+/// Shown when OpenRGB is connected but no RAM module was detected (and
+/// the RAM lighting is on).
 fn ram_hints(app: &App) -> Element<'_, Message> {
     let r = &app.roles;
+    if !app.config.smbus_lighting {
+        return Space::new().height(0).into();
+    }
     let connected = app.bridge_status.is_connected();
     let has_ram = app
         .devices
@@ -794,6 +843,7 @@ fn hardware(app: &App) -> Element<'_, Message> {
                 Padding::from([space::M, space::L]),
             ),
             container(diagnostics_list(app)).padding(Padding::from([space::S, 0.0])).into(),
+            smbus_choice(app),
             ram_hints(app),
             row![
                 icon_label_button(icons::REFRESH, "Revérifier", ButtonKind::Outlined, r, Some(Message::RunDiagnostics)),
@@ -900,180 +950,260 @@ fn engine(app: &App) -> Element<'_, Message> {
 
 /// WLED controllers (DDP) and Philips WiZ lights, driven by the embedded
 /// OpenRGB like any device.
+/// A line under a setting row, aligned with its text.
+fn indent<'a>(e: Element<'a, Message>) -> Element<'a, Message> {
+    container(e)
+        .padding(Padding {
+            left: 56.0,
+            ..Padding::ZERO
+        })
+        .into()
+}
+
+fn brand_icon(brand: Brand) -> char {
+    match brand {
+        Brand::Wled | Brand::Govee => icons::LINEAR_SCALE,
+        Brand::Hue => icons::HUB,
+        Brand::Nanoleaf => icons::CATEGORY,
+        Brand::Elgato => icons::HIGHLIGHT,
+        Brand::Wiz | Brand::Lifx | Brand::Yeelight | Brand::Kasa => icons::LIGHTBULB,
+    }
+}
+
+/// What to do before adding a light of this brand.
+fn brand_hint(brand: Brand) -> &'static str {
+    match brand {
+        Brand::Wled => "Même réseau local : TuxRGB lit son nom et son nombre de LED.",
+        Brand::Hue => {
+            "Appuyez sur le bouton rond du pont Hue, puis sur « Associer » dans les 30 secondes."
+        }
+        Brand::Wiz => {
+            "Ses propres scènes (Océan, Feu de cheminée…) deviennent ses effets matériels dans Appareils."
+        }
+        Brand::Govee => "Activez « LAN Control » pour cette lumière dans l'application Govee Home.",
+        Brand::Lifx => "Ampoules, bandes et Beam : leurs zones sont détectées toutes seules.",
+        Brand::Nanoleaf => {
+            "Maintenez le bouton marche du contrôleur 5 à 7 secondes (ses voyants clignotent), puis « Associer »."
+        }
+        Brand::Yeelight => {
+            "Activez « Contrôle LAN » dans l'application Yeelight. Une mise à jour par seconde au plus (limite des lampes)."
+        }
+        Brand::Elgato => "Key Light (blanc) et Light Strip (couleurs).",
+        Brand::Kasa => "Ampoules et bandes en couleur, protocole local de Kasa (pas Tapo).",
+    }
+}
+
+/// Brand, address and what matters about a light, on one line.
+fn light_detail(light: &NetLight) -> String {
+    let host = light.host();
+    match light {
+        NetLight::Wled(l) => trf!("WLED · {} · {} LED", host, l.leds),
+        NetLight::Hue(b) if b.entertainment => {
+            trf!("Philips Hue · {} · zones de divertissement", host)
+        }
+        NetLight::Hue(_) => trf!("Philips Hue · {} · lumière par lumière", host),
+        NetLight::Lifx(l) if l.multizone => trf!("LIFX · {} · plusieurs zones", host),
+        NetLight::Elgato(l) if l.strip => format!("Elgato Light Strip · {host}"),
+        NetLight::Elgato(_) => format!("Elgato Key Light · {host}"),
+        other => format!("{} · {host}", other.brand().label()),
+    }
+}
+
 fn network(app: &App) -> Element<'_, Message> {
     use iced::widget::{text, text_input};
     let r = &app.roles;
     let net = &app.net;
     let external = app.config.server.kind == ServerKind::External;
+    let can_add = !external;
     let mut rows: Vec<Element<'_, Message>> = vec![
         muted(
-            "Les contrôleurs WLED (protocole DDP) et les ampoules Philips WiZ deviennent des appareils comme les autres : canvas, effets, couleur par zone et extinction à l'arrêt du PC.",
+            "WLED, Philips Hue et WiZ, Govee, LIFX, Nanoleaf, Yeelight, Elgato et TP-Link Kasa deviennent des appareils comme les autres : canvas, effets, couleur par zone et extinction à l'arrêt du PC.",
             r,
         )
         .size(13.0)
         .into(),
     ];
     if external {
-        rows.push(
-            badge(
-                small("Serveur OpenRGB externe : ajoutez ces lumières dans OpenRGB lui-même (DDP, Philips Wiz)."),
+        rows.push(badge(
+            small("Serveur OpenRGB externe : ajoutez ces lumières dans OpenRGB lui-même."),
+            r,
+            Surface::Tertiary,
+        ));
+    }
+
+    // What is configured.
+    for light in app.config.network.lights() {
+        let brand = light.brand();
+        let host = light.host().to_owned();
+        let mut control = row![].spacing(space::S).align_y(Alignment::Center);
+        if let NetLight::Hue(b) = &light {
+            control = control
+                .push(small("Divertissement").color(r.on_surface_variant))
+                .push(switch(b.entertainment, r, Message::NetHueEntertainment));
+        }
+        control = control.push(widgets::round_icon_button(
+            icons::CLOSE,
+            r,
+            false,
+            Some(Message::NetRemove(brand, host)),
+        ));
+        rows.push(setting_row(
+            brand_icon(brand),
+            light.name(),
+            light_detail(&light),
+            control,
+            r,
+        ));
+        if brand == Brand::Hue {
+            rows.push(indent(
+                small(
+                    "Divertissement : les zones créées dans l'application Hue, rapides et faites pour les effets. Sans : chaque lumière, plus lentement.",
+                )
+                .color(r.on_surface_variant)
+                .into(),
+            ));
+        }
+    }
+
+    // One search for every brand.
+    rows.push(setting_row(
+        icons::RADAR,
+        "Rechercher sur le réseau",
+        "Toutes les marques à la fois, en quelques secondes. Govee et Yeelight : activez d'abord le contrôle LAN dans leur application.",
+        widgets::icon_label_button(
+            icons::RADAR,
+            if net.searching {
+                "Recherche…"
+            } else {
+                "Lancer la recherche"
+            },
+            ButtonKind::Tonal,
+            r,
+            (!net.searching).then_some(Message::NetSearch),
+        ),
+        r,
+    ));
+    for f in &net.found {
+        let pairing = net
+            .pairing
+            .as_ref()
+            .is_some_and(|(b, h)| *b == f.brand() && h == f.host());
+        let mut info = column![
+            row![
+                widgets::icon(brand_icon(f.brand()), 18.0).color(r.primary),
+                label(f.name()),
+            ]
+            .spacing(space::S)
+            .align_y(Alignment::Center),
+            small(light_detail(f)).color(r.on_surface_variant),
+        ]
+        .spacing(space::XXS)
+        .width(Length::Fill);
+        if f.needs_pairing() {
+            info = info.push(small(brand_hint(f.brand())).color(r.tertiary));
+        }
+        let action = if f.needs_pairing() {
+            widgets::icon_label_button(
+                icons::LOCK_OPEN,
+                if pairing {
+                    "Association…"
+                } else {
+                    "Associer"
+                },
+                ButtonKind::Filled,
                 r,
-                Surface::Tertiary,
-            ),
+                (can_add && net.pairing.is_none()).then(|| Message::NetAdd(f.clone())),
+            )
+        } else {
+            widgets::icon_label_button(
+                icons::ADD,
+                "Ajouter",
+                ButtonKind::Tonal,
+                r,
+                can_add.then(|| Message::NetAdd(f.clone())),
+            )
+        };
+        rows.push(indent(
+            container(
+                row![info, action]
+                    .spacing(space::M)
+                    .align_y(Alignment::Center),
+            )
+            .padding(Padding::from([space::S, space::M]))
+            .width(Length::Fill)
+            .style(style::card(*r, Surface::High, shape::MEDIUM))
+            .into(),
+        ));
+    }
+    if net.searched && net.found.is_empty() && !net.searching {
+        rows.push(indent(
+            muted("Aucune nouvelle lumière n'a répondu sur ce réseau.", r)
+                .size(13.0)
+                .into(),
+        ));
+    }
+
+    // By hand: brand, address (and LED count for WLED).
+    let mut brands = row![].spacing(space::XS);
+    for b in Brand::ALL {
+        let on = net.brand == b;
+        brands = brands.push(
+            button(small(b.label()))
+                .padding(Padding::from([6.0, 12.0]))
+                .style(style::chip(*r, on))
+                .on_press(Message::NetBrand(b)),
         );
     }
-    // What is configured.
-    for (i, l) in app.config.network.wled.iter().enumerate() {
-        rows.push(setting_row(
-            icons::LINEAR_SCALE,
-            l.name.as_str(),
-            trf!("WLED · {} · {} LED", l.host, l.leds),
-            widgets::round_icon_button(icons::CLOSE, r, false, Some(Message::NetRemoveWled(i))),
-            r,
-        ));
-    }
-    for (i, l) in app.config.network.wiz.iter().enumerate() {
-        rows.push(setting_row(
-            icons::LIGHTBULB,
-            "Philips WiZ",
-            l.host.clone(),
-            widgets::round_icon_button(icons::CLOSE, r, false, Some(Message::NetRemoveWiz(i))),
-            r,
-        ));
-    }
-    // Add a WLED controller: its address, then "Detect" fills the LED count.
     let field = |placeholder: &'static str, value: &str, width: f32, on: fn(String) -> Message| {
         super::transition::text_field(
             text_input(crate::i18n::t(placeholder), value)
                 .on_input(on)
+                .on_submit(Message::NetAddManual)
                 .padding(10)
                 .size(14.0)
                 .width(Length::Fixed(width)),
             r,
         )
     };
-    let can_add = !external;
-    let wled_row = row![
-        field(
-            "Adresse IP de WLED",
-            &net.wled_host,
-            190.0,
-            Message::NetWledHost
-        ),
-        widgets::text_button(
-            if net.wled_probing {
-                "Détection…"
-            } else {
-                "Détecter"
-            },
-            ButtonKind::Tonal,
-            r,
-            (!net.wled_probing && !net.wled_host.trim().is_empty())
-                .then_some(Message::NetWledProbe),
-        ),
-        field("LED", &net.wled_leds, 76.0, Message::NetWledLeds),
-        widgets::icon_label_button(
-            icons::ADD,
-            "Ajouter",
-            ButtonKind::Filled,
-            r,
-            can_add.then_some(Message::NetAddWled),
-        ),
-    ]
-    .spacing(space::S)
-    .align_y(Alignment::Center);
+    let mut entry = row![field("Adresse IP", &net.host, 190.0, Message::NetHost)]
+        .spacing(space::S)
+        .align_y(Alignment::Center);
+    if net.brand == Brand::Wled {
+        entry = entry.push(field("LED", &net.leds, 76.0, Message::NetLeds));
+    }
+    entry = entry.push(widgets::icon_label_button(
+        icons::ADD,
+        if net.probing {
+            "Vérification…"
+        } else if net.brand.needs_pairing() {
+            "Chercher"
+        } else {
+            "Ajouter"
+        },
+        ButtonKind::Filled,
+        r,
+        (can_add && !net.probing && !net.host.trim().is_empty()).then_some(Message::NetAddManual),
+    ));
     rows.push(setting_row(
-        icons::LINEAR_SCALE,
-        "Ajouter un contrôleur WLED",
-        "Même réseau local. « Détecter » lit son nom et son nombre de LED.",
-        wled_row,
+        icons::ADD,
+        "Ajouter par adresse IP",
+        brand_hint(net.brand),
+        Space::new().width(0),
         r,
     ));
-    if let Some(status) = &net.wled_status {
+    rows.push(indent(
+        column![brands.wrap().vertical_spacing(space::XS), entry]
+            .spacing(space::S)
+            .into(),
+    ));
+    if let Some(status) = &net.status {
         let (txt, color) = match status {
             Ok(t) => (t.clone(), r.primary),
             Err(t) => (t.clone(), r.error),
         };
-        rows.push(
-            container(text(txt).size(13.0).color(color))
-                .padding(Padding {
-                    left: 56.0,
-                    ..Padding::ZERO
-                })
-                .into(),
-        );
+        rows.push(indent(text(txt).size(13.0).color(color).into()));
     }
-    // Add a WiZ bulb: search the network, or type its address.
-    let wiz_row = row![
-        widgets::text_button(
-            if net.wiz_searching {
-                "Recherche…"
-            } else {
-                "Rechercher sur le réseau"
-            },
-            ButtonKind::Tonal,
-            r,
-            (!net.wiz_searching).then_some(Message::NetWizSearch),
-        ),
-        field(
-            "Adresse IP de l'ampoule",
-            &net.wiz_host,
-            190.0,
-            Message::NetWizHost
-        ),
-        widgets::icon_label_button(
-            icons::ADD,
-            "Ajouter",
-            ButtonKind::Filled,
-            r,
-            (can_add && !net.wiz_host.trim().is_empty())
-                .then(|| Message::NetAddWiz(net.wiz_host.clone())),
-        ),
-    ]
-    .spacing(space::S)
-    .align_y(Alignment::Center);
-    rows.push(setting_row(
-        icons::LIGHTBULB,
-        "Ajouter une ampoule Philips WiZ",
-        "Ses propres scènes (Océan, Feu de cheminée…) deviennent ses effets matériels dans Appareils.",
-        wiz_row,
-        r,
-    ));
-    for f in &net.wiz_found {
-        rows.push(
-            row![
-                Space::new().width(56.0),
-                small(if f.mac.is_empty() {
-                    trf!("Ampoule WiZ trouvée : {}", f.host)
-                } else {
-                    trf!("Ampoule WiZ trouvée : {} ({})", f.host, f.mac)
-                })
-                .width(Length::Fill),
-                widgets::text_button(
-                    "Ajouter",
-                    ButtonKind::Tonal,
-                    r,
-                    can_add.then(|| Message::NetAddWiz(f.host.clone())),
-                ),
-            ]
-            .spacing(space::S)
-            .align_y(Alignment::Center)
-            .into(),
-        );
-    }
-    if net.wiz_searched && net.wiz_found.is_empty() && !net.wiz_searching {
-        rows.push(
-            container(
-                muted("Aucune nouvelle ampoule WiZ n'a répondu sur ce réseau.", r).size(13.0),
-            )
-            .padding(Padding {
-                left: 56.0,
-                ..Padding::ZERO
-            })
-            .into(),
-        );
-    }
-    group(app, icons::HUB, "Lumières réseau (WLED, Philips WiZ)", rows)
+    group(app, icons::HUB, "Lumières réseau", rows)
 }
 
 /// New versions from the GitHub releases (see `update.rs`).

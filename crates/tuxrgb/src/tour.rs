@@ -52,6 +52,7 @@ pub fn motion_delay(stop: &str) -> u64 {
 
 pub const STOPS: &[&str] = &[
     "onboarding",
+    "onboarding-access",
     "onboarding-colors",
     "home",
     "effects",
@@ -67,6 +68,7 @@ pub const STOPS: &[&str] = &[
     "fans",
     "settings",
     "settings-led",
+    "settings-hardware",
     "settings-network",
     "settings-updates",
     "credits",

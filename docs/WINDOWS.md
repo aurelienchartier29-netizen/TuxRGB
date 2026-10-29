@@ -33,7 +33,7 @@ gardés tels quels), puis TuxRGB redémarre tout seul.
 Ce qui est **identique** à Linux : toute l'interface iced / Material 3
 Expressive, les animations, les effets, les profils, le canevas spatial
 (ventilateurs par connecteur, rotation, masquage), les effets matériels, les
-lumières réseau WLED / Philips WiZ et le moteur OpenRGB. Ce qui **change**, par compilation conditionnelle
+lumières réseau (WLED, Hue, WiZ, Govee, LIFX, Nanoleaf, Yeelight, Elgato, Kasa), la prudence sur la RAM et le moteur OpenRGB. Ce qui **change**, par compilation conditionnelle
 (`#[cfg(target_os = "windows")]`, dossier `crates/tuxrgb/src/win/`) :
 
 | Linux | Windows |

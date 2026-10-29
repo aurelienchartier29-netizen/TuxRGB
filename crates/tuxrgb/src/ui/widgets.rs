@@ -160,7 +160,7 @@ pub fn segmented<'a, T: Copy + PartialEq + 'a>(
 /// A settings row: title + supporting text on the left, control on the right.
 pub fn setting_row<'a>(
     glyph: char,
-    heading: &'a str,
+    heading: impl Txt<'a>,
     supporting: impl Txt<'a>,
     control: impl Into<Element<'a, Message>>,
     r: &Roles,

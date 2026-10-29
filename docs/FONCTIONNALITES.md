@@ -18,7 +18,8 @@
 | Afficheurs | Page **Afficheurs** : écrans des watercoolings **NZXT Kraken** Z / 2023 / 2024 et **Corsair** (iCUE ELITE LCD, iCUE LINK LCD, XC7, Nautilus), afficheurs numériques **DeepCool** (AK, AG, LS, LD, LP, LQ, AK Digital Pro, boîtiers CH) : température / charge / puissance / fréquence CPU et GPU, mémoire, heure, texte ou image, activation, fréquence de rafraîchissement, luminosité et orientation des écrans, aperçu en direct ; pilotes libres en USB HID, sans logiciel du fabricant |
 | Ventilation | Page **Ventilation** : chaque ventilateur branché sur la carte mère (processeur, boîtier, pompe) avec sa vitesse en direct, laissé à la **carte mère**, à une **vitesse fixe** ou sur une **courbe** (points déplaçables à la souris, modèles Silencieux / Équilibré / Performance) qui suit le processeur, la carte graphique ou un capteur de la carte mère ; bouton « Identifier ». **Sécurité** : 100 % pour tous les ventilateurs pilotés à 90 °C (jusqu'à 85 °C), carte mère qui reprend la main si la température suivie devient illisible, réglages d'origine rendus à l'arrêt. Linux : petit service système `tuxrgb-fans` (installé une fois via Polkit, comme `fancontrol`), actif dès le démarrage, pilotes `it87` / `nct6775` chargés si besoin. Windows : contrôleurs ITE et Nuvoton via PawnIO en mode administrateur (registres de LibreHardwareMonitor), processus de garde qui rend les ventilateurs à la carte mère si TuxRGB s'arrête brutalement. Les ventilateurs de la carte graphique restent à ses propres outils : AMD Adrenalin / application NVIDIA sous Windows, LACT sous Linux |
 | Effets matériels | Un clavier, une souris ou une ampoule WiZ peut jouer **son propre effet** (réactions aux touches, scènes) au lieu de ceux de TuxRGB |
-| Lumières réseau | Contrôleurs **WLED** (DDP, nombre de LED détecté) et ampoules **Philips WiZ** (recherche sur le réseau) : des appareils comme les autres |
+| Lumières réseau | **WLED** (DDP, nombre de LED lu), **Philips Hue** (pont associé d'un bouton ; lumière par lumière ou zones de divertissement, rapides), **Philips WiZ**, **Govee** (contrôle LAN), **LIFX** (zones des bandes et Beam détectées), **Nanoleaf** (associé d'un bouton), **Yeelight** (contrôle LAN), **Elgato** Key Light et Light Strip, **TP-Link Kasa** en couleur : une seule **recherche sur le réseau** pour toutes les marques (mDNS, diffusion, multidiffusion), ou l'adresse IP à la main ; des appareils comme les autres. Les lumières lentes (Yeelight : 60 commandes par minute, Hue sans divertissement…) reçoivent leurs couleurs à leur rythme, la dernière toujours appliquée |
+| Prudence sur la RAM | L'éclairage de la **RAM** et des cartes mères pilotées par le **SMBus** (anciennes ASUS Aura, ASRock Polychrome, Gigabyte RGB Fusion SMBus, EVGA) est **désactivé par défaut** sur une nouvelle installation : il faut écrire sur le bus des puces SPD des barrettes, ce qui a rendu de rares barrettes illisibles. Un interrupteur, avec cet avertissement, dans l'assistant et dans Réglages → Accès matériel ; les installations existantes le gardent activé. Les cartes mères récentes en USB, la carte graphique et le reste ne sont pas concernés |
 | Accès matériel | Assistant de premier lancement + « Réinitialiser les permissions / Accès matériel » (Polkit/pkexec, programme d'aide vérifié), correctif SMBus sur toutes les distributions, appliqué seulement si nécessaire |
 | Zone de notification | StatusNotifierItem (ksni), catégorie *ApplicationStatus* (à côté de Steam, pas parmi les contrôles système) : effet, luminosité, extinction, sans fenêtre ouverte ; notifications de bureau avec action directe |
 | Écran éteint | Les LED s'éteignent en fondu quand l'écran se met en veille et reviennent dès qu'il se rallume (KDE : état DPMS de KWin ; GNOME : Mutter ; autres bureaux Wayland : inactivité ; Windows : état de l'écran), désactivable dans Réglages → Démarrage |
@@ -37,7 +38,7 @@
 |---|---|---|
 | ![](screenshots/07-devices.png) | ![](screenshots/08-settings.png) | ![](screenshots/01-onboarding.png) |
 
-| Ventilateurs par connecteur | Effet matériel d'un clavier | Lumières réseau (WLED, WiZ) |
+| Ventilateurs par connecteur | Effet matériel d'un clavier | Lumières réseau |
 |---|---|---|
 | ![](screenshots/10-devices-fans.png) | ![](screenshots/11-devices-hardware.png) | ![](screenshots/12-network.png) |
 
@@ -45,9 +46,9 @@
 |---|---|---|
 | ![](screenshots/13-devices-own.png) | ![](screenshots/14-displays.png) | ![](screenshots/15-fans.png) |
 
-| Balance des blancs (assistant) | Balance des blancs (réglages) | |
+| Balance des blancs (assistant) | Balance des blancs (réglages) | Prudence sur la RAM (assistant) |
 |---|---|---|
-| ![](screenshots/16-white-wizard.png) | ![](screenshots/17-white-settings.png) | |
+| ![](screenshots/16-white-wizard.png) | ![](screenshots/17-white-settings.png) | ![](screenshots/18-smbus-wizard.png) |
 
 Les mêmes captures en anglais sont dans `docs/screenshots/en/` (utilisées par
 la fiche AppStream). Elles sont produites par `tuxrgb --screenshot-tour`, qui

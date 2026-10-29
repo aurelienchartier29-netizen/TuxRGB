@@ -1477,20 +1477,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("1 zone personnalisée", "1 custom zone"),
     ("{} zones personnalisées", "{} custom zones"),
     // TuxRGB 3.0 – canvas items, hardware effects, network lights
-    ("WLED « {} » · {} LED", "WLED “{}” · {} LEDs"),
     ("Adresse invalide", "Invalid address"),
-    ("WLED introuvable : {}", "WLED not found: {}"),
-    (
-        "Indiquez l'adresse du contrôleur et son nombre de LED (bouton Détecter).",
-        "Enter the controller's address and its LED count (Detect button).",
-    ),
     (
         "« {} » ajouté : le moteur redémarre…",
         "“{}” added: the engine restarts…",
-    ),
-    (
-        "Ampoule WiZ {} ajoutée : le moteur redémarre…",
-        "WiZ bulb {} added: the engine restarts…",
     ),
     ("effet matériel", "hardware effect"),
     ("Effet matériel : {}", "Hardware effect: {}"),
@@ -1506,47 +1496,160 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Follows TuxRGB's effects. Pick a built-in effect to let the device play it by itself.",
     ),
     ("LED", "LEDs"),
-    (
-        "Les contrôleurs WLED (protocole DDP) et les ampoules Philips WiZ deviennent des appareils comme les autres : canvas, effets, couleur par zone et extinction à l'arrêt du PC.",
-        "WLED controllers (DDP protocol) and Philips WiZ bulbs become devices like any other: canvas, effects, per-zone colour and turned off when the PC shuts down.",
-    ),
-    (
-        "Serveur OpenRGB externe : ajoutez ces lumières dans OpenRGB lui-même (DDP, Philips Wiz).",
-        "External OpenRGB server: add these lights in OpenRGB itself (DDP, Philips Wiz).",
-    ),
     ("WLED · {} · {} LED", "WLED · {} · {} LEDs"),
-    ("Adresse IP de WLED", "WLED IP address"),
-    ("Détection…", "Detecting…"),
-    ("Détecter", "Detect"),
     ("Ajouter", "Add"),
-    ("Ajouter un contrôleur WLED", "Add a WLED controller"),
-    (
-        "Même réseau local. « Détecter » lit son nom et son nombre de LED.",
-        "Same local network. “Detect” reads its name and LED count.",
-    ),
     ("Recherche…", "Searching…"),
     ("Rechercher sur le réseau", "Search the network"),
-    ("Adresse IP de l'ampoule", "Bulb IP address"),
-    ("Ajouter une ampoule Philips WiZ", "Add a Philips WiZ bulb"),
     (
         "Ses propres scènes (Océan, Feu de cheminée…) deviennent ses effets matériels dans Appareils.",
         "Its own scenes (Ocean, Fireplace…) become its hardware effects in Devices.",
-    ),
-    ("Ampoule WiZ trouvée : {}", "WiZ bulb found: {}"),
-    ("Ampoule WiZ trouvée : {} ({})", "WiZ bulb found: {} ({})"),
-    (
-        "Aucune nouvelle ampoule WiZ n'a répondu sur ce réseau.",
-        "No new WiZ bulb answered on this network.",
-    ),
-    (
-        "Lumières réseau (WLED, Philips WiZ)",
-        "Network lights (WLED, Philips WiZ)",
     ),
     ("adresse invalide", "invalid address"),
     ("adresse introuvable", "address not found"),
     ("réponse trop longue", "answer too long"),
     ("réponse HTTP invalide", "invalid HTTP answer"),
     ("pas un contrôleur WLED", "not a WLED controller"),
+    // TuxRGB 3.4 – network lights of every brand, prudence on the memory bus
+    ("Lumières réseau", "Network lights"),
+    (
+        "WLED, Philips Hue et WiZ, Govee, LIFX, Nanoleaf, Yeelight, Elgato et TP-Link Kasa deviennent des appareils comme les autres : canvas, effets, couleur par zone et extinction à l'arrêt du PC.",
+        "WLED, Philips Hue and WiZ, Govee, LIFX, Nanoleaf, Yeelight, Elgato and TP-Link Kasa become devices like any other: canvas, effects, per-zone colour and turned off when the PC shuts down.",
+    ),
+    (
+        "Serveur OpenRGB externe : ajoutez ces lumières dans OpenRGB lui-même.",
+        "External OpenRGB server: add these lights in OpenRGB itself.",
+    ),
+    ("Divertissement", "Entertainment"),
+    (
+        "Divertissement : les zones créées dans l'application Hue, rapides et faites pour les effets. Sans : chaque lumière, plus lentement.",
+        "Entertainment: the areas made in the Hue app, fast and made for effects. Without it: each light, more slowly.",
+    ),
+    (
+        "Toutes les marques à la fois, en quelques secondes. Govee et Yeelight : activez d'abord le contrôle LAN dans leur application.",
+        "Every brand at once, in a few seconds. Govee and Yeelight: turn on LAN control in their app first.",
+    ),
+    ("Lancer la recherche", "Search"),
+    ("Détecter", "Detect"),
+    ("Associer", "Pair"),
+    ("Association…", "Pairing…"),
+    (
+        "Aucune nouvelle lumière n'a répondu sur ce réseau.",
+        "No new light answered on this network.",
+    ),
+    ("Ajouter par adresse IP", "Add by IP address"),
+    ("Adresse IP", "IP address"),
+    ("Chercher", "Look up"),
+    (
+        "Même réseau local : TuxRGB lit son nom et son nombre de LED.",
+        "Same local network: TuxRGB reads its name and LED count.",
+    ),
+    (
+        "Appuyez sur le bouton rond du pont Hue, puis sur « Associer » dans les 30 secondes.",
+        "Press the round button of the Hue bridge, then “Pair” within 30 seconds.",
+    ),
+    (
+        "Activez « LAN Control » pour cette lumière dans l'application Govee Home.",
+        "Turn on “LAN Control” for this light in the Govee Home app.",
+    ),
+    (
+        "Ampoules, bandes et Beam : leurs zones sont détectées toutes seules.",
+        "Bulbs, strips and Beam: their zones are detected by themselves.",
+    ),
+    (
+        "Maintenez le bouton marche du contrôleur 5 à 7 secondes (ses voyants clignotent), puis « Associer ».",
+        "Hold the controller's power button for 5 to 7 seconds (its lights flash), then “Pair”.",
+    ),
+    (
+        "Activez « Contrôle LAN » dans l'application Yeelight. Une mise à jour par seconde au plus (limite des lampes).",
+        "Turn on “LAN Control” in the Yeelight app. One update a second at most (a limit of the lamps).",
+    ),
+    (
+        "Key Light (blanc) et Light Strip (couleurs).",
+        "Key Light (white) and Light Strip (colours).",
+    ),
+    (
+        "Ampoules et bandes en couleur, protocole local de Kasa (pas Tapo).",
+        "Colour bulbs and strips, Kasa's local protocol (not Tapo).",
+    ),
+    (
+        "Philips Hue · {} · zones de divertissement",
+        "Philips Hue · {} · entertainment areas",
+    ),
+    (
+        "Philips Hue · {} · lumière par lumière",
+        "Philips Hue · {} · light by light",
+    ),
+    ("LIFX · {} · plusieurs zones", "LIFX · {} · several zones"),
+    (
+        "« {} » trouvé : suivez l'indication, puis « Associer ».",
+        "“{}” found: follow the hint, then “Pair”.",
+    ),
+    ("{} introuvable : {}", "{} not found: {}"),
+    ("Association impossible : {}", "Pairing failed: {}"),
+    ("délai dépassé", "timed out"),
+    ("pas une lumière Elgato", "not an Elgato light"),
+    ("pas un pont Philips Hue", "not a Philips Hue bridge"),
+    (
+        "aucune ampoule WiZ ne répond à cette adresse",
+        "no WiZ bulb answers at this address",
+    ),
+    (
+        "aucune réponse : activez « LAN Control » dans l'application Govee Home",
+        "no answer: turn on “LAN Control” in the Govee Home app",
+    ),
+    (
+        "aucune lumière LIFX ne répond à cette adresse",
+        "no LIFX light answers at this address",
+    ),
+    (
+        "aucune lumière Kasa en couleur ne répond à cette adresse",
+        "no Kasa colour light answers at this address",
+    ),
+    (
+        "aucune réponse : activez « Contrôle LAN » dans l'application Yeelight",
+        "no answer: turn on “LAN Control” in the Yeelight app",
+    ),
+    (
+        "aucun contrôleur Nanoleaf ne répond à cette adresse",
+        "no Nanoleaf controller answers at this address",
+    ),
+    (
+        "le contrôleur n'est pas prêt : maintenez son bouton marche 5 à 7 secondes, jusqu'à ce que ses voyants clignotent, puis associez-le dans les 30 secondes",
+        "the controller is not ready: hold its power button for 5 to 7 seconds, until its lights flash, then pair it within 30 seconds",
+    ),
+    (
+        "appuyez sur le bouton rond du pont Hue, puis associez-le dans les 30 secondes",
+        "press the round button of the Hue bridge, then pair it within 30 seconds",
+    ),
+    ("refusé par le pont", "refused by the bridge"),
+    (
+        "réponse inattendue du pont",
+        "unexpected answer from the bridge",
+    ),
+    (
+        "Éclairage de la RAM et des cartes mères SMBus",
+        "RAM and SMBus motherboard lighting",
+    ),
+    (
+        "Activé : OpenRGB détecte la RAM et les cartes mères pilotées par le bus SMBus.",
+        "On: OpenRGB detects the RAM and the motherboards driven over the SMBus.",
+    ),
+    (
+        "Désactivé par prudence : la RAM et ces cartes mères ne sont pas détectées.",
+        "Off by prudence: the RAM and these motherboards are not detected.",
+    ),
+    (
+        "Pour les allumer, OpenRGB lit et écrit sur le bus SMBus, celui des puces SPD des barrettes de RAM. Ça fonctionne sur la plupart des PC, mais de rares cas de barrettes devenues illisibles ont été signalés. Les cartes mères récentes (pilotées en USB), la carte graphique, les ventilateurs et le reste ne sont pas concernés.",
+        "To light them, OpenRGB reads and writes on the SMBus, the bus of the SPD chips of the memory sticks. It works on most PCs, but rare cases of sticks left unreadable have been reported. Recent motherboards (driven over USB), the graphics card, the fans and the rest are not concerned.",
+    ),
+    (
+        "RAM et carte mère SMBus activées : le moteur redémarre…",
+        "RAM and SMBus motherboard on: the engine restarts…",
+    ),
+    (
+        "RAM et carte mère SMBus désactivées : le moteur redémarre…",
+        "RAM and SMBus motherboard off: the engine restarts…",
+    ),
     ("Global", "Global"),
     ("Effet propre · {}", "Own effect · {}"),
     ("Suivre l'effet global", "Follow the global effect"),

@@ -1,0 +1,15 @@
+name: Idea / Idée
+description: A feature or a device you would like · Une fonction ou un appareil que vous aimeriez
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea · Votre idée
+      description: What would you like TuxRGB to do, and why? · Que devrait faire TuxRGB, et pourquoi ?
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware concerned, if any · Matériel concerné, s'il y en a

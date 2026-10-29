@@ -63,9 +63,17 @@
   OpenRGB externe (port 6742) peut être choisi dans les réglages. Les
   appareils laissés à leur **effet matériel** reçoivent leur mode une fois,
   puis plus aucune couleur (sauf le noir à l'extinction). Les **lumières
-  réseau** (WLED en DDP, Philips WiZ) sont écrites dans les réglages du
-  serveur privé (`DDPDevices`, `PhilipsWizDevices` de son `OpenRGB.json`,
-  le reste du fichier conservé) avant son lancement.
+  réseau** (WLED, Philips Hue et WiZ, Govee, LIFX, Nanoleaf, Yeelight,
+  Elgato, TP-Link Kasa) sont écrites dans les réglages du serveur privé
+  (`DDPDevices`, `PhilipsHueDevices`, `GoveeDevices`… de son
+  `OpenRGB.json`, le reste du fichier conservé) avant son lancement, avec
+  les détecteurs SMBus de la RAM et des cartes mères (`Detectors`, coupés
+  tant que l'utilisateur ne les active pas ; liste vérifiée contre les
+  sources d'OpenRGB par un test). La recherche (`network::discover`) parle
+  le protocole de chaque marque : mDNS en « legacy unicast » (WLED, Elgato,
+  Hue, Nanoleaf), scan multicast Govee, `GetService` LIFX, recherche SSDP
+  Yeelight, diffusion WiZ et Kasa. Les contrôleurs lents ont un intervalle
+  minimal entre deux mises à jour (`network::min_interval`).
 * **Ventilateurs par connecteur** (`tuxrgb-core::lighting`) : un connecteur
   divisé en ventilateurs (parts égales, tailles propres à chacun, ou segments
   d'OpenRGB) ; chaque ventilateur est un élément du canevas (anneau de LED

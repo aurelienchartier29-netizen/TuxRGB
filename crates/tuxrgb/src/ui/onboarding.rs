@@ -154,6 +154,7 @@ fn access<'a>(app: &'a App, w: &'a Wizard) -> Element<'a, Message> {
         bullet(app, icons::SHIELD, "Rien d'autre", "Aucun service permanent, aucun programme laissé en root, aucune commande libre : le programme d'aide n'accepte que quelques actions fixes. Réversible depuis Réglages → Réinitialiser."),
     ]
     .spacing(space::L);
+    col = col.push(super::settings::smbus_choice(app));
     if let Some(Err(e)) = &w.result {
         let msg = match e {
             HelperError::Cancelled if cfg!(windows) => crate::i18n::t(

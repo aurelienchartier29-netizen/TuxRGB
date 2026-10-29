@@ -218,8 +218,12 @@ pub struct Config {
     /// Devices left to one of their own (hardware) effects, by mode name
     /// (keyboards, mice: typing reactions, built-in animations).
     pub hardware_modes: BTreeMap<DeviceKey, String>,
-    /// WLED controllers (DDP) and Philips WiZ lights on the local network.
+    /// Lights on the local network (WLED, Philips Hue and WiZ, Govee…).
     pub network: tuxrgb_openrgb::NetworkLights,
+    /// RAM and SMBus motherboard lighting (3.4): off for a new
+    /// installation, by prudence (see `tuxrgb_openrgb::detectors`); kept on
+    /// for a configuration written by an older TuxRGB.
+    pub smbus_lighting: bool,
     /// Hardware displays: AIO screens and digital displays (3.1).
     pub displays: crate::displays::DisplaysConfig,
     /// Fan speeds (3.2).
@@ -295,6 +299,7 @@ impl Default for Config {
             hidden_on_canvas: BTreeSet::new(),
             hardware_modes: BTreeMap::new(),
             network: Default::default(),
+            smbus_lighting: false,
             displays: Default::default(),
             fans: Default::default(),
             dismissed_notices: BTreeSet::new(),
@@ -304,7 +309,8 @@ impl Default for Config {
 
 /// 2: saturation became global (0–200 %), moved out of the effects.
 /// 3: "turn the LEDs off when quitting" is on by default.
-pub const CONFIG_VERSION: u32 = 3;
+/// 4: RAM / SMBus motherboard lighting became a choice (off by default).
+pub const CONFIG_VERSION: u32 = 4;
 
 impl Config {
     /// Upgrades a configuration written by an older TuxRGB.
@@ -342,6 +348,12 @@ impl Config {
             // the new default applies once.
             self.behavior.turn_off_on_exit = true;
             tracing::info!("configuration upgraded to version 3: LEDs off when quitting");
+        }
+        if self.version < 4 {
+            // Installed before the choice existed: the RAM and motherboard
+            // kept being lit, nothing changes for them.
+            self.smbus_lighting = true;
+            tracing::info!("configuration upgraded to version 4: RAM / SMBus lighting kept on");
         }
         self.version = CONFIG_VERSION;
     }
@@ -561,6 +573,21 @@ mod tests {
         now.migrate();
         assert!(!now.behavior.turn_off_on_exit);
         assert!(Config::default().behavior.turn_off_on_exit);
+    }
+
+    #[test]
+    fn smbus_lighting_is_kept_for_older_installations_only() {
+        // A new installation: prudence.
+        assert!(!Config::default().smbus_lighting);
+        // TuxRGB 3.3 and before: RAM and motherboard stay lit.
+        let mut old: Config = serde_json::from_str(r#"{ "version": 3 }"#).unwrap();
+        old.migrate();
+        assert!(old.smbus_lighting);
+        // Turned off with this version: stays off.
+        let mut now: Config =
+            serde_json::from_str(r#"{ "version": 4, "smbus_lighting": false }"#).unwrap();
+        now.migrate();
+        assert!(!now.smbus_lighting);
     }
 
     #[test]

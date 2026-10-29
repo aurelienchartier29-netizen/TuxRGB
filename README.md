@@ -30,9 +30,13 @@
 ## Ce que fait TuxRGB
 
 - **Tout le matériel RGB** : carte mère, RAM, carte graphique, ventilateurs
-  ARGB, watercooling, claviers, souris, bandes LED, lumières WLED et
-  Philips WiZ. Tout ce que gère OpenRGB 1.1, qui est embarqué : rien d'autre
-  à installer.
+  ARGB, watercooling, claviers, souris, bandes LED. Tout ce que gère
+  OpenRGB 1.1, qui est embarqué : rien d'autre à installer.
+- **Lumières de la maison** : WLED, Philips Hue et WiZ, Govee, LIFX,
+  Nanoleaf, Yeelight, Elgato et TP-Link Kasa, trouvées d'une seule
+  recherche sur le réseau et éclairées comme le reste du PC.
+- **Prudent par défaut** : l'éclairage de la RAM (et des cartes mères sur
+  SMBus) ne s'active qu'à votre demande, avec un avertissement clair.
 - **Un canevas à l'image de votre PC** : chaque appareil et chaque
   ventilateur est placé et tourné là où il se trouve. Une vague traverse
   vraiment le boîtier, et la synchro écran donne à chaque LED la couleur de
@@ -113,10 +117,12 @@ placé sur un fond RGB.
 
 TuxRGB drives all the RGB lighting of a PC from one application, on Linux
 (native Wayland) and Windows 10 / 11: motherboard, RAM, graphics card, ARGB
-fans, AIO coolers, keyboards, mice, LED strips, WLED and Philips WiZ lights.
-The OpenRGB 1.1 engine is built in, so there is nothing else to install. It
-also controls fan speeds (fixed or curves) and the screens of NZXT Kraken,
-Corsair and DeepCool coolers and cases.
+fans, AIO coolers, keyboards, mice and LED strips, plus network lights
+(WLED, Philips Hue and WiZ, Govee, LIFX, Nanoleaf, Yeelight, Elgato, TP-Link
+Kasa) found with one search. The OpenRGB 1.1 engine is built in, so there is
+nothing else to install. It also controls fan speeds (fixed or curves) and
+the screens of NZXT Kraken, Corsair and DeepCool coolers and cases. RAM
+lighting, which writes on the memory bus, is only turned on when you ask.
 
 The interface speaks English and French (it follows the system language).
 Download the AppImage (Linux) or the installer (Windows) from the

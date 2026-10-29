@@ -1,4 +1,4 @@
-TuxRGB 3.3.0 pour Windows
+TuxRGB 3.4.0 pour Windows
 =========================
 
 FRANÇAIS
@@ -8,7 +8,8 @@ publiée en même temps et avec les mêmes correctifs.
 
 Ce qui est identique à Linux : toute l'interface Material 3 Expressive,
 les effets, les profils, le canevas spatial (ventilateurs placés un par
-un, rotation, masquage), les lumières réseau WLED et Philips WiZ, les
+un, rotation, masquage), les lumières réseau (WLED, Philips Hue et WiZ,
+Govee, LIFX, Nanoleaf, Yeelight, Elgato, TP-Link Kasa), les
 effets matériels des claviers et souris, et le moteur OpenRGB embarqué
 (OpenRGB 1.1, lancé par TuxRGB comme serveur privé).
 
@@ -71,8 +72,9 @@ TuxRGB for Windows 10 / 11 (64-bit): the same application as on Linux,
 released at the same time with the same fixes.
 
 Same as on Linux: the whole Material 3 Expressive interface, effects,
-profiles, spatial canvas (fans placed one by one, rotation, hiding), WLED
-and Philips WiZ network lights, keyboard / mouse hardware effects and the
+profiles, spatial canvas (fans placed one by one, rotation, hiding),
+network lights (WLED, Philips Hue and WiZ, Govee, LIFX, Nanoleaf, Yeelight,
+Elgato, TP-Link Kasa), keyboard / mouse hardware effects and the
 embedded OpenRGB 1.1 engine.
 
 Windows specifics: WASAPI audio capture, primary-monitor screen sync,
