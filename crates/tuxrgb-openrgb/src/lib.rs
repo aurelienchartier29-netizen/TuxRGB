@@ -15,15 +15,20 @@
 //!   server's settings.
 //! * [`detectors`] the RAM / SMBus motherboard detectors, off unless the
 //!   user turns them on.
+//! * [`conflicts`] other programs using the SMBus: the RAM is left alone
+//!   while they run.
 
 pub mod bridge;
+pub mod conflicts;
 pub mod detectors;
 pub mod locate;
 pub mod network;
 pub mod rules;
 pub mod server;
 
-pub use bridge::{BridgeCommand, BridgeConfig, BridgeEvent, BridgeStatus, ServerMode, ZoneResize};
+pub use bridge::{
+    BridgeCommand, BridgeConfig, BridgeEvent, BridgeStatus, ServerMode, SmbusLighting, ZoneResize,
+};
 pub use network::{Brand, NetLight, NetworkLights, WizLight, WledLight};
 
 /// Port used by the private embedded server (6742 is OpenRGB's default and

@@ -151,10 +151,20 @@ fn parse_version(tag: &str) -> Option<semver::Version> {
     semver::Version::parse(tag.trim().trim_start_matches(['v', 'V'])).ok()
 }
 
+/// A developer hook from the environment, ignored with administrator
+/// rights (Windows): the user's other programs can set the environment, and
+/// these hooks choose what gets installed.
+fn dev_var(name: &str) -> Option<String> {
+    #[cfg(windows)]
+    if crate::win::elevation::is_elevated() {
+        return None;
+    }
+    std::env::var(name).ok()
+}
+
 /// Version this build compares with.
 pub fn current_version() -> semver::Version {
-    std::env::var("TUXRGB_DEV_PRETEND_VERSION")
-        .ok()
+    dev_var("TUXRGB_DEV_PRETEND_VERSION")
         .and_then(|v| parse_version(&v))
         .or_else(|| parse_version(env!("CARGO_PKG_VERSION")))
         .unwrap_or_else(|| semver::Version::new(0, 0, 0))
@@ -163,7 +173,7 @@ pub fn current_version() -> semver::Version {
 /// `TUXRGB_DEV_AUTO_UPDATE`: an update found is installed and applied
 /// without clicking (end-to-end tests).
 pub fn dev_auto_update() -> bool {
-    std::env::var_os("TUXRGB_DEV_AUTO_UPDATE").is_some()
+    dev_var("TUXRGB_DEV_AUTO_UPDATE").is_some()
 }
 
 /// Is `name` the file this platform installs?
@@ -250,7 +260,7 @@ fn http_error(e: ureq::Error) -> String {
 }
 
 fn check_blocking() -> Result<Check, String> {
-    let url = std::env::var("TUXRGB_DEV_UPDATE_URL").unwrap_or_else(|_| LATEST_API.into());
+    let url = dev_var("TUXRGB_DEV_UPDATE_URL").unwrap_or_else(|| LATEST_API.into());
     let body = agent()
         .get(&url)
         .set("Accept", "application/vnd.github+json")
@@ -339,24 +349,29 @@ fn download_blocking(release: &Release, report: &mut dyn FnMut(u64, u64)) -> Res
         crate::i18n::t("Cette version ne contient pas de fichier pour ce système.").to_owned()
     })?;
     let agent = agent();
-    let expected =
-        match &release.checksum {
-            Some(url) => {
-                let text = agent
-                    .get(url)
-                    .call()
-                    .map_err(http_error)?
-                    .into_string()
-                    .map_err(|e| e.to_string())?;
-                Some(parse_checksum(&text).ok_or_else(|| {
+    let expected = match &release.checksum {
+        Some(url) => {
+            let text = agent
+                .get(url)
+                .call()
+                .map_err(http_error)?
+                .into_string()
+                .map_err(|e| e.to_string())?;
+            Some(
+                parse_checksum(&text).ok_or_else(|| {
                     crate::i18n::t("Somme de contrôle publiée illisible.").to_owned()
-                })?)
-            }
-            None => {
-                tracing::warn!("no .sha256 published for {}", asset.name);
-                None
-            }
-        };
+                })?,
+            )
+        }
+        // Never installed without its published checksum.
+        None => {
+            tracing::warn!("no .sha256 published for {}", asset.name);
+            return Err(crate::i18n::t(
+                    "Cette version ne publie pas de somme de contrôle : téléchargez-la depuis sa page GitHub.",
+                )
+                .into());
+        }
+    };
     let (tmp, target) = destination(release, asset)?;
     let result = (|| -> Result<(), String> {
         let response = agent.get(&asset.url).call().map_err(http_error)?;
@@ -416,6 +431,11 @@ fn download_blocking(release: &Release, report: &mut dyn FnMut(u64, u64)) -> Res
                     "Le fichier téléchargé ne correspond pas à sa somme de contrôle.",
                 )
                 .into());
+            }
+            // Checked again, file locked, right before the installer runs.
+            #[cfg(windows)]
+            if let Ok(mut v) = VERIFIED.lock() {
+                *v = Some((target.clone(), got));
             }
         }
         if !looks_valid(&head) {
@@ -524,14 +544,62 @@ pub fn restart(appimage: &Path) -> Result<(), String> {
     cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// The installer downloaded and the SHA-256 it was checked against.
+#[cfg(windows)]
+static VERIFIED: std::sync::Mutex<Option<(PathBuf, String)>> = std::sync::Mutex::new(None);
+
 /// Windows: runs the installer in update mode (UAC confirmation unless
 /// TuxRGB already has administrator rights). Blocking until Windows has
 /// started it or the confirmation was refused.
+///
+/// The installer sits in the user's temporary folder, which the user's
+/// other programs can write: it is opened shared for reading only (nobody
+/// can change or replace it any more), checked against its published
+/// SHA-256 once more, and only then started, the file still locked.
 #[cfg(windows)]
 pub fn run_installer(installer: &Path) -> Result<(), String> {
+    use std::io::Read;
+    use std::os::windows::fs::OpenOptionsExt;
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     use windows::core::{HSTRING, w};
+    const FILE_SHARE_READ: u32 = 1;
+    let expected = VERIFIED
+        .lock()
+        .ok()
+        .and_then(|v| v.clone())
+        .filter(|(p, _)| p == installer)
+        .map(|(_, h)| h)
+        .ok_or_else(|| {
+            crate::i18n::t("Le fichier téléchargé ne correspond pas à sa somme de contrôle.")
+                .to_owned()
+        })?;
+    let mut lock = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(installer)
+        .map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = lock.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let got: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    if got != expected {
+        tracing::warn!("installer changed after its download: not started");
+        return Err(crate::i18n::t(
+            "Le fichier téléchargé ne correspond pas à sa somme de contrôle.",
+        )
+        .into());
+    }
     let file = HSTRING::from(installer.as_os_str());
     // SAFETY: plain ShellExecute with valid strings.
     let h = unsafe {
@@ -544,6 +612,8 @@ pub fn run_installer(installer: &Path) -> Result<(), String> {
             SW_SHOWNORMAL,
         )
     };
+    // Started (its image is mapped, the file can no longer be changed).
+    drop(lock);
     if (h.0 as isize) > 32 {
         Ok(())
     } else {

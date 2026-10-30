@@ -103,6 +103,18 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.5.1" date="2026-10-29" urgency="high">
+      <description>
+        <p>A security release: stronger memory protections and fixes for Windows administrator mode.</p>
+        <ul>
+          <li>RAM and SMBus motherboards are left alone while another RGB program (OpenRGB, iCUE, Armoury Crate, SignalRGB, liquidctl…) is open, then taken back automatically</li>
+          <li>At most 30 writes a second on the SMBus, and the shared bus lock always on</li>
+          <li>Separate switches for the RAM and for SMBus motherboards</li>
+          <li>Windows: administrator mode needs an installed copy and only starts OpenRGB from Program Files; temporary files are locked while in use</li>
+          <li>Updates without a SHA-256 checksum are refused</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.5.0" date="2026-10-29">
       <description>
         <p>A stability release: lighter, quicker to start, fully checked again.</p>

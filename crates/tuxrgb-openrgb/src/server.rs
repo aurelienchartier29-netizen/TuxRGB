@@ -51,6 +51,23 @@ impl EmbeddedServer {
         #[cfg(unix)]
         cmd.env_remove("DISPLAY")
             .env("QT_QPA_PLATFORM", "offscreen");
+        // Nothing from the environment decides what code the server loads
+        // (with administrator rights on Windows, the user's other programs
+        // could otherwise point Qt to plugins of theirs), and it runs from
+        // its own folder.
+        for var in [
+            "QT_PLUGIN_PATH",
+            "QT_QPA_PLATFORM_PLUGIN_PATH",
+            "QT_QPA_PLATFORMTHEME",
+            "QML_IMPORT_PATH",
+            "QML2_IMPORT_PATH",
+            "QT_CONF_PATH",
+        ] {
+            cmd.env_remove(var);
+        }
+        if let Some(dir) = binary.parent().filter(|d| !d.as_os_str().is_empty()) {
+            cmd.current_dir(dir);
+        }
         // * If TuxRGB dies (even with SIGKILL) the kernel stops the server
         //   too.
         // * SIGTERM / SIGHUP are blocked in the server: at logout or

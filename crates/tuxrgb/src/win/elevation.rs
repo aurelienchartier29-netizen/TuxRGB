@@ -28,8 +28,76 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub const EXIT_OK: i32 = 0;
 pub const EXIT_FAILED: i32 = 1;
 
-/// TuxRGB runs with administrator rights.
+/// The Program Files folders, as Windows names them (known folders, not
+/// the environment, which the user's other programs can change). Only
+/// administrators can write there.
+pub fn protected_dirs() -> Vec<PathBuf> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::{
+        FOLDERID_ProgramFiles, FOLDERID_ProgramFilesX86, KF_FLAG_DEFAULT, SHGetKnownFolderPath,
+    };
+    let mut out = Vec::new();
+    for id in [FOLDERID_ProgramFiles, FOLDERID_ProgramFilesX86] {
+        // SAFETY: the returned string is copied, then freed as documented.
+        unsafe {
+            if let Ok(p) = SHGetKnownFolderPath(&id, KF_FLAG_DEFAULT, None) {
+                if let Ok(s) = p.to_string() {
+                    let path = PathBuf::from(s);
+                    if !out.contains(&path) {
+                        out.push(path);
+                    }
+                }
+                CoTaskMemFree(Some(p.0 as *const _));
+            }
+        }
+    }
+    out
+}
+
+/// This `tuxrgb.exe` lives in a folder only administrators can change (an
+/// installed copy, not a portable one in Downloads).
+pub fn exe_is_protected() -> bool {
+    std::env::current_exe()
+        .is_ok_and(|exe| tuxrgb_openrgb::locate::is_inside(&exe, &protected_dirs()))
+}
+
+/// Writes `bytes` to a new file, then keeps it open for reading only,
+/// shared for reading only: until the returned handle is dropped nobody can
+/// change, replace or delete it. The content read back is checked, so a
+/// swap between the write and the lock is caught.
+pub fn write_locked(path: &Path, bytes: &[u8]) -> Result<std::fs::File, String> {
+    use std::io::{Read, Write};
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 1;
+    let _ = std::fs::remove_file(path);
+    {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .map_err(|e| e.to_string())?;
+        f.write_all(bytes).map_err(|e| e.to_string())?;
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    let mut back = Vec::with_capacity(bytes.len());
+    f.read_to_end(&mut back).map_err(|e| e.to_string())?;
+    if back != bytes {
+        return Err("fichier modifié pendant l'écriture".into());
+    }
+    Ok(f)
+}
+
+/// TuxRGB runs with administrator rights (asked once, then remembered).
 pub fn is_elevated() -> bool {
+    static ELEVATED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ELEVATED.get_or_init(query_elevated)
+}
+
+fn query_elevated() -> bool {
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Security::{
         GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
@@ -267,6 +335,15 @@ fn bundled_pawnio_setup() -> Option<PathBuf> {
 }
 
 fn install(steps: &mut Vec<String>) -> Result<(), String> {
+    // The task starts this file with administrator rights at every launch,
+    // without asking: a copy that other programs can rewrite (Downloads,
+    // a portable folder) would give them those rights.
+    if !exe_is_protected() {
+        return Err(crate::i18n::t(
+            "le mode administrateur demande TuxRGB installé dans Program Files (installateur)",
+        )
+        .into());
+    }
     if !pawnio_installed() {
         match bundled_pawnio_setup() {
             Some(setup) => {
@@ -296,8 +373,9 @@ fn install(steps: &mut Vec<String>) -> Result<(), String> {
     for unit in xml.encode_utf16() {
         bytes.extend_from_slice(&unit.to_le_bytes());
     }
+    // Locked while schtasks reads it: nobody can swap the definition.
     let file = std::env::temp_dir().join(format!("tuxrgb-task-{}.xml", std::process::id()));
-    std::fs::write(&file, bytes).map_err(|e| e.to_string())?;
+    let lock = write_locked(&file, &bytes)?;
     let created = schtasks(&[
         "/create",
         "/tn",
@@ -306,6 +384,7 @@ fn install(steps: &mut Vec<String>) -> Result<(), String> {
         &file.to_string_lossy(),
         "/f",
     ]);
+    drop(lock);
     let _ = std::fs::remove_file(&file);
     created?;
     steps.push("elevated-task".into());
@@ -350,7 +429,16 @@ pub fn setup_main(action: &str, report: Option<&Path>) -> i32 {
     };
     match report {
         Some(p) => {
-            let _ = std::fs::write(p, &text);
+            // A new file only: never through a link or over an existing
+            // file planted at that name.
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(p)
+            {
+                let _ = f.write_all(text.as_bytes());
+            }
         }
         None => print!("{text}"),
     }
@@ -417,5 +505,31 @@ pub fn run_elevated(action: &str) -> Elevated {
         let text = std::fs::read_to_string(&report).unwrap_or_default();
         let _ = std::fs::remove_file(&report);
         Elevated::Done(code as i32, text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn program_files_is_protected_and_downloads_is_not() {
+        let dirs = protected_dirs();
+        assert!(!dirs.is_empty());
+        let inside = dirs[0].join("TuxRGB").join("tuxrgb.exe");
+        assert!(tuxrgb_openrgb::locate::is_inside(&inside, &dirs));
+        let outside = std::env::temp_dir().join("tuxrgb.exe");
+        assert!(!tuxrgb_openrgb::locate::is_inside(&outside, &dirs));
+    }
+
+    #[test]
+    fn a_locked_file_cannot_be_swapped() {
+        let path = std::env::temp_dir().join(format!("tuxrgb-lock-{}.xml", std::process::id()));
+        let lock = write_locked(&path, b"<Task/>").unwrap();
+        // Nobody can rewrite it while it is held.
+        assert!(std::fs::OpenOptions::new().write(true).open(&path).is_err());
+        assert!(std::fs::remove_file(&path).is_err() || !path.exists());
+        drop(lock);
+        let _ = std::fs::remove_file(&path);
     }
 }

@@ -220,10 +220,13 @@ pub struct Config {
     pub hardware_modes: BTreeMap<DeviceKey, String>,
     /// Lights on the local network (WLED, Philips Hue and WiZ, Govee…).
     pub network: tuxrgb_openrgb::NetworkLights,
-    /// RAM and SMBus motherboard lighting (3.4): off for a new
-    /// installation, by prudence (see `tuxrgb_openrgb::detectors`); kept on
-    /// for a configuration written by an older TuxRGB.
+    /// RAM lighting (3.4): off for a new installation, by prudence (see
+    /// `tuxrgb_openrgb::detectors`); kept on for a configuration written by
+    /// an older TuxRGB.
     pub smbus_lighting: bool,
+    /// Motherboards driven over the SMBus (3.5: apart from the RAM, off by
+    /// default; kept as the RAM was for older configurations).
+    pub smbus_motherboard: bool,
     /// Hardware displays: AIO screens and digital displays (3.1).
     pub displays: crate::displays::DisplaysConfig,
     /// Fan speeds (3.2).
@@ -259,6 +262,14 @@ pub struct ZoneSize {
 }
 
 impl Config {
+    /// What may be lit on the system SMBus.
+    pub fn smbus(&self) -> tuxrgb_openrgb::SmbusLighting {
+        tuxrgb_openrgb::SmbusLighting {
+            ram: self.smbus_lighting,
+            motherboard: self.smbus_motherboard,
+        }
+    }
+
     /// Remembers the size of a zone (replaces a previous value).
     pub fn set_zone_size(&mut self, device: &DeviceKey, zone: usize, name: &str, leds: usize) {
         self.zone_sizes
@@ -300,6 +311,7 @@ impl Default for Config {
             hardware_modes: BTreeMap::new(),
             network: Default::default(),
             smbus_lighting: false,
+            smbus_motherboard: false,
             displays: Default::default(),
             fans: Default::default(),
             dismissed_notices: BTreeSet::new(),
@@ -310,7 +322,8 @@ impl Default for Config {
 /// 2: saturation became global (0–200 %), moved out of the effects.
 /// 3: "turn the LEDs off when quitting" is on by default.
 /// 4: RAM / SMBus motherboard lighting became a choice (off by default).
-pub const CONFIG_VERSION: u32 = 4;
+/// 5: SMBus motherboards apart from the RAM.
+pub const CONFIG_VERSION: u32 = 5;
 
 impl Config {
     /// Upgrades a configuration written by an older TuxRGB.
@@ -354,6 +367,10 @@ impl Config {
             // kept being lit, nothing changes for them.
             self.smbus_lighting = true;
             tracing::info!("configuration upgraded to version 4: RAM / SMBus lighting kept on");
+        }
+        if self.version < 5 {
+            // One switch until now: the motherboards follow the RAM's.
+            self.smbus_motherboard = self.smbus_lighting;
         }
         self.version = CONFIG_VERSION;
     }
@@ -578,11 +595,16 @@ mod tests {
     #[test]
     fn smbus_lighting_is_kept_for_older_installations_only() {
         // A new installation: prudence.
-        assert!(!Config::default().smbus_lighting);
+        assert!(!Config::default().smbus().any());
         // TuxRGB 3.3 and before: RAM and motherboard stay lit.
         let mut old: Config = serde_json::from_str(r#"{ "version": 3 }"#).unwrap();
         old.migrate();
-        assert!(old.smbus_lighting);
+        assert!(old.smbus_lighting && old.smbus_motherboard);
+        // 3.4, one switch on: both stay on.
+        let mut v4: Config =
+            serde_json::from_str(r#"{ "version": 4, "smbus_lighting": true }"#).unwrap();
+        v4.migrate();
+        assert!(v4.smbus_lighting && v4.smbus_motherboard);
         // Turned off with this version: stays off.
         let mut now: Config =
             serde_json::from_str(r#"{ "version": 4, "smbus_lighting": false }"#).unwrap();

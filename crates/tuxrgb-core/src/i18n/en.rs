@@ -1108,8 +1108,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Configuration…", "Setting up…"),
     (
-        "Mot de passe administrateur demandé, puis redémarrage. TuxRGB choisit la méthode de votre système (rpm-ostree, grubby, GRUB, systemd-boot…) et ne change rien si l'accès fonctionne déjà. Annulable avec « Réinitialiser les permissions ».",
-        "Administrator password asked, then a restart. TuxRGB picks your system's method (rpm-ostree, grubby, GRUB, systemd-boot…) and changes nothing if access already works. Undo with “Reset permissions”.",
+        "Mot de passe administrateur demandé, puis redémarrage. TuxRGB choisit la méthode de votre système (rpm-ostree, grubby, GRUB, systemd-boot…) et ne change rien si l'accès fonctionne déjà. Le firmware de la carte mère peut lui aussi utiliser ce bus : ne le débloquez que pour éclairer la RAM. Annulable avec « Réinitialiser les permissions ».",
+        "Administrator password asked, then a restart. TuxRGB picks your system's method (rpm-ostree, grubby, GRUB, systemd-boot…) and changes nothing if access already works. The motherboard firmware may use this bus too: only unlock it to light the RAM. Undo with “Reset permissions”.",
     ),
     (
         "Le rapport matériel rassemble tout ce qu'il faut pour diagnostiquer le problème (bus I2C, pilotes, journal du noyau et de détection).",
@@ -1617,29 +1617,70 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "réponse inattendue du pont",
         "unexpected answer from the bridge",
     ),
+    ("Éclairage de la RAM", "RAM lighting"),
     (
-        "Éclairage de la RAM et des cartes mères SMBus",
-        "RAM and SMBus motherboard lighting",
+        "Activé : OpenRGB détecte les barrettes de RAM RGB.",
+        "On: OpenRGB detects RGB memory sticks.",
     ),
     (
-        "Activé : OpenRGB détecte la RAM et les cartes mères pilotées par le bus SMBus.",
-        "On: OpenRGB detects the RAM and the motherboards driven over the SMBus.",
+        "Désactivé par prudence : la RAM n'est pas détectée.",
+        "Off by prudence: the RAM is not detected.",
     ),
     (
-        "Désactivé par prudence : la RAM et ces cartes mères ne sont pas détectées.",
-        "Off by prudence: the RAM and these motherboards are not detected.",
+        "Cartes mères pilotées par le SMBus",
+        "Motherboards driven over the SMBus",
+    ),
+    (
+        "ASRock Polychrome, anciennes ASUS Aura et Gigabyte RGB Fusion, EVGA. Inutile pour les cartes mères récentes en USB : laissez-le désactivé si la vôtre apparaît déjà dans Appareils.",
+        "ASRock Polychrome, older ASUS Aura and Gigabyte RGB Fusion, EVGA. Not needed for recent USB motherboards: leave it off if yours already shows in Devices.",
+    ),
+    (
+        "Par sécurité, TuxRGB écrit au plus 30 fois par seconde sur ce bus, et le laisse tranquille tant qu'un autre logiciel RGB (OpenRGB, iCUE, Armoury Crate, MSI Center, SignalRGB…) est ouvert : deux programmes qui y écrivent en même temps sont la cause connue des barrettes abîmées.",
+        "For safety, TuxRGB writes to this bus at most 30 times a second, and leaves it alone while another RGB program (OpenRGB, iCUE, Armoury Crate, MSI Center, SignalRGB…) is open: two programs writing to it at once are the known cause of damaged sticks.",
+    ),
+    (
+        "En pause : {} est ouvert. TuxRGB reprend la RAM dès qu'il se ferme.",
+        "Paused: {} is open. TuxRGB takes the RAM back as soon as it closes.",
+    ),
+    (
+        "RAM laissée de côté : {} est ouvert",
+        "RAM left alone: {} is open",
+    ),
+    (
+        "Ce programme utilise aussi le bus de la RAM. Deux programmes qui y écrivent en même temps peuvent abîmer les barrettes : TuxRGB ne touche pas à la RAM (ni aux cartes mères SMBus) tant qu'il est ouvert, et reprend la main tout seul dès qu'il se ferme.",
+        "This program also uses the RAM's bus. Two programs writing to it at once can damage the sticks: TuxRGB leaves the RAM (and SMBus motherboards) alone while it is open, and takes over again by itself once it closes.",
+    ),
+    (
+        "Cette version ne publie pas de somme de contrôle : téléchargez-la depuis sa page GitHub.",
+        "This release publishes no checksum: download it from its GitHub page.",
+    ),
+    (
+        "fichier modifié pendant l'écriture",
+        "file changed while being written",
+    ),
+    (
+        "le mode administrateur demande TuxRGB installé dans Program Files (installateur)",
+        "administrator mode needs TuxRGB installed in Program Files (installer)",
     ),
     (
         "Pour les allumer, OpenRGB lit et écrit sur le bus SMBus, celui des puces SPD des barrettes de RAM. Ça fonctionne sur la plupart des PC, mais de rares cas de barrettes devenues illisibles ont été signalés. Les cartes mères récentes (pilotées en USB), la carte graphique, les ventilateurs et le reste ne sont pas concernés.",
         "To light them, OpenRGB reads and writes on the SMBus, the bus of the SPD chips of the memory sticks. It works on most PCs, but rare cases of sticks left unreadable have been reported. Recent motherboards (driven over USB), the graphics card, the fans and the rest are not concerned.",
     ),
     (
-        "RAM et carte mère SMBus activées : le moteur redémarre…",
-        "RAM and SMBus motherboard on: the engine restarts…",
+        "Éclairage de la RAM activé : le moteur redémarre…",
+        "RAM lighting on: the engine restarts…",
     ),
     (
-        "RAM et carte mère SMBus désactivées : le moteur redémarre…",
-        "RAM and SMBus motherboard off: the engine restarts…",
+        "Éclairage de la RAM désactivé : le moteur redémarre…",
+        "RAM lighting off: the engine restarts…",
+    ),
+    (
+        "Cartes mères SMBus activées : le moteur redémarre…",
+        "SMBus motherboards on: the engine restarts…",
+    ),
+    (
+        "Cartes mères SMBus désactivées : le moteur redémarre…",
+        "SMBus motherboards off: the engine restarts…",
     ),
     ("Global", "Global"),
     ("Effet propre · {}", "Own effect · {}"),

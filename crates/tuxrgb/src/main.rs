@@ -340,6 +340,12 @@ fn main() -> iced::Result {
     }
 
     init_logging();
+    // Administrator rights: OpenRGB is only ever started from Program
+    // Files (see `locate::restrict_to`).
+    #[cfg(windows)]
+    if win::elevation::is_elevated() {
+        tuxrgb_openrgb::locate::restrict_to(win::elevation::protected_dirs());
+    }
     #[cfg(windows)]
     tracing::info!(
         version = version_label(),

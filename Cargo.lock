@@ -3869,7 +3869,7 @@ dependencies = [
 
 [[package]]
 name = "tuxrgb"
-version = "3.5.0"
+version = "3.5.1"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -3906,7 +3906,7 @@ dependencies = [
 
 [[package]]
 name = "tuxrgb-capture"
-version = "3.5.0"
+version = "3.5.1"
 dependencies = [
  "ashpd",
  "crossbeam-channel",
@@ -3922,7 +3922,7 @@ dependencies = [
 
 [[package]]
 name = "tuxrgb-core"
-version = "3.5.0"
+version = "3.5.1"
 dependencies = [
  "crossbeam-channel",
  "serde",
@@ -3933,11 +3933,11 @@ dependencies = [
 
 [[package]]
 name = "tuxrgb-helper"
-version = "3.5.0"
+version = "3.5.1"
 
 [[package]]
 name = "tuxrgb-openrgb"
-version = "3.5.0"
+version = "3.5.1"
 dependencies = [
  "futures",
  "libc",

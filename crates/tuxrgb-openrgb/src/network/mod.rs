@@ -375,14 +375,14 @@ pub fn valid_host(host: &str) -> bool {
 
 /// Writes OpenRGB's settings before the private server starts: the network
 /// lights (`DDPDevices`, `PhilipsWizDevices`, `GoveeDevices`…) and the
-/// SMBus detectors switched by `smbus_lighting` (see
-/// [`crate::detectors`]), keeping everything else. `Ok(true)` when the file
+/// SMBus detectors `smbus` allows (see [`crate::detectors`]), keeping
+/// everything else. `Ok(true)` when the file
 /// changed. A file OpenRGB cannot have written (not JSON) is kept aside as
 /// `OpenRGB.json.bak` and started again.
 pub fn write_settings(
     config_dir: &Path,
     lights: &NetworkLights,
-    smbus_lighting: bool,
+    smbus: crate::detectors::SmbusLighting,
 ) -> std::io::Result<bool> {
     let path = config_dir.join("OpenRGB.json");
     let mut root = match std::fs::read_to_string(&path) {
@@ -400,7 +400,7 @@ pub fn write_settings(
     for (key, section) in sections(lights) {
         obj.insert(key.into(), section);
     }
-    crate::detectors::apply(obj, smbus_lighting);
+    crate::detectors::apply(obj, smbus);
     if root == before && path.exists() {
         return Ok(false);
     }
@@ -774,7 +774,13 @@ pub fn pair(light: NetLight, timeout: Duration) -> Result<NetLight, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detectors::SmbusLighting;
     use std::io::Read;
+
+    const RAM_AND_BOARD: SmbusLighting = SmbusLighting {
+        ram: true,
+        motherboard: true,
+    };
 
     fn tmp(name: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("tuxrgb-net-{name}-{}", std::process::id()));
@@ -860,7 +866,7 @@ mod tests {
         )
         .unwrap();
         let lights = every_brand();
-        assert!(write_settings(&dir, &lights, false).unwrap());
+        assert!(write_settings(&dir, &lights, SmbusLighting::OFF).unwrap());
         let v = read(&dir);
         // OpenRGB's own settings are kept.
         assert_eq!(
@@ -914,15 +920,15 @@ mod tests {
             json!({ "ip": "192.168.1.50", "name": "Kasa" })
         );
         // Nothing new: not rewritten.
-        assert!(!write_settings(&dir, &lights, false).unwrap());
+        assert!(!write_settings(&dir, &lights, SmbusLighting::OFF).unwrap());
         // The memory bus allowed: rewritten.
-        assert!(write_settings(&dir, &lights, true).unwrap());
+        assert!(write_settings(&dir, &lights, RAM_AND_BOARD).unwrap());
         assert_eq!(
             read(&dir).pointer("/Detectors/detectors/ENE SMBus DRAM"),
             Some(&json!(true))
         );
         // Removed again.
-        assert!(write_settings(&dir, &NetworkLights::default(), true).unwrap());
+        assert!(write_settings(&dir, &NetworkLights::default(), RAM_AND_BOARD).unwrap());
         let v = read(&dir);
         assert_eq!(v.pointer("/DDPDevices/devices"), Some(&json!([])));
         assert_eq!(v.pointer("/PhilipsHueDevices/bridges"), Some(&json!([])));
@@ -993,7 +999,7 @@ mod tests {
     fn broken_settings_are_kept_aside() {
         let dir = tmp("broken");
         std::fs::write(dir.join("OpenRGB.json"), "{ not json").unwrap();
-        assert!(write_settings(&dir, &NetworkLights::default(), false).unwrap());
+        assert!(write_settings(&dir, &NetworkLights::default(), SmbusLighting::OFF).unwrap());
         assert!(dir.join("OpenRGB.json.bak").exists());
         let _ = std::fs::remove_dir_all(dir);
     }

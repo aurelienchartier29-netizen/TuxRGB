@@ -10,7 +10,7 @@ members = [
 default-members = ["crates/tuxrgb", "crates/tuxrgb-helper"]
 
 [workspace.package]
-version = "3.5.0"
+version = "3.5.1"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-2.0-or-later"

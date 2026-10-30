@@ -663,8 +663,8 @@ pub fn diagnostics_list(app: &App) -> Element<'_, Message> {
 pub fn smbus_choice(app: &App) -> Element<'_, Message> {
     let r = &app.roles;
     let on = app.config.smbus_lighting;
-    container(
-        column![
+    let board = app.config.smbus_motherboard;
+    let mut col = column![
             row![
                 icon_filled(icons::MEMORY_ALT, 24.0).color(if on {
                     r.primary
@@ -672,17 +672,38 @@ pub fn smbus_choice(app: &App) -> Element<'_, Message> {
                     r.on_surface_variant
                 }),
                 column![
-                    title_medium("Éclairage de la RAM et des cartes mères SMBus"),
+                    title_medium("Éclairage de la RAM"),
                     small(if on {
-                        "Activé : OpenRGB détecte la RAM et les cartes mères pilotées par le bus SMBus."
+                        "Activé : OpenRGB détecte les barrettes de RAM RGB."
                     } else {
-                        "Désactivé par prudence : la RAM et ces cartes mères ne sont pas détectées."
+                        "Désactivé par prudence : la RAM n'est pas détectée."
                     })
                     .color(r.on_surface_variant),
                 ]
                 .spacing(space::XXS)
                 .width(Length::Fill),
                 switch(on, r, Message::SetSmbusLighting),
+            ]
+            .spacing(space::M)
+            .align_y(Alignment::Center),
+            row![
+                icon_filled(icons::DEVELOPER_BOARD, 24.0).color(if board {
+                    r.primary
+                } else {
+                    r.on_surface_variant
+                }),
+                column![
+                    title_medium("Cartes mères pilotées par le SMBus"),
+                    small(
+                        "ASRock Polychrome, anciennes ASUS Aura et Gigabyte RGB Fusion, EVGA. \
+                         Inutile pour les cartes mères récentes en USB : laissez-le désactivé si la \
+                         vôtre apparaît déjà dans Appareils."
+                    )
+                    .color(r.on_surface_variant),
+                ]
+                .spacing(space::XXS)
+                .width(Length::Fill),
+                switch(board, r, Message::SetSmbusMotherboard),
             ]
             .spacing(space::M)
             .align_y(Alignment::Center),
@@ -694,13 +715,34 @@ pub fn smbus_choice(app: &App) -> Element<'_, Message> {
                  concernés.",
             )
             .color(r.on_surface_variant),
+            small(
+                "Par sécurité, TuxRGB écrit au plus 30 fois par seconde sur ce bus, et le laisse \
+                 tranquille tant qu'un autre logiciel RGB (OpenRGB, iCUE, Armoury Crate, MSI \
+                 Center, SignalRGB…) est ouvert : deux programmes qui y écrivent en même temps \
+                 sont la cause connue des barrettes abîmées.",
+            )
+            .color(r.on_surface_variant),
         ]
-        .spacing(space::S),
-    )
-    .padding(space::L)
-    .width(Length::Fill)
-    .style(style::card(*r, Surface::High, shape::LARGE))
-    .into()
+        .spacing(space::S);
+    if !app.smbus_blocked.is_empty() && app.config.smbus().any() {
+        col = col.push(
+            row![
+                icon_filled(icons::INFO, 18.0).color(r.tertiary),
+                small(trf!(
+                    "En pause : {} est ouvert. TuxRGB reprend la RAM dès qu'il se ferme.",
+                    app.smbus_blocked.join(", ")
+                ))
+                .color(r.tertiary),
+            ]
+            .spacing(space::S)
+            .align_y(Alignment::Center),
+        );
+    }
+    container(col)
+        .padding(space::L)
+        .width(Length::Fill)
+        .style(style::card(*r, Surface::High, shape::LARGE))
+        .into()
 }
 
 /// Shown when OpenRGB is connected but no RAM module was detected (and
@@ -780,8 +822,9 @@ fn ram_hints(app: &App) -> Element<'_, Message> {
                 small(
                     "Mot de passe administrateur demandé, puis redémarrage. TuxRGB choisit la \
                      méthode de votre système (rpm-ostree, grubby, GRUB, systemd-boot…) et ne \
-                     change rien si l'accès fonctionne déjà. Annulable avec « Réinitialiser les \
-                     permissions ».",
+                     change rien si l'accès fonctionne déjà. Le firmware de la carte mère peut \
+                     lui aussi utiliser ce bus : ne le débloquez que pour éclairer la RAM. \
+                     Annulable avec « Réinitialiser les permissions ».",
                 )
                 .color(r.on_surface_variant),
             ]

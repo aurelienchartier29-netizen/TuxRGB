@@ -2,7 +2,7 @@
 ;
 ; Built by scripts/windows/build-windows.sh (from Linux) or
 ; scripts/windows/build-windows.ps1 (on Windows):
-;   makensis -DVERSION=3.5.0 -DSTAGE=<dir> -DOUTFILE=<setup.exe> tuxrgb.nsi
+;   makensis -DVERSION=3.5.1 -DSTAGE=<dir> -DOUTFILE=<setup.exe> tuxrgb.nsi
 ;
 ; <STAGE> holds tuxrgb.exe, tuxrgb.ico, installer-side.bmp, PawnIO_setup.exe, LICENSE.txt,
 ; LIRE-MOI-Windows.txt and licenses\.
@@ -20,10 +20,10 @@ SetCompressor /SOLID lzma
 ManifestDPIAware true
 
 !ifndef VERSION
-  !define VERSION "3.5.0"
+  !define VERSION "3.5.1"
 !endif
 !ifndef VERSION_NUM
-  !define VERSION_NUM "3.5.0.0"
+  !define VERSION_NUM "3.5.1.0"
 !endif
 !ifndef STAGE
   !define STAGE "stage"
@@ -327,6 +327,7 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\openrgb"
   RMDir /r "$INSTDIR\pawnio"
   RMDir /r "$INSTDIR\licenses"
+  RMDir /r "$INSTDIR\state"
   Delete "$INSTDIR\tuxrgb.exe"
   Delete "$INSTDIR\tuxrgb.ico"
   Delete "$INSTDIR\LICENSE.txt"

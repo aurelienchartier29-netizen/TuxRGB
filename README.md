@@ -86,7 +86,7 @@ Toutes les captures : [Fonctionnalités](docs/FONCTIONNALITES.md#captures).
 - [TuxRGB pour Windows](docs/WINDOWS.md)
 - [Fonctionnalités](docs/FONCTIONNALITES.md)
 - [Dépannage](docs/DEPANNAGE.md)
-- [Sécurité du programme d'aide](docs/SECURITE.md)
+- [Sécurité et protection de la RAM](docs/SECURITE.md)
 - [Développement : architecture et compilation](docs/DEVELOPPEMENT.md)
 - [Notes de version](docs/notes-de-version/)
 

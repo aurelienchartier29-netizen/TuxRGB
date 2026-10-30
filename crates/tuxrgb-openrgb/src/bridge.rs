@@ -1,5 +1,6 @@
 //! Async bridge between the effect engine and the OpenRGB SDK server.
 
+pub use crate::detectors::SmbusLighting;
 use crate::locate::{self, Origin};
 use crate::server::{self, EmbeddedServer};
 use futures::FutureExt;
@@ -11,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 use tuxrgb_core::engine::Frame;
@@ -41,8 +43,9 @@ pub struct BridgeConfig {
     /// it starts (see [`crate::network`]).
     pub network: crate::network::NetworkLights,
     /// RAM and SMBus motherboards detected (see [`crate::detectors`]):
-    /// off unless the user turned it on.
-    pub smbus_lighting: bool,
+    /// off unless the user turned them on, and left alone while another
+    /// program uses the bus (see [`crate::conflicts`]).
+    pub smbus: SmbusLighting,
     /// Colour correction of the LEDs (gamma, white balance), applied to
     /// every colour written to the hardware; the frames themselves keep the
     /// colours as shown in the interface.
@@ -79,6 +82,9 @@ impl BridgeStatus {
 pub enum BridgeEvent {
     Status(BridgeStatus),
     Devices(Vec<DeviceInfo>),
+    /// Programs using the system SMBus while the RAM / SMBus motherboard
+    /// lighting is on: those are left alone until they close (empty: none).
+    SmbusBlocked(Vec<String>),
 }
 
 #[derive(Clone, Debug)]
@@ -92,8 +98,8 @@ pub enum BridgeCommand {
     SetHardwareModes(BTreeMap<DeviceKey, String>),
     /// New network lights: the embedded server restarts with them.
     SetNetwork(Box<crate::network::NetworkLights>),
-    /// See [`BridgeConfig::smbus_lighting`]: the embedded server restarts.
-    SetSmbusLighting(bool),
+    /// See [`BridgeConfig::smbus`]: the embedded server restarts.
+    SetSmbusLighting(SmbusLighting),
     SetMode(ServerMode),
     /// Sets the number of LEDs of resizable zones (ARGB headers / channels),
     /// then reloads the devices once. OpenRGB stores the sizes in its
@@ -183,8 +189,33 @@ pub async fn run(
                         tracing::warn!("embedded OpenRGB server exited:\n{tail}");
                     }
                     server = None;
-                    match spawn_embedded(&config) {
-                        Ok(s) => server = Some(s),
+                    // Another program on the SMBus: RAM and SMBus
+                    // motherboards left alone for now.
+                    let blockers = if config.smbus.any() {
+                        crate::conflicts::smbus_users(None)
+                    } else {
+                        Vec::new()
+                    };
+                    if !blockers.is_empty() {
+                        tracing::warn!(
+                            ?blockers,
+                            "another program uses the SMBus: RAM and SMBus motherboards left alone"
+                        );
+                    }
+                    send.emit(BridgeEvent::SmbusBlocked(
+                        blockers.iter().map(|b| (*b).to_owned()).collect(),
+                    ));
+                    let smbus = if blockers.is_empty() {
+                        config.smbus
+                    } else {
+                        SmbusLighting::OFF
+                    };
+                    SMBUS_BLOCKED.store(!blockers.is_empty(), Ordering::Relaxed);
+                    match spawn_embedded(&config, smbus) {
+                        Ok(s) => {
+                            SERVER_PID.store(s.pid(), Ordering::Relaxed);
+                            server = Some(s)
+                        }
                         Err(status) => {
                             send.emit(BridgeEvent::Status(status));
                             // Wait for a command (e.g. Restart after the user
@@ -199,9 +230,7 @@ pub async fn run(
                                     config.hardware_modes = h
                                 }
                                 Ok(Some(BridgeCommand::SetNetwork(n))) => config.network = *n,
-                                Ok(Some(BridgeCommand::SetSmbusLighting(on))) => {
-                                    config.smbus_lighting = on
-                                }
+                                Ok(Some(BridgeCommand::SetSmbusLighting(on))) => config.smbus = on,
                                 Ok(Some(BridgeCommand::SetCalibration(c))) => {
                                     config.calibration = c
                                 }
@@ -280,8 +309,8 @@ pub async fn run(
                         }
                     }
                     Some(BridgeCommand::SetSmbusLighting(on)) => {
-                        let changed = on != config.smbus_lighting;
-                        config.smbus_lighting = on;
+                        let changed = on != config.smbus;
+                        config.smbus = on;
                         if changed && matches!(config.mode, ServerMode::Embedded) {
                             server = None;
                             continue 'outer;
@@ -334,20 +363,25 @@ pub async fn run(
     send.emit(BridgeEvent::Status(BridgeStatus::Stopped));
 }
 
-fn spawn_embedded(config: &BridgeConfig) -> Result<EmbeddedServer, BridgeStatus> {
+/// The embedded server was started without its SMBus detectors because
+/// another program used the bus (see [`crate::conflicts`]).
+static SMBUS_BLOCKED: AtomicBool = AtomicBool::new(false);
+/// Process id of the embedded server (not a program to warn about).
+static SERVER_PID: AtomicU32 = AtomicU32::new(0);
+
+fn spawn_embedded(
+    config: &BridgeConfig,
+    smbus: SmbusLighting,
+) -> Result<EmbeddedServer, BridgeStatus> {
     let Some(found) = locate::find_openrgb() else {
         return Err(BridgeStatus::NoServerBinary);
     };
     // Network lights and the SMBus detectors: OpenRGB reads them from its
     // settings at start-up.
-    match crate::network::write_settings(
-        &config.openrgb_config_dir,
-        &config.network,
-        config.smbus_lighting,
-    ) {
+    match crate::network::write_settings(&config.openrgb_config_dir, &config.network, smbus) {
         Ok(true) => tracing::info!(
             network_lights = config.network.len(),
-            smbus_lighting = config.smbus_lighting,
+            ?smbus,
             "OpenRGB settings written"
         ),
         Ok(false) => {}
@@ -429,6 +463,21 @@ async fn blackout(managed: &Managed, budget: Duration) {
 /// see [`ListProbe`]), and the full comparison done every [`FULL_CHECK`].
 const SLOW_POLL: Duration = Duration::from_secs(5);
 const FULL_CHECK: Duration = Duration::from_secs(60);
+
+/// Controllers on an I2C / SMBus bus (RAM, SMBus motherboards, graphics
+/// cards) get at most one update this often. They used to be written as
+/// fast as their bus allowed, keeping it busy without a break; the RAM
+/// shares its bus with the memory's SPD chips and the firmware, so it is
+/// now left quiet most of the time (30 updates a second still look fluid).
+const SMBUS_INTERVAL: Duration = Duration::from_millis(33);
+
+/// OpenRGB names the location of I2C / SMBus controllers `I2C: …`.
+fn on_smbus(location: &str) -> bool {
+    location
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("i2c")
+}
 
 /// Mode-colour updates are slow on SMBus devices: cap their rate. A colour
 /// held back by this cap is written as soon as it is due (see
@@ -996,10 +1045,10 @@ fn session<'a>(
                         }
                     }
                     Some(BridgeCommand::SetSmbusLighting(on)) => {
-                        let changed = on != config.smbus_lighting;
-                        config.smbus_lighting = on;
+                        let changed = on != config.smbus;
+                        config.smbus = on;
                         if changed && matches!(config.mode, ServerMode::Embedded) {
-                            tracing::info!(on, "RAM / SMBus lighting changed: restarting the engine");
+                            tracing::info!(?on, "RAM / SMBus lighting changed: restarting the engine");
                             if let Some(p) = pipeline.as_mut() { p.drain(DRAIN).await; }
                             return SessionEnd::Restart;
                         }
@@ -1110,6 +1159,17 @@ fn session<'a>(
                     }
                 }
                 _ = poll.tick() => {
+                    // A program started (or closed) on the SMBus: the engine
+                    // restarts without (or with) the RAM and SMBus boards.
+                    if matches!(config.mode, ServerMode::Embedded) && config.smbus.any() {
+                        let pid = SERVER_PID.load(Ordering::Relaxed);
+                        let blocked = !crate::conflicts::smbus_users((pid != 0).then_some(pid)).is_empty();
+                        if blocked != SMBUS_BLOCKED.load(Ordering::Relaxed) {
+                            tracing::info!(blocked, "SMBus users changed: restarting the engine");
+                            if let Some(p) = pipeline.as_mut() { p.drain(DRAIN).await; }
+                            return SessionEnd::Restart;
+                        }
+                    }
                     // Detection runs in the background on the server: devices
                     // appear progressively. Poll quickly at first, then slowly.
                     let fast = session_start.elapsed() < Duration::from_secs(45);
@@ -1278,10 +1338,12 @@ fn load<'a>(
                     } else {
                         Drive::PerLed
                     };
-                    let pace = crate::network::min_interval(c.description()).map(|d| (d, None));
+                    let pace = crate::network::min_interval(c.description())
+                        .or_else(|| on_smbus(c.location()).then_some(SMBUS_INTERVAL))
+                        .map(|d| (d, None));
                     if let Some((d, _)) = pace {
                         tracing::info!(
-                            "{}: network light, at most one update every {} ms",
+                            "{}: at most one update every {} ms (slow light or SMBus)",
                             c.name(),
                             d.as_millis()
                         );

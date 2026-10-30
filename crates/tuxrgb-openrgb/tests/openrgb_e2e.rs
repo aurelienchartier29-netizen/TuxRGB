@@ -54,7 +54,10 @@ async fn streams_frames_to_a_real_openrgb_server() {
         disabled: BTreeSet::new(),
         hardware_modes: Default::default(),
         network: Default::default(),
-        smbus_lighting: true,
+        smbus: tuxrgb_openrgb::SmbusLighting {
+            ram: true,
+            motherboard: true,
+        },
         // Raw colours: the test compares what the server received.
         calibration: tuxrgb_core::led_color::LedCalibration {
             enabled: false,
@@ -613,7 +616,7 @@ async fn network_lights_through_openrgb() {
             n
         },
         // Prudence: the memory bus detectors are written off.
-        smbus_lighting: false,
+        smbus: tuxrgb_openrgb::SmbusLighting::OFF,
         calibration: tuxrgb_core::led_color::LedCalibration {
             enabled: false,
             ..Default::default()
@@ -846,5 +849,96 @@ async fn network_lights_through_openrgb() {
     let _ = cmd_tx.send(BridgeCommand::Shutdown { turn_off: false });
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge).await;
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Another RGB program running: the RAM and SMBus motherboard detectors stay
+/// off until it closes, then the engine takes them back by itself.
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "needs an OpenRGB 1.0 binary (TUXRGB_OPENRGB)"]
+async fn smbus_waits_for_other_rgb_programs() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
+    assert!(tuxrgb_openrgb::locate::find_openrgb().is_some());
+    let tmp = std::env::temp_dir().join(format!("tuxrgb-e2e-smbus-{}", std::process::id()));
+    debug_config(&tmp.join("openrgb"));
+    // A stand-in "openrgb" process (a copy of sleep).
+    let fake_dir = tmp.join("other");
+    std::fs::create_dir_all(&fake_dir).unwrap();
+    let fake = fake_dir.join("openrgb");
+    std::fs::copy("/bin/sleep", &fake).unwrap();
+    let mut other = std::process::Command::new(&fake)
+        .arg("600")
+        .spawn()
+        .unwrap();
+    // The settings are written just after the event: allow a moment.
+    let ram_detector = |want: bool| {
+        let name = tuxrgb_openrgb::detectors::SMBUS_RAM_DETECTORS[0];
+        let mut got = None;
+        for _ in 0..50 {
+            let text =
+                std::fs::read_to_string(tmp.join("openrgb/OpenRGB.json")).unwrap_or_default();
+            let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+            got = json["Detectors"]["detectors"][name].as_bool();
+            if got == Some(want) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        panic!("{name}: {got:?}, expected {want}");
+    };
+
+    let (_frame_tx, frame_rx) = watch::channel(Arc::new(Frame::default()));
+    let (_cmd_tx, cmd_rx) = mpsc::unbounded_channel::<BridgeCommand>();
+    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel();
+    let config = BridgeConfig {
+        mode: ServerMode::Embedded,
+        openrgb_config_dir: tmp.join("openrgb"),
+        log_path: tmp.join("server.log"),
+        client_name: "TuxRGB e2e".into(),
+        disabled: BTreeSet::new(),
+        hardware_modes: Default::default(),
+        network: Default::default(),
+        smbus: tuxrgb_openrgb::SmbusLighting {
+            ram: true,
+            motherboard: true,
+        },
+        calibration: Default::default(),
+    };
+    let _thread = tuxrgb_openrgb::bridge::spawn_thread(config, frame_rx, cmd_rx, ev_tx)
+        .expect("bridge thread");
+
+    async fn wait_blocked(
+        ev_rx: &mut mpsc::UnboundedReceiver<BridgeEvent>,
+        want_empty: bool,
+    ) -> Vec<String> {
+        let deadline = Instant::now() + Duration::from_secs(40);
+        while Instant::now() < deadline {
+            if let Ok(Some(BridgeEvent::SmbusBlocked(list))) =
+                tokio::time::timeout(Duration::from_secs(1), ev_rx.recv()).await
+                && list.is_empty() == want_empty
+            {
+                return list;
+            }
+        }
+        panic!("no SmbusBlocked(empty: {want_empty})");
+    }
+
+    let blocked = wait_blocked(&mut ev_rx, false).await;
+    assert_eq!(blocked, ["OpenRGB"]);
+    // The embedded server (also named openrgb) never counts.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    ram_detector(false);
+
+    let _ = other.kill();
+    let _ = other.wait();
+    let t = Instant::now();
+    wait_blocked(&mut ev_rx, true).await;
+    eprintln!(
+        "RAM taken back {:?} after the other program closed",
+        t.elapsed()
+    );
+    ram_detector(true);
     let _ = std::fs::remove_dir_all(&tmp);
 }

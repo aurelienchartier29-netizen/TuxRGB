@@ -36,11 +36,58 @@ fn is_executable(p: &Path) -> bool {
     p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe"))
 }
 
+/// Directories an elevated TuxRGB may start OpenRGB from (Windows: the
+/// Program Files folders, writable by administrators only). Unset: any
+/// location is fine (TuxRGB runs with the user's own rights).
+#[cfg(windows)]
+static TRUSTED: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
+
+/// Called once by an elevated TuxRGB (Windows administrator mode): from
+/// then on OpenRGB is only started from `dirs`. The environment override,
+/// the per-user folders and `PATH` are ignored – anything the user's other
+/// programs can write there would otherwise run with administrator rights.
+#[cfg(windows)]
+pub fn restrict_to(dirs: Vec<PathBuf>) {
+    let dirs: Vec<PathBuf> = dirs.into_iter().filter(|d| d.is_absolute()).collect();
+    tracing::info!(?dirs, "elevated: OpenRGB only from protected folders");
+    let _ = TRUSTED.set(dirs);
+}
+
+/// `path` lies inside one of `dirs` (case-insensitive, no `..`).
+pub fn is_inside(path: &Path, dirs: &[PathBuf]) -> bool {
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return false;
+    }
+    let lower = |p: &Path| p.to_string_lossy().to_lowercase().replace('/', "\\");
+    let p = lower(path);
+    dirs.iter().any(|d| {
+        let d = lower(d);
+        let d = d.trim_end_matches('\\');
+        !d.is_empty() && p.len() > d.len() && p.starts_with(d) && p[d.len()..].starts_with('\\')
+    })
+}
+
 /// Candidate paths in priority order (Windows build): the copy the
 /// TuxRGB installer puts next to `tuxrgb.exe`, then an official OpenRGB
 /// installation.
 #[cfg(windows)]
 pub fn candidates() -> Vec<(PathBuf, Origin)> {
+    let all = all_candidates();
+    match TRUSTED.get() {
+        None => all,
+        Some(dirs) => all
+            .into_iter()
+            .filter(|(p, origin)| *origin != Origin::Override && is_inside(p, dirs))
+            .collect(),
+    }
+}
+
+#[cfg(windows)]
+fn all_candidates() -> Vec<(PathBuf, Origin)> {
     let mut out = Vec::new();
     if let Some(p) = std::env::var_os("TUXRGB_OPENRGB") {
         out.push((PathBuf::from(p), Origin::Override));
@@ -118,6 +165,35 @@ pub fn find_openrgb() -> Option<Located> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn protected_folders_are_checked_strictly() {
+        let pf = if cfg!(windows) {
+            vec![PathBuf::from(r"C:\Program Files")]
+        } else {
+            vec![PathBuf::from("/opt/tuxrgb")]
+        };
+        let inside = if cfg!(windows) {
+            PathBuf::from(r"C:\program files\TuxRGB\openrgb\OpenRGB.exe")
+        } else {
+            PathBuf::from("/opt/tuxrgb/openrgb/openrgb")
+        };
+        assert!(is_inside(&inside, &pf));
+        let sibling = if cfg!(windows) {
+            PathBuf::from(r"C:\Program Files Evil\OpenRGB.exe")
+        } else {
+            PathBuf::from("/opt/tuxrgb-evil/openrgb")
+        };
+        assert!(!is_inside(&sibling, &pf));
+        let escape = if cfg!(windows) {
+            PathBuf::from(r"C:\Program Files\..\Users\x\OpenRGB.exe")
+        } else {
+            PathBuf::from("/opt/tuxrgb/../../home/x/openrgb")
+        };
+        assert!(!is_inside(&escape, &pf));
+        assert!(!is_inside(Path::new("OpenRGB.exe"), &pf));
+        assert!(!is_inside(&inside, &[]));
+    }
 
     #[test]
     fn candidates_are_absolute_or_override() {

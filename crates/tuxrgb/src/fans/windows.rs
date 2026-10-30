@@ -21,7 +21,19 @@ const REASSERT: Duration = Duration::from_secs(10);
 /// A sensor sample older than this is no reading.
 const STALE: Duration = Duration::from_secs(5);
 
+/// Where the fans taken over are recorded (put back after a crash, with
+/// administrator rights). Next to an installed TuxRGB, in Program Files:
+/// only administrators can write there, so no other program can make the
+/// elevated TuxRGB write chosen values into the fan controller.
 fn restore_path() -> PathBuf {
+    if crate::win::elevation::exe_is_protected()
+        && let Some(dir) = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|d| d.join("state")))
+        && std::fs::create_dir_all(&dir).is_ok()
+    {
+        return dir.join("fans.restore");
+    }
     crate::paths::paths().app_log.with_file_name("fans.restore")
 }
 

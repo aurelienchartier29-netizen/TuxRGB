@@ -107,4 +107,4 @@ l'état du premier lancement et relance l'assistant (utile après un changement
 de carte mère, de RAM ou de périphérique). Même chose en ligne de commande :
 `tuxrgb --reset-hardware`.
 
-Sécurité du programme d'aide qui configure l'accès matériel : [SECURITE.md](SECURITE.md).
+Sécurité du programme d'aide qui configure l'accès matériel, et protections de la RAM : [SECURITE.md](SECURITE.md).

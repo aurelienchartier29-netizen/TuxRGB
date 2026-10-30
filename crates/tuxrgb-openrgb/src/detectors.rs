@@ -16,18 +16,42 @@
 
 use serde_json::{Map, Value, json};
 
-/// The detectors of the bundled OpenRGB 1.1 that touch the system SMBus:
-/// `REGISTER_I2C_DETECTOR` (motherboards, older RAM) and
-/// `REGISTER_I2C_DRAM_DETECTOR` (RAM found through its SPD). Checked
-/// against the sources by a test.
-pub const SMBUS_DETECTORS: &[&str] = &[
-    // Motherboards
+/// What the user allowed on the system SMBus (3.5: RAM and motherboards
+/// apart, so that lighting the RAM does not also probe the bus for
+/// motherboards most computers do not have).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SmbusLighting {
+    /// Memory sticks.
+    pub ram: bool,
+    /// Motherboards driven over the SMBus (ASRock Polychrome, older ASUS
+    /// Aura and Gigabyte RGB Fusion, EVGA).
+    pub motherboard: bool,
+}
+
+impl SmbusLighting {
+    pub const OFF: Self = Self {
+        ram: false,
+        motherboard: false,
+    };
+
+    pub fn any(self) -> bool {
+        self.ram || self.motherboard
+    }
+}
+
+/// The motherboard detectors of the bundled OpenRGB 1.1 that probe the
+/// system SMBus (`REGISTER_I2C_DETECTOR`).
+pub const SMBUS_MOTHERBOARD_DETECTORS: &[&str] = &[
     "ASRock Motherboard SMBus Controllers",
     "ASUS Aura SMBus Motherboard",
     "EVGA Motherboard SMBus Controllers",
     "Gigabyte RGB Fusion",
     "Gigabyte RGB Fusion 2 SMBus",
-    // Memory
+];
+
+/// The memory detectors: `REGISTER_I2C_DETECTOR` (older RAM, probed on the
+/// bus) and `REGISTER_I2C_DRAM_DETECTOR` (RAM found through its SPD).
+pub const SMBUS_RAM_DETECTORS: &[&str] = &[
     "Corsair DRAM",
     "Corsair Vengeance RGB DRAM",
     "Crucial Ballistix",
@@ -42,8 +66,11 @@ pub const SMBUS_DETECTORS: &[&str] = &[
 ];
 
 /// Turns the SMBus detectors on or off in OpenRGB's settings (`root`, the
-/// whole `OpenRGB.json`), keeping every other detector as it is.
-pub fn apply(root: &mut Map<String, Value>, enabled: bool) {
+/// whole `OpenRGB.json`), keeping every other detector as it is. Also keeps
+/// OpenRGB's shared SMBus lock on (Windows: `Global\Access_SMBUS.HTP.Method`,
+/// the lock HWiNFO, AIDA64 and other tools take before each transfer), in
+/// case an older settings file turned it off.
+pub fn apply(root: &mut Map<String, Value>, allowed: SmbusLighting) {
     let section = root.entry("Detectors").or_insert_with(|| json!({}));
     if !section.is_object() {
         *section = json!({});
@@ -57,9 +84,20 @@ pub fn apply(root: &mut Map<String, Value>, enabled: bool) {
         *list = json!({});
     }
     let list = list.as_object_mut().expect("made an object above");
-    for name in SMBUS_DETECTORS {
-        list.insert((*name).to_owned(), Value::Bool(enabled));
+    for name in SMBUS_MOTHERBOARD_DETECTORS {
+        list.insert((*name).to_owned(), Value::Bool(allowed.motherboard));
     }
+    for name in SMBUS_RAM_DETECTORS {
+        list.insert((*name).to_owned(), Value::Bool(allowed.ram));
+    }
+    let drivers = root.entry("Drivers").or_insert_with(|| json!({}));
+    if !drivers.is_object() {
+        *drivers = json!({});
+    }
+    drivers
+        .as_object_mut()
+        .expect("made an object above")
+        .insert("shared_smbus_access".into(), Value::Bool(true));
 }
 
 #[cfg(test)]
@@ -74,10 +112,14 @@ mod tests {
             "Detectors": { "detectors": { "Logitech G502": false, "ENE SMBus DRAM": true } },
             "Theme": { "theme": "dark" }
         });
-        apply(root.as_object_mut().unwrap(), false);
+        apply(root.as_object_mut().unwrap(), SmbusLighting::OFF);
         assert_eq!(
             root.pointer("/Detectors/detectors/ENE SMBus DRAM"),
             Some(&json!(false))
+        );
+        assert_eq!(
+            root.pointer("/Drivers/shared_smbus_access"),
+            Some(&json!(true))
         );
         assert_eq!(
             root.pointer("/Detectors/detectors/Kingston Fury DDR5 DRAM"),
@@ -89,14 +131,25 @@ mod tests {
             Some(&json!(false))
         );
         assert_eq!(root.pointer("/Theme/theme"), Some(&json!("dark")));
-        apply(root.as_object_mut().unwrap(), true);
+        // RAM only: the motherboard detectors stay off.
+        apply(
+            root.as_object_mut().unwrap(),
+            SmbusLighting {
+                ram: true,
+                motherboard: false,
+            },
+        );
         assert_eq!(
             root.pointer("/Detectors/detectors/ENE SMBus DRAM"),
             Some(&json!(true))
         );
+        assert_eq!(
+            root.pointer("/Detectors/detectors/ASRock Motherboard SMBus Controllers"),
+            Some(&json!(false))
+        );
         // A section OpenRGB cannot have written is started again.
         let mut odd = json!({ "Detectors": [1, 2] });
-        apply(odd.as_object_mut().unwrap(), false);
+        apply(odd.as_object_mut().unwrap(), SmbusLighting::OFF);
         assert_eq!(
             odd.pointer("/Detectors/detectors/Patriot Viper"),
             Some(&json!(false))
@@ -132,7 +185,11 @@ mod tests {
                 }
             }
         }
-        let ours: BTreeSet<String> = SMBUS_DETECTORS.iter().map(|s| (*s).to_owned()).collect();
+        let ours: BTreeSet<String> = SMBUS_MOTHERBOARD_DETECTORS
+            .iter()
+            .chain(SMBUS_RAM_DETECTORS)
+            .map(|s| (*s).to_owned())
+            .collect();
         assert_eq!(found, ours);
     }
 

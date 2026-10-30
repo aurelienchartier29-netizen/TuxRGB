@@ -348,8 +348,10 @@ pub enum Message {
     /// Looks for lights of every brand on the local network.
     NetSearch,
     NetFound(Vec<NetLight>),
-    /// RAM and SMBus motherboard lighting (prudence: off by default).
+    /// RAM lighting (prudence: off by default).
     SetSmbusLighting(bool),
+    /// SMBus motherboard lighting (off by default).
+    SetSmbusMotherboard(bool),
     ToggleDevice(DeviceKey, bool),
     /// Text typed in the LED-count field of a resizable zone.
     ZoneSizeInput(DeviceKey, usize, String),
@@ -562,6 +564,9 @@ pub struct App {
     pub findings: Option<privileges::report::Findings>,
     /// The SMBus fix was applied: a reboot is needed.
     pub smbus_reboot_pending: bool,
+    /// Programs using the SMBus: the RAM and SMBus motherboards are left
+    /// alone while they run (see `tuxrgb_openrgb::conflicts`).
+    pub smbus_blocked: Vec<String>,
     /// The bootloader must be changed by hand (NixOS…): instructions.
     pub smbus_manual: Option<String>,
     pub helper_busy: bool,
@@ -693,6 +698,7 @@ impl App {
             diagnostics: None,
             findings: None,
             smbus_reboot_pending: false,
+            smbus_blocked: Vec::new(),
             smbus_manual: None,
             helper_busy: false,
             audio_status: CaptureStatus::Off,
@@ -1300,6 +1306,21 @@ impl App {
                 });
             }
         }
+        if !self.smbus_blocked.is_empty() && self.config.smbus().any() {
+            out.push(Issue {
+                key: "smbus-busy",
+                glyph: icons::MEMORY_ALT,
+                heading: trf!(
+                    "RAM laissée de côté : {} est ouvert",
+                    self.smbus_blocked.join(", ")
+                ),
+                body: t("Ce programme utilise aussi le bus de la RAM. Deux programmes qui y écrivent en même temps peuvent abîmer les barrettes : TuxRGB ne touche pas à la RAM (ni aux cartes mères SMBus) tant qu'il est ouvert, et reprend la main tout seul dès qu'il se ferme.").into(),
+                action: None,
+                secondary: None,
+                notify: true,
+                info: true,
+            });
+        }
         if self.smbus_reboot_pending {
             out.push(Issue {
                 key: "reboot",
@@ -1312,7 +1333,7 @@ impl App {
                 info: true,
             });
         } else if let Some(f) = &self.findings
-            && self.config.smbus_lighting
+            && self.config.smbus().any()
             && f.smbus_unbound
             && !f.acpi_lax
             && !access_missing
@@ -1781,7 +1802,7 @@ impl App {
             disabled: self.config.disabled_devices.clone(),
             hardware_modes: self.config.hardware_modes.clone(),
             network: self.config.network.clone(),
-            smbus_lighting: self.config.smbus_lighting,
+            smbus: self.config.smbus(),
             calibration: self.config.led_color.clone(),
         }
     }
@@ -1888,6 +1909,21 @@ impl App {
             None => (c.white, false),
             Some(k) => (c.white_of(k), c.devices.contains_key(k)),
         }
+    }
+
+    /// The SMBus choices changed: the engine restarts with them.
+    fn push_smbus(&mut self, message: &'static str) -> Task<Message> {
+        if let Some(s) = &self.services {
+            s.bridge(BridgeCommand::SetSmbusLighting(self.config.smbus()));
+        }
+        if !self.config.smbus().any() {
+            self.smbus_blocked.clear();
+        }
+        self.mark_dirty();
+        if self.config.server.kind != ServerKind::Embedded {
+            return Task::none();
+        }
+        self.snackbar(message)
     }
 
     /// The network lights changed: the engine restarts with them.
@@ -3069,17 +3105,21 @@ impl App {
                     return Task::none();
                 }
                 self.config.smbus_lighting = on;
-                if let Some(s) = &self.services {
-                    s.bridge(BridgeCommand::SetSmbusLighting(on));
-                }
-                self.mark_dirty();
-                if self.config.server.kind != ServerKind::Embedded {
+                self.push_smbus(if on {
+                    "Éclairage de la RAM activé : le moteur redémarre…"
+                } else {
+                    "Éclairage de la RAM désactivé : le moteur redémarre…"
+                })
+            }
+            Message::SetSmbusMotherboard(on) => {
+                if self.config.smbus_motherboard == on {
                     return Task::none();
                 }
-                self.snackbar(if on {
-                    "RAM et carte mère SMBus activées : le moteur redémarre…"
+                self.config.smbus_motherboard = on;
+                self.push_smbus(if on {
+                    "Cartes mères SMBus activées : le moteur redémarre…"
                 } else {
-                    "RAM et carte mère SMBus désactivées : le moteur redémarre…"
+                    "Cartes mères SMBus désactivées : le moteur redémarre…"
                 })
             }
             Message::SetHardwareMode(key, mode) => {
@@ -4412,6 +4452,10 @@ impl App {
                 if self.displays_sensors() != before {
                     self.push_capture();
                 }
+                Task::none()
+            }
+            ServiceEvent::Bridge(BridgeEvent::SmbusBlocked(programs)) => {
+                self.smbus_blocked = programs;
                 Task::none()
             }
             ServiceEvent::Bridge(BridgeEvent::Status(status)) => {
