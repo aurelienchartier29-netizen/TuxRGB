@@ -1,0 +1,33 @@
+/*---------------------------------------------------------*\
+| RGBController_AnnePro2.h                                  |
+|                                                           |
+|   RGBController for Obins Lab AnnePro2 keyboard           |
+|                                                           |
+|   Sergey Gavrilov (DrZlo13)                   06 Jun 2021 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include "RGBController.h"
+#include "AnnePro2Controller.h"
+
+class RGBController_AnnePro2 : public RGBController
+{
+public:
+    RGBController_AnnePro2(AnnePro2Controller* controller_ptr);
+    ~RGBController_AnnePro2();
+
+    void        SetupZones();
+
+    void        DeviceUpdateLEDs();
+    void        DeviceUpdateZoneLEDs(int zone);
+    void        DeviceUpdateSingleLED(int led);
+
+    void        DeviceUpdateMode();
+
+private:
+    AnnePro2Controller*   controller;
+};

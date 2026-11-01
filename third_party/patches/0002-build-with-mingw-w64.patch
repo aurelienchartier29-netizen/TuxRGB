@@ -1,0 +1,24 @@
+From: TuxRGB
+Subject: [PATCH] Build with MinGW-w64 (Windows)
+
+TuxRGB builds OpenRGB for Windows with MinGW-w64, from Linux
+(scripts/windows/build-openrgb-windows.sh), so that the Windows installer
+carries the same engine as the AppImage, with patch 0001. One source change
+is needed: hueplusplus converts UTC timestamps with _mkgmtime() under MSVC
+and with setenv("TZ")/mktime() elsewhere; MinGW-w64 has _mkgmtime() but no
+setenv(). The other MSVC differences (compiler flag, prebuilt MSVC
+libraries, comsupp.lib, header names written with capitals) are handled by
+the build script, without touching the sources. Nothing changes on Linux.
+
+--- a/dependencies/hueplusplus-1.2.0/src/TimePattern.cpp
++++ b/dependencies/hueplusplus-1.2.0/src/TimePattern.cpp
+@@ -90,7 +90,8 @@
+ std::chrono::system_clock::time_point parseUTCTimestamp(const std::string& timestamp)
+ {
+     std::tm tm = timestampToTm(timestamp);
+-#ifdef _MSC_VER
++    // Modified by TuxRGB (2026-11-01): MinGW-w64 has _mkgmtime too, not setenv.
++#if defined(_MSC_VER) || defined(__MINGW32__)
+     std::time_t ctime = _mkgmtime(&tm);
+ #else
+     // Non-standard, but POSIX compliant

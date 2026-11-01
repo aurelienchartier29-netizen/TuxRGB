@@ -1,0 +1,167 @@
+/*---------------------------------------------------------*\
+| RGBController_SteelSeriesApex.cpp                         |
+|                                                           |
+|   RGBController for SteelSeries Apex 7                    |
+|                                                           |
+|   Eric Samuelson (edbgon)                     05 Jul 2020 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#include "RGBControllerKeyNames.h"
+#include "RGBController_SteelSeriesApex.h"
+#include "SteelSeriesApexRegions.h"
+
+static const char* zone_names[] =
+{
+    ZONE_EN_KEYBOARD
+};
+
+static zone_type zone_types[] =
+{
+    ZONE_TYPE_MATRIX
+};
+
+static const unsigned int zone_sizes[] =
+{
+    sizeof(led_names)/sizeof(char*),
+};
+
+/**------------------------------------------------------------------*\
+    @name Steel Series APEX
+    @category Keyboard
+    @type USB
+    @save :x:
+    @direct :white_check_mark:
+    @effects :x:
+    @detectors DetectSteelSeriesApex,DetectSteelSeriesApexM
+    @comment
+\*-------------------------------------------------------------------*/
+
+RGBController_SteelSeriesApex::RGBController_SteelSeriesApex(SteelSeriesApexBaseController* controller_ptr)
+{
+    controller          = controller_ptr;
+
+    name                = controller->GetName();
+    vendor              = "SteelSeries";
+    type                = DEVICE_TYPE_KEYBOARD;
+    description         = "SteelSeries Apex RGB Device";
+    location            = controller->GetLocation();
+    serial              = controller->GetSerial();
+    version             = controller->GetVersion();
+
+    proto_type          = controller->proto_type;
+
+    mode Direct;
+    Direct.name         = "Direct";
+    Direct.value        = APEX_MODE_DIRECT;
+    Direct.flags        = MODE_FLAG_HAS_PER_LED_COLOR;
+    Direct.color_mode   = MODE_COLORS_PER_LED;
+    modes.push_back(Direct);
+
+    mode Onboard;
+    Onboard.name        = "Onboard";
+    Onboard.value       = APEX_MODE_ONBOARD;
+    Onboard.flags       = 0;
+    Onboard.color_mode  = MODE_COLORS_NONE;
+
+    /*---------------------------------------------------------*\
+    | The brightness setting applies to the on-board lighting.  |
+    | Direct mode sends absolute colors and is not affected by  |
+    | it, so it is offered on this mode only.                   |
+    \*---------------------------------------------------------*/
+    if(controller->SupportsBrightness())
+    {
+        Onboard.flags          |= MODE_FLAG_HAS_BRIGHTNESS;
+        Onboard.brightness_min  = APEX_BRIGHTNESS_MIN;
+        Onboard.brightness_max  = APEX_BRIGHTNESS_MAX;
+        Onboard.brightness      = controller->GetBrightness();
+    }
+
+    modes.push_back(Onboard);
+
+    SetupZones();
+}
+
+RGBController_SteelSeriesApex::~RGBController_SteelSeriesApex()
+{
+    Shutdown();
+
+    delete controller;
+}
+
+void RGBController_SteelSeriesApex::SetupZones()
+{
+    /*---------------------------------------------------------*\
+    | Set up zones                                              |
+    \*---------------------------------------------------------*/
+
+    /*---------------------------------------------------------*\
+    | The first 5 chars are the SKU which we need to determine  |
+    | the region.                                               |
+    \*---------------------------------------------------------*/
+
+    std::string sku = serial.substr(0, 5);
+
+    unsigned int total_led_count = 0;
+
+    for(unsigned int zone_idx = 0; zone_idx < 1; zone_idx++)
+    {
+        zone new_zone;
+        new_zone.name           = zone_names[zone_idx];
+        new_zone.type           = zone_types[zone_idx];
+
+        if(zone_types[zone_idx] == ZONE_TYPE_MATRIX)
+        {
+            new_zone.matrix_map.height      = MATRIX_HEIGHT;
+            new_zone.matrix_map.width       = MATRIX_WIDTH;
+            new_zone.matrix_map.map.resize(MATRIX_HEIGHT * MATRIX_WIDTH);
+
+            if((proto_type == APEX) || (proto_type == APEX_M))
+            {
+                SetSkuRegion(&new_zone.matrix_map, sku);
+            }
+        }
+
+        if((proto_type == APEX) || (proto_type == APEX_M))
+        {
+            new_zone.leds_min   = zone_sizes[zone_idx];
+            new_zone.leds_max   = zone_sizes[zone_idx];
+            new_zone.leds_count = zone_sizes[zone_idx];
+            total_led_count    += zone_sizes[zone_idx];
+        }
+        zones.push_back(new_zone);
+    };
+
+    SetSkuLedNames(leds, sku, total_led_count);
+    SetupColors();
+}
+
+void RGBController_SteelSeriesApex::DeviceUpdateLEDs()
+{
+    last_update_time = std::chrono::steady_clock::now();
+    controller->SetLEDsDirect(colors);
+}
+
+void RGBController_SteelSeriesApex::DeviceUpdateZoneLEDs(int /*zone*/)
+{
+    DeviceUpdateLEDs();
+}
+
+void RGBController_SteelSeriesApex::DeviceUpdateSingleLED(int /*led*/)
+{
+    DeviceUpdateLEDs();
+}
+
+void RGBController_SteelSeriesApex::DeviceUpdateMode()
+{
+    std::vector<RGBColor> temp_colors;
+
+    if(modes[active_mode].flags & MODE_FLAG_HAS_BRIGHTNESS)
+    {
+        controller->SetBrightness((unsigned char)modes[active_mode].brightness);
+    }
+
+    controller->SetMode(modes[active_mode].value, temp_colors);
+}

@@ -1,0 +1,12 @@
+#!/bin/sh
+# TuxRGB AppImage entry point.
+#
+# The Rust GUI uses the host's Wayland, Vulkan/GL and PipeWire libraries
+# (never bundled: they must match the running compositor and drivers).
+# The bundled OpenRGB 1.0 server finds its own Qt 6 / hidapi / libusb /
+# mbedtls copies through its RUNPATH ($ORIGIN/lib), so no LD_LIBRARY_PATH is
+# exported here and nothing leaks into the host programs TuxRGB starts.
+HERE="$(dirname "$(readlink -f "$0")")"
+export APPDIR="${APPDIR:-$HERE}"
+export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+exec "$HERE/usr/bin/tuxrgb" "$@"

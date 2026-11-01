@@ -1,0 +1,28 @@
+[Desktop Entry]
+Type=Application
+Name=TuxRGB
+GenericName=RGB Lighting Control
+GenericName[fr]=Contrôle de l'éclairage RGB
+Comment=Control the RGB lighting of your whole PC (motherboard, RAM, GPU, peripherals)
+Comment[fr]=Pilotez l'éclairage RGB de tout votre PC (carte mère, RAM, GPU, périphériques)
+Exec=tuxrgb
+Icon=io.github.tuxrgb.TuxRGB
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=RGB;LED;lighting;OpenRGB;ARGB;keyboard;mouse;fan;
+Keywords[fr]=RGB;LED;éclairage;OpenRGB;ARGB;clavier;souris;ventilateur;
+StartupNotify=true
+StartupWMClass=io.github.tuxrgb.TuxRGB
+SingleMainWindow=true
+X-KDE-FormFactor=desktop;
+Actions=Minimized;ResetHardware;
+
+[Desktop Action Minimized]
+Name=Start in the system tray
+Name[fr]=Démarrer dans la zone de notification
+Exec=tuxrgb --minimized
+
+[Desktop Action ResetHardware]
+Name=Reset hardware access
+Name[fr]=Réinitialiser l'accès matériel
+Exec=tuxrgb --reset-hardware

@@ -1,0 +1,33 @@
+/*---------------------------------------------------------*\
+| RGBController_MintakaKeyboard.h                           |
+|                                                           |
+|   Driver for VSG Mintaka Devices keyboard lighting        |
+|   Based on KeychronKeyboardController                     |
+|                                                           |
+|   Federico Scodelaro (pudymody)               08 Oct 2024 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+#pragma once
+
+#include "RGBController.h"
+#include "MintakaKeyboardController.h"
+
+class RGBController_MintakaKeyboard : public RGBController
+{
+public:
+    RGBController_MintakaKeyboard(MintakaKeyboardController* controller_ptr);
+    ~RGBController_MintakaKeyboard();
+
+    void SetupZones();
+
+    void DeviceUpdateLEDs();
+    void DeviceUpdateZoneLEDs(int zone);
+    void DeviceUpdateSingleLED(int led);
+
+    void DeviceUpdateMode();
+
+private:
+    MintakaKeyboardController* controller;
+};

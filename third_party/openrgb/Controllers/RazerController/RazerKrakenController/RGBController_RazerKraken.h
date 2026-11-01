@@ -1,0 +1,42 @@
+/*---------------------------------------------------------*\
+| RGBController_RazerKraken.h                               |
+|                                                           |
+|   RGBController for Razer Kraken                          |
+|                                                           |
+|   Adam Honse (CalcProgrammer1)                28 Feb 2021 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include "RGBController.h"
+#include "RazerKrakenController.h"
+
+enum
+{
+    RAZER_KRAKEN_MODE_DIRECT,
+    RAZER_KRAKEN_MODE_OFF,
+    RAZER_KRAKEN_MODE_STATIC,
+    RAZER_KRAKEN_MODE_BREATHING,
+    RAZER_KRAKEN_MODE_SPECTRUM_CYCLE,
+};
+
+class RGBController_RazerKraken : public RGBController
+{
+public:
+    RGBController_RazerKraken(RazerKrakenController* controller_ptr);
+    ~RGBController_RazerKraken();
+
+    void        SetupZones();
+
+    void        DeviceUpdateLEDs();
+    void        DeviceUpdateZoneLEDs(int zone);
+    void        DeviceUpdateSingleLED(int led);
+
+    void        DeviceUpdateMode();
+
+private:
+    RazerKrakenController*  controller;
+};

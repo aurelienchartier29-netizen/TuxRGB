@@ -1,0 +1,35 @@
+/*---------------------------------------------------------*\
+| RGBController_NZXTMouse.h                                 |
+|                                                           |
+|   RGBController for NZXT Mouse                            |
+|                                                           |
+|   Adam Honse (calcprogrammer1@gmail.com)      16 Dec 2023 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include "RGBController.h"
+#include "NZXTMouseController.h"
+
+class RGBController_NZXTMouse : public RGBController
+{
+public:
+    RGBController_NZXTMouse(NZXTMouseController* controller_ptr);
+    ~RGBController_NZXTMouse();
+
+    void        SetupZones();
+
+    void        DeviceUpdateLEDs();
+    void        DeviceUpdateZoneLEDs(int zone);
+    void        DeviceUpdateSingleLED(int led);
+
+    void        DeviceUpdateMode();
+
+private:
+    NZXTMouseController*        controller;
+    std::vector<unsigned int>   leds_channel;
+    std::vector<unsigned int>   zones_channel;
+};

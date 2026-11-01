@@ -1,0 +1,108 @@
+TuxRGB 3.6.0 pour Windows
+=========================
+
+FRANÇAIS
+--------
+TuxRGB pour Windows 10 / 11 (64 bits) : la même application que sur Linux,
+publiée en même temps et avec les mêmes correctifs.
+
+Ce qui est identique à Linux : toute l'interface Material 3 Expressive,
+les effets, les profils, le canevas spatial (ventilateurs placés un par
+un, rotation, masquage), les lumières réseau (WLED, Philips Hue et WiZ,
+Govee, LIFX, Nanoleaf, Yeelight, Elgato, TP-Link Kasa), les
+effets matériels des claviers et souris, et le moteur OpenRGB embarqué
+(OpenRGB 1.1, lancé par TuxRGB comme serveur privé). Depuis la 3.6, c'est
+le même moteur que sous Linux : compilé par TuxRGB avec son correctif, il
+dort entre deux mises à jour au lieu de vérifier ses contrôleurs mille fois
+par seconde. Il est inclus dans l'installateur (rien n'est téléchargé).
+
+Ce qui est propre à Windows :
+  - Visualiseur audio : capture WASAPI de la sortie par défaut.
+  - Synchro écran : écran principal (les jeux en plein écran exclusif
+    restent noirs : utilisez le mode « fenêtré sans bordure »).
+  - Zone de notification : icône Windows avec le même menu.
+  - Extinction / veille : toutes les LED (carte mère et ventilateurs
+    compris) passent à 0 % à l'arrêt, au redémarrage, à la fermeture de
+    session et à la mise en veille, en moins d'une demi-seconde (Windows
+    n'est jamais ralenti), puis reviennent au réveil et au démarrage
+    suivant.
+  - Couleur d'accentuation : celle de Windows (Paramètres →
+    Personnalisation → Couleurs), suivie en direct, ainsi que le mode
+    clair / sombre.
+  - Écran éteint : les LED s'éteignent avec l'écran (veille de l'écran)
+    et reviennent dès qu'il se rallume (Réglages → Démarrage).
+  - Ventilation : vitesse fixe ou courbe pour les ventilateurs branchés
+    sur la carte mère (contrôleurs ITE et Nuvoton), en mode
+    administrateur avec PawnIO. Les ventilateurs sont rendus à la carte
+    mère dès que TuxRGB s'arrête, même brutalement. Sur les cartes
+    Gigabyte à deux contrôleurs, ceux du second (souvent SYS_FAN5/6,
+    pompe) sont affichés en lecture seule.
+
+Accès matériel :
+  - Périphériques USB / HID (claviers, souris, contrôleurs USB) : rien à
+    faire.
+  - Carte mère et RAM (SMBus) : pilote PawnIO + droits administrateur.
+    L'installateur peut installer PawnIO et configurer le « mode
+    administrateur » (une tâche planifiée qui relance TuxRGB avec les
+    droits administrateur sans invite à chaque démarrage). Sinon :
+    Réglages → Accès matériel → Configurer l'accès.
+
+Mises à jour : Réglages → Mises à jour → Rechercher. TuxRGB télécharge le
+nouvel installateur depuis GitHub, vérifie sa somme SHA-256, l'exécute
+(confirmation Windows) puis redémarre tout seul ; les réglages, PawnIO et
+le mode administrateur sont conservés, et le moteur OpenRGB installé par
+TuxRGB est mis à jour avec lui (une installation d'OpenRGB à vous n'est
+pas touchée). La vérification peut aussi
+se faire automatiquement au démarrage (au plus toutes les 6 heures).
+
+Antivirus / SmartScreen : TuxRGB n'est pas encore signé numériquement.
+  - SmartScreen (« Windows a protégé votre ordinateur ») : Informations
+    complémentaires → Exécuter quand même.
+  - Si Windows Defender signale TuxRGB, c'est une fausse alerte (le code
+    source complet est public). Vous pouvez la signaler à Microsoft :
+    https://www.microsoft.com/wdsi/filesubmission (« Software developer »
+    ou « Home customer », fichier concerné, « Incorrectly detected »).
+
+Fichiers :
+  - Réglages : %APPDATA%\tuxrgb
+  - Journaux et rapport matériel : %LOCALAPPDATA%\tuxrgb
+
+Désinstallation : Paramètres Windows → Applications, ou le menu Démarrer →
+TuxRGB → Désinstaller TuxRGB (les réglages et le pilote PawnIO sont
+conservés).
+
+ENGLISH
+-------
+TuxRGB for Windows 10 / 11 (64-bit): the same application as on Linux,
+released at the same time with the same fixes.
+
+Same as on Linux: the whole Material 3 Expressive interface, effects,
+profiles, spatial canvas (fans placed one by one, rotation, hiding),
+network lights (WLED, Philips Hue and WiZ, Govee, LIFX, Nanoleaf, Yeelight,
+Elgato, TP-Link Kasa), keyboard / mouse hardware effects and the
+embedded OpenRGB 1.1 engine. Since 3.6 it is the same engine as on Linux:
+built by TuxRGB with its fix, it sleeps between updates instead of checking
+its controllers a thousand times a second. It is included in the installer
+(nothing is downloaded).
+
+Windows specifics: WASAPI audio capture, primary-monitor screen sync,
+Windows tray icon, every LED off at shutdown / logoff / sleep in under
+half a second (back on resume and at the next start), LEDs off while the
+screen is off, live Windows accent colour and light/dark mode.
+Fans page: fixed speed or curve for motherboard fans (ITE and Nuvoton
+controllers) in administrator mode with PawnIO; fans go back to the
+motherboard as soon as TuxRGB stops, even after a crash.
+Motherboard and RAM need the PawnIO driver and administrator rights
+(the installer can set both up; otherwise Settings → Hardware access →
+Set up access).
+
+Updates: Settings → Updates → Check. TuxRGB downloads the new installer
+from GitHub, verifies its SHA-256, runs it (Windows confirmation) and
+starts again by itself; settings, PawnIO and administrator mode are kept,
+and the OpenRGB engine TuxRGB installed is updated with it (an OpenRGB
+installation of your own is left alone). The check can also run automatically at start-up.
+
+Settings: %APPDATA%\tuxrgb – logs: %LOCALAPPDATA%\tuxrgb
+
+Licence : GPL-2.0-or-later (LICENSE.txt). Source code:
+https://github.com/aurelienchartier29-netizen/TuxRGB

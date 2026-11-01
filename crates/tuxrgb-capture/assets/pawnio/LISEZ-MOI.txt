@@ -1,0 +1,11 @@
+Modules PawnIO officiels (signés par namazso), utilisés par TuxRGB sous
+Windows pour lire la température et la puissance du CPU quand le pilote
+PawnIO est installé et que TuxRGB a les droits administrateur :
+  AMDFamily17.bin  – processeurs AMD Ryzen / EPYC (familles 17h, 19h, 1Ah)
+  IntelMSR.bin     – processeurs Intel Core
+Sources : https://github.com/namazso/PawnIO.Modules (LGPL-2.1, voir
+COPYING-LGPL-2.1.txt). Binaires signés identiques à ceux distribués avec
+LibreHardwareMonitor (LibreHardwareMonitorLib/Resources/PawnIo).
+SHA-256 :
+  dae74615761b78bdf064dfb3e136252ddcc6fc727d88f14738d0e5800d427a91  AMDFamily17.bin
+  d6ed85d65ab17a22f813ef98207d6d537155ee2ded5976a21cb48413c9b92e5f  IntelMSR.bin

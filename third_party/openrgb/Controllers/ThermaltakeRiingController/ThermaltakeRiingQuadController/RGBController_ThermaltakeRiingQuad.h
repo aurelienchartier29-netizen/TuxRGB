@@ -1,0 +1,36 @@
+/*---------------------------------------------------------*\
+| RGBController_ThermaltakeRiingQuad.h                      |
+|                                                           |
+|   RGBController for Thermaltake Riing Quad                |
+|                                                           |
+|   Chris M (Dr_No)                             15 Feb 2021 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include "RGBController.h"
+#include "ThermaltakeRiingQuadController.h"
+
+class RGBController_ThermaltakeRiingQuad : public RGBController
+{
+public:
+    RGBController_ThermaltakeRiingQuad(ThermaltakeRiingQuadController* controller_ptr);
+    ~RGBController_ThermaltakeRiingQuad();
+
+    void        SetupZones();
+    void        DeviceConfigureZone(int zone_idx);
+
+    void        DeviceUpdateLEDs();
+    void        DeviceUpdateZoneLEDs(int zone);
+    void        DeviceUpdateSingleLED(int led);
+
+    void        DeviceUpdateMode();
+
+private:
+    ThermaltakeRiingQuadController* controller;
+    std::vector<unsigned int>       leds_channel;
+    std::vector<unsigned int>       zones_channel;
+};

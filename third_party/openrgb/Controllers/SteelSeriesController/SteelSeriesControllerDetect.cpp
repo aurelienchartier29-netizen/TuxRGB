@@ -1,0 +1,561 @@
+/*---------------------------------------------------------*\
+| SteelSeriesControllerDetect.cpp                           |
+|                                                           |
+|   Detector for SteelSeries devices                        |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#include <hidapi.h>
+#include "DetectionManager.h"
+#include "SteelSeriesDevices.h"
+#include "SteelSeriesAeroxWirelessController.h"
+#include "SteelSeriesAerox5Controller.h"
+#include "SteelSeriesArctisNova3Controller.h"
+#include "SteelSeriesArctis5Controller.h"
+#include "SteelSeriesApex8ZoneController.h"
+#include "SteelSeriesApexController.h"
+#include "SteelSeriesApexMController.h"
+#include "SteelSeriesApexTZoneController.h"
+#include "SteelSeriesOldApexController.h"
+#include "SteelSeriesQCKMatController.h"
+#include "SteelSeriesRivalController.h"
+#include "SteelSeriesRival3Controller.h"
+#include "SteelSeriesRival5Controller.h"
+#include "SteelSeriesSenseiController.h"
+#include "SteelSeriesSiberiaController.h"
+#include "RGBController_SteelSeriesArctisNova3.h"
+#include "RGBController_SteelSeriesArctis5.h"
+#include "RGBController_SteelSeriesApex.h"
+#include "RGBController_SteelSeriesApex3.h"
+#include "RGBController_SteelSeriesOldApex.h"
+#include "RGBController_SteelSeriesQCKMat.h"
+#include "RGBController_SteelSeriesRival.h"
+#include "RGBController_SteelSeriesRival3.h"
+#include "RGBController_SteelSeriesRival5.h"
+#include "RGBController_SteelSeriesSensei.h"
+#include "RGBController_SteelSeriesSiberia.h"
+
+
+
+DetectedControllers DetectSteelSeriesAerox3(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesAerox3Controller*     controller     = new SteelSeriesAerox3Controller(dev, AEROX_3, info->path, name);
+        RGBController_SteelSeriesRival3* rgb_controller = new RGBController_SteelSeriesRival3(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesAeroxWireless(hid_device_info* info, const std::string& name, steelseries_type proto_type)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesAeroxWirelessController* controller     = new SteelSeriesAeroxWirelessController(dev, proto_type, info->path, name);
+        RGBController_SteelSeriesRival3*    rgb_controller = new RGBController_SteelSeriesRival3(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesAerox3Wireless(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_3_WIRELESS));
+}
+
+DetectedControllers DetectSteelSeriesAerox3WirelessWired(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_3_WIRELESS_WIRED));
+}
+
+DetectedControllers DetectSteelSeriesAerox3Gen2Wireless(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_3_GEN2_WIRELESS));
+}
+
+DetectedControllers DetectSteelSeriesAerox5(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesAerox5Controller*     controller     = new SteelSeriesAerox5Controller(dev, AEROX_3, info->path, name);
+        RGBController_SteelSeriesRival3* rgb_controller = new RGBController_SteelSeriesRival3(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesAerox5Wireless(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_5_WIRELESS));
+}
+
+DetectedControllers DetectSteelSeriesAerox5WirelessWired(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_5_WIRELESS_WIRED));
+}
+
+DetectedControllers DetectSteelSeriesAerox5DestinyWireless(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_5_DESTINY_WIRELESS));
+}
+
+DetectedControllers DetectSteelSeriesAerox5DestinyWirelessWired(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_5_DESTINY_WIRELESS_WIRED));
+}
+
+DetectedControllers DetectSteelSeriesAerox5DiabloWireless(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_5_DIABLO_WIRELESS));
+}
+
+DetectedControllers DetectSteelSeriesAerox5DiabloWirelessWired(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_5_DIABLO_WIRELESS_WIRED));
+}
+
+DetectedControllers DetectSteelSeriesAerox9Wireless(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_9_WIRELESS));
+}
+
+DetectedControllers DetectSteelSeriesAerox9WirelessWired(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, AEROX_9_WIRELESS_WIRED));
+}
+
+DetectedControllers DetectSteelSeriesRival3Wireless(hid_device_info* info, const std::string& name)
+{
+    return(DetectSteelSeriesAeroxWireless(info, name, RIVAL_3_WIRELESS));
+}
+
+DetectedControllers DetectSteelSeriesApex3Full(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesApexTZoneController* controller     = new SteelSeriesApexTZoneController(dev, info->path, name);
+        RGBController_SteelSeriesApex3* rgb_controller = new RGBController_SteelSeriesApex3(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesApex3TKL(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesApex8ZoneController* controller     = new SteelSeriesApex8ZoneController(dev, info->path, name);
+        RGBController_SteelSeriesApex3* rgb_controller = new RGBController_SteelSeriesApex3(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesApex(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesApexController*     controller     = new SteelSeriesApexController(dev, APEX, info->path, info->product_id, name);
+        RGBController_SteelSeriesApex* rgb_controller = new RGBController_SteelSeriesApex(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesApexM(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesApexMController*    controller     = new SteelSeriesApexMController(dev, APEX_M, info->path, name);
+        RGBController_SteelSeriesApex* rgb_controller = new RGBController_SteelSeriesApex(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesApexOld(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesOldApexController*     controller     = new SteelSeriesOldApexController(dev, APEX_OLD, info->path, name);
+        RGBController_SteelSeriesOldApex* rgb_controller = new RGBController_SteelSeriesOldApex(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesHeadset(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesSiberiaController*     controller     = new SteelSeriesSiberiaController(dev, info->path, name);
+        RGBController_SteelSeriesSiberia* rgb_controller = new RGBController_SteelSeriesSiberia(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesMousemat(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesQCKMatController*     controller     = new SteelSeriesQCKMatController(dev, info->path, name);
+        RGBController_SteelSeriesQCKMat* rgb_controller = new RGBController_SteelSeriesQCKMat(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesRival100(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesRivalController*     controller     = new SteelSeriesRivalController(dev, RIVAL_100, info->path, name);
+        RGBController_SteelSeriesRival* rgb_controller = new RGBController_SteelSeriesRival(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesRival300(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesRivalController*     controller     = new SteelSeriesRivalController(dev, RIVAL_300, info->path, name);
+        RGBController_SteelSeriesRival* rgb_controller = new RGBController_SteelSeriesRival(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesRival600(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesRivalController*     controller     = new SteelSeriesRivalController(dev, RIVAL_600, info->path, name);
+        RGBController_SteelSeriesRival* rgb_controller = new RGBController_SteelSeriesRival(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+
+DetectedControllers DetectSteelSeriesRival650(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesRivalController*     controller     = new SteelSeriesRivalController(dev, RIVAL_650, info->path, name);
+        RGBController_SteelSeriesRival* rgb_controller = new RGBController_SteelSeriesRival(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesRival700(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesRivalController*     controller     = new SteelSeriesRivalController(dev, RIVAL_700, info->path, name);
+        RGBController_SteelSeriesRival* rgb_controller = new RGBController_SteelSeriesRival(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesRival3(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesRival3Controller*     controller     = new SteelSeriesRival3Controller(dev, RIVAL_3, info->path, name);
+        RGBController_SteelSeriesRival3* rgb_controller = new RGBController_SteelSeriesRival3(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesSensei(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesSenseiController*     controller     = new SteelSeriesSenseiController(dev, SENSEI, info->path, name);
+        RGBController_SteelSeriesSensei* rgb_controller = new RGBController_SteelSeriesSensei(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesArctisNova3(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesArctisNova3Controller*     controller     = new SteelSeriesArctisNova3Controller(dev, *info, name);
+        RGBController_SteelSeriesArctisNova3* rgb_controller = new RGBController_SteelSeriesArctisNova3(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+
+DetectedControllers DetectSteelSeriesArctis5(hid_device_info* info, const std::string& name)
+{
+    DetectedControllers detected_controllers;
+    hid_device*         dev;
+
+    dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesArctis5Controller*     controller     = new SteelSeriesArctis5Controller(dev, *info, name);
+        RGBController_SteelSeriesArctis5* rgb_controller = new RGBController_SteelSeriesArctis5(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return(detected_controllers);
+}
+DetectedControllers DetectSteelSeriesRival5(
+    hid_device_info* info,
+    const std::string& name)
+{
+    DetectedControllers detected_controllers;
+
+    hid_device* dev = hid_open_path(info->path);
+
+    if(dev)
+    {
+        SteelSeriesRival5Controller* controller =
+            new SteelSeriesRival5Controller(
+                dev,
+                RIVAL_5,
+                info->path,
+                name
+            );
+
+        RGBController_SteelSeriesRival5* rgb_controller =
+            new RGBController_SteelSeriesRival5(controller);
+
+        detected_controllers.push_back(rgb_controller);
+    }
+
+    return detected_controllers;
+}
+
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------*\
+| Mice                                                                                                                                                                      |
+\*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 3 Wireless",                                DetectSteelSeriesAerox3Wireless,              STEELSERIES_VID, STEELSERIES_AEROX_3_WIRELESS_PID,                3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 3 Wireless Wired",                          DetectSteelSeriesAerox3WirelessWired,         STEELSERIES_VID, STEELSERIES_AEROX_3_WIRELESS_WIRED_PID,          3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 3 CS2 Dragon Lore Edition Wireless",        DetectSteelSeriesAerox3Wireless,              STEELSERIES_VID, STEELSERIES_AEROX_3_CS2_WIRELESS_PID,            3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 3 CS2 Dragon Lore Edition Wireless Wired",  DetectSteelSeriesAerox3WirelessWired,         STEELSERIES_VID, STEELSERIES_AEROX_3_CS2_WIRELESS_WIRED_PID,      3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 3 Wireless Gen 2",                           DetectSteelSeriesAerox3Gen2Wireless,          STEELSERIES_VID, STEELSERIES_AEROX_3_GEN2_WIRELESS_PID,           3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 3 Wired",                                   DetectSteelSeriesAerox3,                     STEELSERIES_VID, STEELSERIES_AEROX_3_PID,                         3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 5 Wireless",                                DetectSteelSeriesAerox5Wireless,              STEELSERIES_VID, STEELSERIES_AEROX_5_WIRELESS_PID,                3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 5 Wireless Wired",                          DetectSteelSeriesAerox5WirelessWired,         STEELSERIES_VID, STEELSERIES_AEROX_5_WIRELESS_WIRED_PID,          3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 5 Destiny 2 Edition Wireless",              DetectSteelSeriesAerox5DestinyWireless,       STEELSERIES_VID, STEELSERIES_AEROX_5_DESTINY_WIRELESS_PID,        3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 5 Destiny 2 Edition Wireless Wired",        DetectSteelSeriesAerox5DestinyWirelessWired,  STEELSERIES_VID, STEELSERIES_AEROX_5_DESTINY_WIRELESS_WIRED_PID,  3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 5 Diablo IV Edition Wireless",              DetectSteelSeriesAerox5DiabloWireless,        STEELSERIES_VID, STEELSERIES_AEROX_5_DIABLO_WIRELESS_PID,         3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 5 Diablo IV Edition Wireless Wired",        DetectSteelSeriesAerox5DiabloWirelessWired,   STEELSERIES_VID, STEELSERIES_AEROX_5_DIABLO_WIRELESS_WIRED_PID,   3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 5 Wired",                                   DetectSteelSeriesAerox5,                      STEELSERIES_VID, STEELSERIES_AEROX_5_PID,                         3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 9 Wireless",                                DetectSteelSeriesAerox9Wireless,              STEELSERIES_VID, STEELSERIES_AEROX_9_WIRELESS_PID,                3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Aerox 9 Wireless Wired",                          DetectSteelSeriesAerox9WirelessWired,         STEELSERIES_VID, STEELSERIES_AEROX_9_WIRELESS_WIRED_PID,          3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 100",                                         DetectSteelSeriesRival100,                    STEELSERIES_VID, STEELSERIES_RIVAL_100_PID,                       0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 100 DotA 2 Edition",                          DetectSteelSeriesRival100,                    STEELSERIES_VID, STEELSERIES_RIVAL_100_DOTA_PID,                  0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 105",                                         DetectSteelSeriesRival100,                    STEELSERIES_VID, STEELSERIES_RIVAL_105_PID,                       0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 106",                                         DetectSteelSeriesRival100,                    STEELSERIES_VID, STEELSERIES_RIVAL_106_PID,                       0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 110",                                         DetectSteelSeriesRival100,                    STEELSERIES_VID, STEELSERIES_RIVAL_110_PID,                       0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 300",                                         DetectSteelSeriesRival300,                    STEELSERIES_VID, STEELSERIES_RIVAL_300_PID,                       0);
+REGISTER_HID_DETECTOR_I("Acer Predator Gaming Mouse (Rival 300)",                        DetectSteelSeriesRival300,                    STEELSERIES_VID, ACER_PREDATOR_RIVAL_300_PID,                     0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 300 CS:GO Fade Edition",                      DetectSteelSeriesRival300,                    STEELSERIES_VID, STEELSERIES_RIVAL_300_CSGO_PID,                  0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 300 CS:GO Fade Edition (stm32)",              DetectSteelSeriesRival300,                    STEELSERIES_VID, STEELSERIES_RIVAL_300_CSGO_STM32_PID,            0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 300 CS:GO Hyperbeast Edition",                DetectSteelSeriesRival300,                    STEELSERIES_VID, STEELSERIES_RIVAL_300_CSGO_HYPERBEAST_PID,       0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 300 Dota 2 Edition",                          DetectSteelSeriesRival300,                    STEELSERIES_VID, STEELSERIES_RIVAL_300_DOTA_PID,                  0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 300 HP Omen Edition",                         DetectSteelSeriesRival300,                    STEELSERIES_VID, STEELSERIES_RIVAL_300_HP_PID,                    0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 300 Black Ops Edition",                       DetectSteelSeriesRival300,                    STEELSERIES_VID, STEELSERIES_RIVAL_300_BLACKOPS_PID,              0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 310",                                         DetectSteelSeriesSensei,                      STEELSERIES_VID, STEELSERIES_RIVAL_310_PID,                       0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 310 CS:GO Howl Edition",                      DetectSteelSeriesSensei,                      STEELSERIES_VID, STEELSERIES_RIVAL_310_CSGO_HOWL_PID,             0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 310 PUBG Edition",                            DetectSteelSeriesSensei,                      STEELSERIES_VID, STEELSERIES_RIVAL_310_PUBG_PID,                  0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 600",                                         DetectSteelSeriesRival600,                    STEELSERIES_VID, STEELSERIES_RIVAL_600_PID,                       0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 600 Dota 2 Edition",                          DetectSteelSeriesRival600,                    STEELSERIES_VID, STEELSERIES_RIVAL_600_DOTA_2_PID,                0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 650",                                         DetectSteelSeriesRival650,                    STEELSERIES_VID, STEELSERIES_RIVAL_650_PID,                       0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 650 Wireless",                                DetectSteelSeriesRival650,                    STEELSERIES_VID, STEELSERIES_RIVAL_650_WIRELESS_PID,              0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 700",                                         DetectSteelSeriesRival700,                    STEELSERIES_VID, STEELSERIES_RIVAL_700_PID,                       0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 710",                                         DetectSteelSeriesRival700,                    STEELSERIES_VID, STEELSERIES_RIVAL_710_PID,                       0);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 3 (Old Firmware)",                            DetectSteelSeriesRival3,                      STEELSERIES_VID, STEELSERIES_RIVAL_3_OLD_PID,                     3);
+REGISTER_HID_DETECTOR_I("SteelSeries Rival 3",                                           DetectSteelSeriesRival3,                      STEELSERIES_VID, STEELSERIES_RIVAL_3_PID,                         3);
+REGISTER_HID_DETECTOR_IPU("SteelSeries Rival 3 Wireless",                                DetectSteelSeriesRival3Wireless,              STEELSERIES_VID, STEELSERIES_RIVAL_3_WIRELESS_PID,                3, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Rival 5",                                         DetectSteelSeriesRival5,                      STEELSERIES_VID, STEELSERIES_RIVAL_5_PID,                         0, 0xFFC0, 1 );
+REGISTER_HID_DETECTOR_I("SteelSeries Sensei TEN",                                        DetectSteelSeriesSensei,                      STEELSERIES_VID, STEELSERIES_SENSEI_TEN_PID,                      0);
+REGISTER_HID_DETECTOR_I("SteelSeries Sensei TEN CS:GO Neon Rider Edition",               DetectSteelSeriesSensei,                      STEELSERIES_VID, STEELSERIES_SENSEI_TEN_CSGO_NEON_RIDER_PID,      0);
+REGISTER_HID_DETECTOR_I("SteelSeries Sensei 310",                                        DetectSteelSeriesSensei,                      STEELSERIES_VID, STEELSERIES_SENSEI_310_PID,                      0);
+
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------*\
+| Headsets                                                                                                                                                                  |
+\*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
+REGISTER_HID_DETECTOR_I("SteelSeries Siberia 350",                          DetectSteelSeriesHeadset,   STEELSERIES_VID, STEELSERIES_SIBERIA_350_PID,               3  );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Arctis Nova 3",                      DetectSteelSeriesArctisNova3,   STEELSERIES_VID, STEELSERIES_ARCTIS_NOVA_3_PID,    4, 0xFFC0, 1);
+REGISTER_HID_DETECTOR_I("SteelSeries Arctis 5",                             DetectSteelSeriesArctis5,   STEELSERIES_VID, STEELSERIES_ARCTIS_5_PID,                  5  );
+REGISTER_HID_DETECTOR_I("SteelSeries Arctis 5",                             DetectSteelSeriesArctis5,   STEELSERIES_VID, STEELSERIES_ARCTIS_5_V2_PID,               5  );
+
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*\
+| Mousemats                                                                                                                                                                                      |
+\*----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
+REGISTER_HID_DETECTOR_I("SteelSeries QCK Prism Cloth Medium",                       DetectSteelSeriesMousemat,  STEELSERIES_VID, STEELSERIES_QCK_PRISM_CLOTH_MED_PID,                        0  );
+REGISTER_HID_DETECTOR_I("SteelSeries QCK Prism Cloth XL",                           DetectSteelSeriesMousemat,  STEELSERIES_VID, STEELSERIES_QCK_PRISM_CLOTH_XL_PID,                         0  );
+REGISTER_HID_DETECTOR_I("SteelSeries QCK Prism Cloth XL Destiny Ed.",               DetectSteelSeriesMousemat,  STEELSERIES_VID, STEELSERIES_QCK_PRISM_CLOTH_XL_DESTINY_PID,                 0  );
+REGISTER_HID_DETECTOR_I("SteelSeries QCK Prism Cloth XL Destiny 2 Lightfall Ed.",   DetectSteelSeriesMousemat,  STEELSERIES_VID, STEELSERIES_QCK_PRISM_CLOTH_XL_DESTINY_2_LIGHTFALL_ED_PID,  0  );
+REGISTER_HID_DETECTOR_I("SteelSeries QCK Prism Cloth XL CS:GO Neon Rider Ed.",      DetectSteelSeriesMousemat,  STEELSERIES_VID, STEELSERIES_QCK_PRISM_CLOTH_XL_CSGO_NEON_RIDER_PID,         0  );
+REGISTER_HID_DETECTOR_I("SteelSeries QCK Prism Cloth XL CS:GO Neo Noir Ed.",        DetectSteelSeriesMousemat,  STEELSERIES_VID, STEELSERIES_QCK_PRISM_CLOTH_XL_CSGO_NEO_NOIR_PID,           0  );
+REGISTER_HID_DETECTOR_I("SteelSeries QCK Prism Cloth 3XL",                          DetectSteelSeriesMousemat,  STEELSERIES_VID, STEELSERIES_QCK_PRISM_CLOTH_3XL_PID,                        0  );
+REGISTER_HID_DETECTOR_I("SteelSeries QCK Prism Cloth 4XL",                          DetectSteelSeriesMousemat,  STEELSERIES_VID, STEELSERIES_QCK_PRISM_CLOTH_4XL_PID,                        0  );
+REGISTER_HID_DETECTOR_I("SteelSeries QCK Prism Cloth 5XL",                          DetectSteelSeriesMousemat,  STEELSERIES_VID, STEELSERIES_QCK_PRISM_CLOTH_5XL_PID,                        0  );
+
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------*\
+| Keyboards                                                                                                                                                                 |
+\*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex 3",                             DetectSteelSeriesApex3Full, STEELSERIES_VID, STEELSERIES_APEX_3_PID,                    	3  );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Apex 3 TKL",                         DetectSteelSeriesApex3TKL,  STEELSERIES_VID, STEELSERIES_APEX_3_TKL_PID,    1,  0xFFC0,     1  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex 5",                             DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_5_PID,                    	1  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex 7",                             DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_7_PID,                    	1  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex 7 TKL",                         DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_7_TKL_PID,                	1  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex 9 TKL",                         DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_9_TKL_PID,                	1  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex 9 Mini",                        DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_9_MINI_PID,                	1  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex Pro",                           DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_PRO_PID,                  	1  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex Pro TKL",                       DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_PRO_TKL_PID,              	1  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex Pro TKL 2023 Wired",            DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_PRO_TKL_2023_PID,          	1  );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Apex Pro TKL 2023 Wireless",         DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_PRO_TKL_2023_WL_PID_1, 3, 0xFFC0, 1);
+REGISTER_HID_DETECTOR_IPU("SteelSeries Apex Pro TKL 2023 Wireless",         DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_PRO_TKL_2023_WL_PID_2, 3, 0xFFC0, 1);
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex Pro TKL Gen 3 Wired",           DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_PRO_TKL_GEN3_PID,          	1  );
+REGISTER_HID_DETECTOR_IPU("SteelSeries Apex Pro TKL Gen 3 Wireless",        DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_PRO_TKL_GEN3_WL_PID_1, 3, 0xFFC0, 1);
+REGISTER_HID_DETECTOR_IPU("SteelSeries Apex Pro TKL Gen 3 Wireless",        DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_PRO_TKL_GEN3_WL_PID_2, 3, 0xFFC0, 1);
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex M750",                          DetectSteelSeriesApexM,     STEELSERIES_VID, STEELSERIES_APEX_M750_PID,                 	2  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex (OG)/Apex Fnatic",              DetectSteelSeriesApexOld,   STEELSERIES_VID, STEELSERIES_APEX_OG_PID,                   	0  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex 350",                           DetectSteelSeriesApexOld,   STEELSERIES_VID, STEELSERIES_APEX_350_PID,                      0  );
+REGISTER_HID_DETECTOR_I  ("SteelSeries Apex Pro 3",                         DetectSteelSeriesApex,      STEELSERIES_VID, STEELSERIES_APEX_PRO3_PID,                     1  );

@@ -1,0 +1,191 @@
+/*---------------------------------------------------------*\
+| NZXTHue2Controller.h                                      |
+|                                                           |
+|   Driver for NZXT Hue 2                                   |
+|                                                           |
+|   Adam Honse (calcprogrammer1@gmail.com)      29 Dec 2019 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include <string>
+#include <vector>
+#include <hidapi.h>
+#include "RGBController.h"
+
+enum
+{
+    HUE_2_CHANNEL_ALL       = 0x00,     /* All channels                 */
+    HUE_2_CHANNEL_1         = 0x01,     /* Channel 1                    */
+    HUE_2_CHANNEL_2         = 0x02,     /* Channel 2                    */
+    HUE_2_CHANNEL_3         = 0x03,     /* Channel 3                    */
+    HUE_2_CHANNEL_4         = 0x04,     /* Channel 4                    */
+    HUE_2_CHANNEL_5         = 0x05,     /* Channel 5                    */
+    HUE_2_CHANNEL_6         = 0x06,     /* Channel 6                    */
+    HUE_2_NUM_CHANNELS      = 0x06      /* Number of channels           */
+};
+
+enum
+{
+    HUE_2_CHANNEL_1_IDX     = 0x00,     /* Channel 1 array index        */
+    HUE_2_CHANNEL_2_IDX     = 0x01,     /* Channel 2 array index        */
+    HUE_2_CHANNEL_3_IDX     = 0x01,     /* Channel 3 array index        */
+    HUE_2_CHANNEL_4_IDX     = 0x01,     /* Channel 4 array index        */
+};
+
+enum
+{
+    HUE_2_SPEED_SLOWEST         = 0x00,     /* Slowest speed                */
+    HUE_2_SPEED_SLOW            = 0x01,     /* Slow speed                   */
+    HUE_2_SPEED_NORMAL          = 0x02,     /* Normal speed                 */
+    HUE_2_SPEED_FAST            = 0x03,     /* Fast speed                   */
+    HUE_2_SPEED_FASTEST         = 0x04,     /* Fastest speed                */
+};
+
+/*---------------------------------------------------------*\
+| PIDs that need naming distinct from a plain Hue 2         |
+| channel layout - shared with the detector so both         |
+| sides switch on the same values                           |
+\*---------------------------------------------------------*/
+#define NZXT_KRAKEN_X3_SERIES_PID                0x2007
+#define NZXT_KRAKEN_X3_SERIES_RGB_PID            0x2014
+
+/*---------------------------------------------------------*\
+| Bounds for the device-list read-until-response loop.      |
+| Tested against Smart Device V2, required between 100-200  |
+| ms to detect attached devices, so 1000ms was chosen to    |
+| provide an ample buffer on top of that.                   |
+\*---------------------------------------------------------*/
+#define NZXT_HUE_2_DEVICE_LIST_READ_TIMEOUT_MS  1000
+#define NZXT_HUE_2_DEVICE_LIST_MAX_RETRIES      10
+
+enum
+{
+    HUE_2_MODE_FIXED            = 0x00,     /* Fixed colors mode            */
+    HUE_2_MODE_FADING           = 0x01,     /* Fading mode                  */
+    HUE_2_MODE_SPECTRUM         = 0x02,     /* Spectrum cycle mode          */
+    HUE_2_MODE_MARQUEE          = 0x03,     /* Marquee mode                 */
+    HUE_2_MODE_COVER_MARQUEE    = 0x04,     /* Cover marquee mode           */
+    HUE_2_MODE_ALTERNATING      = 0x05,     /* Alternating mode             */
+    HUE_2_MODE_PULSING          = 0x06,     /* Pulsing mode                 */
+    HUE_2_MODE_BREATHING        = 0x07,     /* Breathing mode               */
+    HUE_2_MODE_CANDLE           = 0x08,     /* Candle Mode                  */
+    HUE_2_MODE_STARRY_NIGHT     = 0x09,     /* Starry Night mode            */
+    HUE_2_MODE_RAINBOW_FLOW     = 0x0B,     /* Rainbow Flow mode            */
+    HUE_2_MODE_SUPER_RAINBOW    = 0x0C,     /* Super Rainbow mode           */
+    HUE_2_MODE_RAINBOW_PULSE    = 0x0D,     /* Rainbow Pulse mode           */
+    HUE_2_NUM_MODES,                        /* Number of Hue 2 modes        */
+
+    HUE_2_MODE_DIRECT           = 0xFFFF,   /* Dummy mode ID for direct mode*/
+};
+
+class NZXTHue2Controller
+{
+public:
+    NZXTHue2Controller(hid_device* dev_handle, unsigned int rgb_channels, unsigned int fan_channels, const char* path, std::string dev_name, unsigned short dev_pid, bool use_2023_effects = false);
+    ~NZXTHue2Controller();
+
+    std::string     GetFirmwareVersion();
+    std::string     GetLocation();
+    std::string     GetName();
+    unsigned short  GetPID();
+    std::string     GetSerialString();
+
+    unsigned char   GetFanCommand
+                        (
+                        unsigned char   fan_channel
+                        );
+
+    unsigned short  GetFanRPM
+                        (
+                        unsigned char   fan_channel
+                        );
+
+    unsigned int    GetNumFanChannels();
+
+    unsigned int    GetNumRGBChannels();
+
+    void            SendFan
+                        (
+                            unsigned char       port,
+                            unsigned char       mode,
+                            unsigned char       speed
+                        );
+
+    void            SetChannelEffect
+                        (
+                        unsigned char   channel,
+                        unsigned char   mode,
+                        unsigned char   speed,
+                        bool            direction,
+                        RGBColor *      colors,
+                        unsigned int    num_colors
+                        );
+
+    void            SetChannelLEDs
+                        (
+                        unsigned char   channel,
+                        RGBColor *      colors,
+                        unsigned int    num_colors
+                        );
+
+    void            UpdateDeviceList();
+
+    void            UpdateStatus();
+
+    unsigned int    channel_leds[HUE_2_NUM_CHANNELS];
+    unsigned int    channel_dev_ids[HUE_2_NUM_CHANNELS][6];
+    unsigned int    channel_dev_szs[HUE_2_NUM_CHANNELS][6];
+
+private:
+    hid_device*     dev;
+
+    std::vector<unsigned char>  fan_cmd;
+    std::vector<unsigned short> fan_rpm;
+
+    char            firmware_version[16];
+    std::string     location;
+    std::string     name;
+    unsigned short  pid;
+    bool            use_2023_effects;
+    unsigned int    num_fan_channels;
+    unsigned int    num_rgb_channels;
+
+    void            SendApply
+                        (
+                        unsigned char   channel
+                        );
+
+    void            SendDirect
+                        (
+                        unsigned char   channel,
+                        unsigned char   group,
+                        unsigned char   color_count,
+                        unsigned char*  color_data
+                        );
+
+    void            SendEffect
+                        (
+                        unsigned char   channel,
+                        unsigned char   mode,
+                        unsigned char   speed,
+                        bool            direction,
+                        unsigned char   color_count,
+                        unsigned char*  color_data
+                        );
+
+    void            SendEffect2023
+                        (
+                        unsigned char   channel,
+                        unsigned char   mode,
+                        unsigned char   speed,
+                        bool            direction,
+                        unsigned char   color_count,
+                        unsigned char*  color_data
+                        );
+
+    void            SendFirmwareRequest();
+};
