@@ -46,7 +46,9 @@ pub fn status_chip(app: &App) -> Element<'_, Message> {
         BridgeStatus::Detecting { seconds } => {
             (2, r.warning, trf!("Détection du matériel… {} s", seconds))
         }
-        BridgeStatus::Error(_) | BridgeStatus::NoServerBinary => (3, r.error, app.status_text()),
+        BridgeStatus::Error(_) | BridgeStatus::NoServerBinary | BridgeStatus::MissingLibrary(_) => {
+            (3, r.error, app.status_text())
+        }
         _ => (4, r.warning, app.status_text()),
     };
     // Another state of the engine: dot and text fade in.

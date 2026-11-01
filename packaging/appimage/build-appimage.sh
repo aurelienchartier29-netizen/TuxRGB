@@ -95,6 +95,19 @@ bundle_deps "$APPDIR/usr/lib/tuxrgb/openrgb/openrgb" "$APPDIR/usr/lib/tuxrgb/ope
 patchelf --set-rpath '$ORIGIN/lib' "$APPDIR/usr/lib/tuxrgb/openrgb/openrgb"
 log "Bundled $(ls "$APPDIR/usr/lib/tuxrgb/openrgb/lib" | wc -l) libraries for OpenRGB"
 
+# Fallback copies of host libraries a desktop may lack (Ubuntu 26.10 no
+# longer installs libopengl0): TuxRGB puts one on the server's
+# LD_LIBRARY_PATH only when the host has none (FALLBACK_LIBS in
+# crates/tuxrgb-openrgb/src/server.rs, the list read from there).
+FALLBACK_LIBS="$(sed -n '/pub const FALLBACK_LIBS/,/^];/p' "$ROOT/crates/tuxrgb-openrgb/src/server.rs" | grep -o '"lib[^"]*"' | tr -d '"')"
+[[ -n "$FALLBACK_LIBS" ]] || { echo "FALLBACK_LIBS not found in server.rs" >&2; exit 1; }
+for name in $FALLBACK_LIBS; do
+  path="$(ldconfig -p | awk -v n="$name" '$1 == n && /x86-64/ {print $NF; exit}')"
+  [[ -n "$path" ]] || { echo "fallback library $name missing on the build system" >&2; exit 1; }
+  install -Dm644 "$(readlink -f "$path")" "$APPDIR/usr/lib/tuxrgb/openrgb/fallback/$name/$name"
+done
+log "Fallback libraries: $(echo $FALLBACK_LIBS)"
+
 # Smoke test: the bundled server must start and report its version.
 "$APPDIR/usr/lib/tuxrgb/openrgb/openrgb" --version | head -2
 
@@ -115,7 +128,18 @@ archive (third_party/openrgb) and is available at
 https://gitlab.com/CalcProgrammer1/OpenRGB
 Bundled Qt 6 libraries are LGPL-3.0; their sources are available from your
 distribution or https://download.qt.io/.
+The fallback copies in usr/lib/tuxrgb/openrgb/fallback (used only when the
+system lacks them) are libglvnd's libOpenGL, libGLX, libEGL and
+libGLdispatch (MIT-style licence, fallback-libglvnd-copyright.txt) and GCC's
+libgomp (GPL-3.0 with the GCC Runtime Library Exception,
+fallback-libgomp-copyright.txt), unmodified, from Ubuntu.
 EOF
+for doc in libglvnd0 libgomp1; do
+  src="/usr/share/doc/$doc/copyright"
+  if [[ -f "$src" ]]; then
+    install -m644 "$src" "$APPDIR/usr/share/licenses/tuxrgb/fallback-${doc%%[0-9]*}-copyright.txt"
+  fi
+done
 
 # AppImage root.
 install -m755 "$ROOT/packaging/appimage/AppRun" "$APPDIR/AppRun"

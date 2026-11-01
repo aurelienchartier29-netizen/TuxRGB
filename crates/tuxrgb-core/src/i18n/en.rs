@@ -14,6 +14,23 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Moteur OpenRGB introuvable", "OpenRGB engine not found"),
     ("Reconnexion au moteur…", "Reconnecting to the engine…"),
     ("Erreur du moteur matériel", "Hardware engine error"),
+    ("Bibliothèque système manquante", "System library missing"),
+    (
+        "Bibliothèque système manquante : {}",
+        "System library missing: {}",
+    ),
+    (
+        "Le moteur OpenRGB ne démarre pas : {} manque",
+        "The OpenRGB engine does not start: {} is missing",
+    ),
+    (
+        "Cette bibliothèque fait partie du système, pas de TuxRGB. Installez-la avec le gestionnaire de paquets de votre distribution (Ubuntu et Debian : paquet {}), puis relancez TuxRGB.",
+        "This library belongs to the system, not to TuxRGB. Install it with your distribution's package manager (Ubuntu and Debian: package {}), then start TuxRGB again.",
+    ),
+    (
+        "Cette bibliothèque fait partie du système, pas de TuxRGB. Installez-la avec le gestionnaire de paquets de votre distribution, puis relancez TuxRGB.",
+        "This library belongs to the system, not to TuxRGB. Install it with your distribution's package manager, then start TuxRGB again.",
+    ),
     ("Moteur arrêté", "Engine stopped"),
     (
         "Accès matériel à configurer",

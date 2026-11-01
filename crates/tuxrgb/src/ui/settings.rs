@@ -942,6 +942,7 @@ fn engine(app: &App) -> Element<'_, Message> {
             )
         }
         BridgeStatus::Error(e) => trf!("Erreur : {}", crate::i18n::t(e)),
+        BridgeStatus::MissingLibrary(lib) => trf!("Bibliothèque système manquante : {}", lib),
         BridgeStatus::Reconnecting(e) => trf!("Reconnexion ({})", crate::i18n::t(e)),
         _ => app.status_text(),
     };

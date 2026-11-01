@@ -107,6 +107,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.6.1" date="2026-11-01">
+      <description>
+        <p>Fix: the OpenRGB engine did not start on Ubuntu 26.10.</p>
+        <ul>
+          <li>The AppImage carries libOpenGL, libGLX, libEGL, libGLdispatch and libgomp, used only when the system has none</li>
+          <li>A system library missing for OpenRGB is named clearly, with the package to install</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.6.0" date="2026-11-01">
       <description>
         <p>An AMOLED theme, and on Windows the same frugal OpenRGB engine as on Linux.</p>

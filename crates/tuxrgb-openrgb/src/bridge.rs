@@ -69,6 +69,9 @@ pub enum BridgeStatus {
     },
     Reconnecting(String),
     Error(String),
+    /// The embedded server cannot start: the system lacks this library
+    /// (the dynamic loader's error, e.g. `libOpenGL.so.0`).
+    MissingLibrary(String),
     Stopped,
 }
 
@@ -224,20 +227,8 @@ pub async fn run(
                                 .await
                             {
                                 Ok(Some(BridgeCommand::Shutdown { .. })) | Ok(None) => break 'outer,
-                                Ok(Some(BridgeCommand::SetMode(m))) => config.mode = m,
-                                Ok(Some(BridgeCommand::SetDisabled(d))) => config.disabled = d,
-                                Ok(Some(BridgeCommand::SetHardwareModes(h))) => {
-                                    config.hardware_modes = h
-                                }
-                                Ok(Some(BridgeCommand::SetNetwork(n))) => config.network = *n,
-                                Ok(Some(BridgeCommand::SetSmbusLighting(on))) => config.smbus = on,
-                                Ok(Some(BridgeCommand::SetCalibration(c))) => {
-                                    config.calibration = c
-                                }
-                                // No engine, no LED driven: dark already, the
-                                // system must not wait for it.
-                                Ok(Some(BridgeCommand::Blackout(Some(n)))) => n.notify_one(),
-                                _ => {}
+                                Ok(Some(c)) => absorb_while_stopped(&mut config, c),
+                                Err(_) => {}
                             }
                             continue 'outer;
                         }
@@ -273,6 +264,22 @@ pub async fn run(
                 && !s.is_running()
             {
                 let tail = s.log_tail(6);
+                // A library missing on the system: trying again every 3 s
+                // changes nothing, the user has to install it.
+                if let Some(lib) = crate::server::missing_library(&tail) {
+                    tracing::warn!(%lib, "OpenRGB cannot start: library missing on this system");
+                    send.emit(BridgeEvent::Status(BridgeStatus::MissingLibrary(lib)));
+                    server = None;
+                    let cmd = tokio::time::timeout(Duration::from_secs(60), commands.recv()).await;
+                    match cmd {
+                        Ok(None) | Ok(Some(BridgeCommand::Shutdown { .. })) => break 'outer,
+                        Ok(Some(c)) => {
+                            absorb_while_stopped(&mut config, c);
+                        }
+                        Err(_) => {}
+                    }
+                    continue 'outer;
+                }
                 send.emit(BridgeEvent::Status(BridgeStatus::Error(format!(
                     "Le moteur OpenRGB s'est arrêté.\n{tail}"
                 ))));
@@ -361,6 +368,22 @@ pub async fn run(
     }
     drop(server);
     send.emit(BridgeEvent::Status(BridgeStatus::Stopped));
+}
+
+/// A command received while no engine runs (it could not start): settings
+/// are kept for the next start; a blackout is answered at once (no LED is
+/// driven, the system must not wait).
+fn absorb_while_stopped(config: &mut BridgeConfig, cmd: BridgeCommand) {
+    match cmd {
+        BridgeCommand::SetMode(m) => config.mode = m,
+        BridgeCommand::SetDisabled(d) => config.disabled = d,
+        BridgeCommand::SetHardwareModes(h) => config.hardware_modes = h,
+        BridgeCommand::SetNetwork(n) => config.network = *n,
+        BridgeCommand::SetSmbusLighting(on) => config.smbus = on,
+        BridgeCommand::SetCalibration(c) => config.calibration = c,
+        BridgeCommand::Blackout(Some(n)) => n.notify_one(),
+        _ => {}
+    }
 }
 
 /// The embedded server was started without its SMBus detectors because

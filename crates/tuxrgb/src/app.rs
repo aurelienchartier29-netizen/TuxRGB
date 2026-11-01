@@ -644,6 +644,30 @@ pub struct App {
     pub update: crate::update::State,
 }
 
+/// Ubuntu / Debian package of a library the bundled OpenRGB takes from the
+/// system (see `packaging/appimage/build-appimage.sh`, `EXCLUDE_RE`).
+fn missing_library_package(lib: &str) -> Option<&'static str> {
+    Some(match lib {
+        "libOpenGL.so.0" => "libopengl0",
+        "libGLX.so.0" => "libglx0",
+        "libEGL.so.1" => "libegl1",
+        "libGLdispatch.so.0" => "libglvnd0",
+        "libgomp.so.1" => "libgomp1",
+        "libxkbcommon.so.0" => "libxkbcommon0",
+        "libX11.so.6" => "libx11-6",
+        "libfontconfig.so.1" => "libfontconfig1",
+        "libfreetype.so.6" => "libfreetype6",
+        "libharfbuzz.so.0" => "libharfbuzz0b",
+        "libpng16.so.16" => "libpng16-16t64",
+        "libdbus-1.so.3" => "libdbus-1-3",
+        "libglib-2.0.so.0" => "libglib2.0-0t64",
+        "libudev.so.1" => "libudev1",
+        "libzstd.so.1" => "libzstd1",
+        "libz.so.1" => "zlib1g",
+        _ => return None,
+    })
+}
+
 impl App {
     pub fn boot() -> (Self, Task<Message>) {
         let args = crate::args();
@@ -1087,6 +1111,9 @@ impl App {
             BridgeStatus::NoServerBinary => crate::i18n::t("Moteur OpenRGB introuvable").to_owned(),
             BridgeStatus::Reconnecting(_) => crate::i18n::t("Reconnexion au moteur…").to_owned(),
             BridgeStatus::Error(_) => crate::i18n::t("Erreur du moteur matériel").to_owned(),
+            BridgeStatus::MissingLibrary(_) => {
+                crate::i18n::t("Bibliothèque système manquante").to_owned()
+            }
             BridgeStatus::Stopped => crate::i18n::t("Moteur arrêté").to_owned(),
         }
     }
@@ -1215,6 +1242,25 @@ impl App {
         // Screenshots of the documentation: a configured machine.
         if crate::args().screenshot_tour.is_some() {
             return out;
+        }
+        if let BridgeStatus::MissingLibrary(lib) = &self.bridge_status {
+            let package = missing_library_package(lib);
+            out.push(Issue {
+                key: "missing-library",
+                glyph: icons::WARNING,
+                heading: trf!("Le moteur OpenRGB ne démarre pas : {} manque", lib),
+                body: match package {
+                    Some(p) => trf!(
+                        "Cette bibliothèque fait partie du système, pas de TuxRGB. Installez-la avec le gestionnaire de paquets de votre distribution (Ubuntu et Debian : paquet {}), puis relancez TuxRGB.",
+                        p
+                    ),
+                    None => t("Cette bibliothèque fait partie du système, pas de TuxRGB. Installez-la avec le gestionnaire de paquets de votre distribution, puis relancez TuxRGB.").into(),
+                },
+                action: Some((icons::CONTENT_COPY, "Copier le rapport matériel", Message::CopyReport)),
+                secondary: None,
+                notify: true,
+                info: false,
+            });
         }
         if access_missing {
             out.push(Issue {

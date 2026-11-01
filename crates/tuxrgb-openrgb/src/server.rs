@@ -68,6 +68,10 @@ impl EmbeddedServer {
         if let Some(dir) = binary.parent().filter(|d| !d.as_os_str().is_empty()) {
             cmd.current_dir(dir);
         }
+        #[cfg(target_os = "linux")]
+        if let Some(path) = fallback_library_path(binary) {
+            cmd.env("LD_LIBRARY_PATH", path);
+        }
         // * If TuxRGB dies (even with SIGKILL) the kernel stops the server
         //   too.
         // * SIGTERM / SIGHUP are blocked in the server: at logout or
@@ -240,9 +244,113 @@ pub fn pick_port(preferred: u16) -> u16 {
         .unwrap_or(preferred)
 }
 
+/// Libraries the bundled OpenRGB takes from the host (front ends of the
+/// graphics drivers, GCC's OpenMP runtime) that a desktop may lack: Ubuntu
+/// 26.10 no longer installs `libopengl0`, for instance. The AppImage carries
+/// a copy of each in `fallback/<name>/` next to `openrgb`, used only when the
+/// host has none: the host's own copy, matched to its drivers, always wins.
+#[cfg(target_os = "linux")]
+pub const FALLBACK_LIBS: &[&str] = &[
+    "libOpenGL.so.0",
+    "libGLX.so.0",
+    "libEGL.so.1",
+    "libGLdispatch.so.0",
+    "libgomp.so.1",
+];
+
+/// `LD_LIBRARY_PATH` for the server: the fallback copies of the libraries
+/// the host is missing (see [`FALLBACK_LIBS`]), then the inherited value.
+#[cfg(target_os = "linux")]
+fn fallback_library_path(binary: &Path) -> Option<std::ffi::OsString> {
+    let root = binary.parent()?.join("fallback");
+    if !root.is_dir() {
+        return None;
+    }
+    let mut dirs: Vec<PathBuf> = FALLBACK_LIBS
+        .iter()
+        .filter(|name| root.join(name).join(name).is_file() && !host_has_library(name))
+        .map(|name| root.join(name))
+        .collect();
+    if dirs.is_empty() {
+        return None;
+    }
+    tracing::info!(
+        ?dirs,
+        "libraries missing on this system: OpenRGB uses the AppImage's copies"
+    );
+    if let Some(old) = std::env::var_os("LD_LIBRARY_PATH") {
+        dirs.extend(std::env::split_paths(&old));
+    }
+    std::env::join_paths(dirs).ok()
+}
+
+/// The dynamic loader finds `name` on this system (same search as for
+/// OpenRGB: the host's library paths).
+#[cfg(target_os = "linux")]
+pub fn host_has_library(name: &str) -> bool {
+    let Ok(c) = std::ffi::CString::new(name) else {
+        return false;
+    };
+    // SAFETY: a library opened and closed again; its constructors run, as
+    // they would in OpenRGB (graphics front ends and libgomp only).
+    unsafe {
+        let handle = libc::dlopen(c.as_ptr(), libc::RTLD_LAZY | libc::RTLD_LOCAL);
+        if handle.is_null() {
+            return false;
+        }
+        libc::dlclose(handle);
+    }
+    true
+}
+
+/// The library the dynamic loader could not find, from the server's log
+/// (`error while loading shared libraries: libX.so.1: cannot open…`).
+pub fn missing_library(log: &str) -> Option<String> {
+    const MARK: &str = "error while loading shared libraries: ";
+    let rest = &log[log.find(MARK)? + MARK.len()..];
+    let name = rest.split(':').next()?.trim();
+    (!name.is_empty() && !name.contains(char::is_whitespace)).then(|| name.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_missing_library_is_named() {
+        let log = "/tmp/.mount_TuxRGB/usr/lib/tuxrgb/openrgb/openrgb: error while loading shared \
+                   libraries: libOpenGL.so.0: cannot open shared object file: No such file or directory\n";
+        assert_eq!(missing_library(log).as_deref(), Some("libOpenGL.so.0"));
+        assert_eq!(missing_library("[Info] Detecting I2C devices"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_host_libraries_are_found() {
+        assert!(host_has_library("libc.so.6"));
+        assert!(!host_has_library("libTuxRGBDoesNotExist.so.9"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn fallback_copies_only_for_what_is_missing() {
+        let root = std::env::temp_dir().join(format!("tuxrgb-fallback-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        // A library the host has, and one it lacks, both "shipped".
+        for name in ["libc.so.6", "libOpenGL.so.0"] {
+            std::fs::create_dir_all(root.join("fallback").join(name)).unwrap();
+            std::fs::write(root.join("fallback").join(name).join(name), b"").unwrap();
+        }
+        let path = fallback_library_path(&root.join("openrgb"));
+        if host_has_library("libOpenGL.so.0") {
+            assert!(path.is_none() || !path.unwrap().to_string_lossy().contains("libOpenGL"));
+        } else {
+            let path = path.unwrap().to_string_lossy().into_owned();
+            assert!(path.contains("fallback/libOpenGL.so.0"), "{path}");
+        }
+        // libc.so.6 is not in the list, and present anyway.
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn pick_port_returns_bindable_port() {
