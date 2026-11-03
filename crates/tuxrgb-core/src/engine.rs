@@ -230,9 +230,19 @@ impl EngineScene {
         let mut groups: Vec<OwnGroup> = Vec::new();
         // Own-effect group of each group (its setting, to compare).
         let mut group_keys: Vec<(usize, &PartLighting)> = Vec::new();
-        if ranges.iter().any(|r| !r.is_empty()) {
+        let painted = scene.devices.iter().any(|d| d.paint.active());
+        if painted || ranges.iter().any(|r| !r.is_empty()) {
             lighting.reserve(leds.len());
             for (i, p) in leds.iter().enumerate() {
+                // An LED painted in the per-LED editor wins over its zone.
+                if let Some(c) = scene
+                    .devices
+                    .get(p.device)
+                    .and_then(|d| d.paint.color(p.led))
+                {
+                    lighting.push(LedRole::Color(c));
+                    continue;
+                }
                 let value = ranges
                     .get(p.device)
                     .and_then(|r| r.iter().find(|(range, _)| range.contains(&p.led)))
@@ -331,6 +341,9 @@ fn apply_lighting(buffer: &mut [Rgb], lighting: &[LedRole]) {
 
 pub enum EngineCommand {
     SetScene(Arc<EngineScene>),
+    /// The same scene with LEDs painted or cleared in the per-LED editor:
+    /// shown almost at once (a brush must not lag behind the pointer).
+    SetPaintedScene(Arc<EngineScene>),
     SetEffect(EffectKind),
     SetParams(Arc<EffectParams>),
     /// Global brightness, `0..=1`.
@@ -478,6 +491,8 @@ pub mod fades {
     pub const OUTPUT: Duration = Duration::from_millis(600);
     /// Devices added, moved or removed (and the very first frame).
     pub const SCENE: Duration = Duration::from_millis(450);
+    /// LEDs painted in the per-LED editor.
+    pub const PAINT: Duration = Duration::from_millis(90);
 }
 
 /// Brightness follows the slider through an exponential smoothing with
@@ -750,6 +765,13 @@ impl Engine {
                     }
                 }
                 self.begin_fade(fades::SCENE);
+            }
+            EngineCommand::SetPaintedScene(scene) => {
+                self.remap_displayed(&scene);
+                self.sync_groups(&scene);
+                self.scene = scene;
+                self.begin_fade(fades::PAINT);
+                self.urgent = true;
             }
             EngineCommand::SetEffect(effect) => {
                 if effect != self.effect {
@@ -1464,6 +1486,66 @@ mod tests {
         }
         // Both static: nothing animates.
         assert_eq!(engine.stats.animating.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn painted_leds_win_over_their_part_and_show_at_once() {
+        let (frames, sink) = collect();
+        let engine = spawn(
+            EngineConfig {
+                effect: EffectKind::Static,
+                params: static_params(Rgb::new(0, 0, 255)),
+                brightness: 1.0,
+                saturation: 1.0,
+                fps: 60,
+                accent: Rgb::WHITE,
+            },
+            SharedInputs::default(),
+            vec![sink],
+        );
+        // The first device plays its own colour; two of its LEDs are
+        // painted over it, LED 1 black (off).
+        let (scene, own_id) = scene_with_own(own(EffectKind::Static, Some(Rgb::new(255, 0, 0))));
+        engine.send(EngineCommand::SetTransitions(0.0));
+        engine.send(EngineCommand::SetScene(scene));
+        std::thread::sleep(Duration::from_millis(150));
+        let devices = demo_devices();
+        let mut s = Scene::build(&devices, &Default::default(), &Default::default());
+        let mut lighting = crate::lighting::LightingMap::new();
+        let entry = lighting.entry(devices[0].key.clone()).or_default();
+        for zi in 0..devices[0].zones.len() {
+            entry
+                .entry(zi)
+                .or_default()
+                .set_part(0, own(EffectKind::Static, Some(Rgb::new(255, 0, 0))));
+        }
+        s.set_lighting(&lighting, &Default::default());
+        let mut paint = crate::lighting::PaintMap::new();
+        let p = paint.entry(devices[0].key.clone()).or_default();
+        p.apply([0], Some(Rgb::new(0, 255, 0)));
+        p.apply([1], Some(Rgb::BLACK));
+        s.set_paint(&paint);
+        // Normal transitions: the painted scene still shows within a frame
+        // or two (90 ms fade at most).
+        engine.send(EngineCommand::SetTransitions(1.0));
+        engine.send(EngineCommand::SetPaintedScene(Arc::new(
+            EngineScene::from_scene(&s),
+        )));
+        std::thread::sleep(Duration::from_millis(250));
+        let last = frames.lock().unwrap().last().cloned().unwrap();
+        let d = last.devices.iter().find(|d| d.id == own_id).unwrap();
+        assert_eq!(d.colors[0], Rgb::new(0, 255, 0));
+        assert_eq!(d.colors[1], Rgb::BLACK);
+        assert!(d.colors[2..].iter().all(|c| *c == Rgb::new(255, 0, 0)));
+        // Turned off: the part's colour again, paint kept.
+        s.devices[0].paint.enabled = false;
+        engine.send(EngineCommand::SetPaintedScene(Arc::new(
+            EngineScene::from_scene(&s),
+        )));
+        std::thread::sleep(Duration::from_millis(250));
+        let last = frames.lock().unwrap().last().cloned().unwrap();
+        let d = last.devices.iter().find(|d| d.id == own_id).unwrap();
+        assert!(d.colors.iter().all(|c| *c == Rgb::new(255, 0, 0)));
     }
 
     #[test]

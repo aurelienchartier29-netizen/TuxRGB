@@ -298,6 +298,8 @@ pub struct SceneDevice {
     pub geometry: Vec<LedGeom>,
     /// Per-zone / per-fan settings (see [`crate::lighting`]).
     pub lighting: crate::lighting::DeviceLighting,
+    /// Colours given LED by LED (see [`crate::lighting::LedPaint`]).
+    pub paint: crate::lighting::LedPaint,
     /// The fans of its split headers, items of their own on the canvas.
     pub segments: Vec<SceneSegment>,
 }
@@ -444,11 +446,19 @@ impl Scene {
                     info: info.clone(),
                     placement,
                     lighting: Default::default(),
+                    paint: Default::default(),
                     segments: Vec::new(),
                 }
             })
             .collect();
         Self { devices }
+    }
+
+    /// LED-by-LED colours of every device (missing = none).
+    pub fn set_paint(&mut self, map: &crate::lighting::PaintMap) {
+        for d in &mut self.devices {
+            d.paint = map.get(&d.info.key).cloned().unwrap_or_default();
+        }
     }
 
     /// Per-zone / per-fan settings of every device (missing = the effect),
@@ -805,6 +815,28 @@ fn layout_unrotated(info: &DeviceInfo, p: &Placement) -> Vec<LedGeom> {
                     });
                 }
             }
+            // Keyboards: each key where OpenRGB's matrix map puts it (LEDs
+            // the map leaves out, like a logo, sit in the middle).
+            ZoneKind::Matrix if zone.matrix_map.is_some() => {
+                let map = zone.matrix_map.as_ref().expect("checked");
+                let (cols, rows) = (map.width as f32, map.height as f32);
+                for pos in map.positions(zone.led_count) {
+                    out.push(match pos {
+                        Some((c, r)) => LedGeom {
+                            x: zx + zw * (c as f32 + 0.5) / cols,
+                            y: zy + zh * (r as f32 + 0.5) / rows,
+                            rx: zw * 0.5 / cols,
+                            ry: zh * 0.5 / rows,
+                        },
+                        None => LedGeom {
+                            x: zx + zw * 0.5,
+                            y: zy + zh * 0.5,
+                            rx: zw * 0.5 / cols,
+                            ry: zh * 0.5 / rows,
+                        },
+                    });
+                }
+            }
             ZoneKind::Matrix => {
                 let (cols, rows) = zone
                     .matrix
@@ -898,6 +930,38 @@ fn auto_grid(n: usize, w: f32, h: f32) -> (usize, usize) {
 mod tests {
     use super::*;
     use crate::device::demo_devices;
+
+    #[test]
+    fn keys_sit_where_the_matrix_map_puts_them() {
+        let kb = demo_devices()
+            .into_iter()
+            .find(|d| d.kind == DeviceKind::Keyboard)
+            .unwrap();
+        let p = Placement {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+            rotation: 0.0,
+            mirror: false,
+        };
+        let g = led_geometry(&kb, &p);
+        let at = |name: &str| {
+            let i = kb.led_names.iter().position(|n| n == name).unwrap();
+            (g[i].x, g[i].y)
+        };
+        let (esc, space, enter_pad) = (
+            at("Key: Escape"),
+            at("Key: Space"),
+            at("Key: Number Pad Enter"),
+        );
+        // Escape top left, the space bar on the bottom row, the keypad on
+        // the right.
+        assert!(esc.0 < 0.05 && esc.1 < 0.2, "{esc:?}");
+        assert!(space.1 > 0.8, "{space:?}");
+        assert!(enter_pad.0 > 0.9, "{enter_pad:?}");
+        assert!(at("Key: A").0 < at("Key: S").0);
+    }
 
     #[test]
     fn every_led_gets_a_position_inside_the_canvas() {

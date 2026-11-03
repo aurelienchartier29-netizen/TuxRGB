@@ -217,6 +217,10 @@ pub struct Config {
     /// Canvas items (devices, fans of split headers) hidden on the canvas:
     /// still connected and lit by the effect, just not shown there.
     pub hidden_on_canvas: BTreeSet<DeviceKey>,
+    /// Colours given LED by LED in the per-LED editor (3.7), by device.
+    pub led_paint: tuxrgb_core::PaintMap,
+    /// Letters on the keys the per-LED editor draws.
+    pub key_labels: crate::ui::led_editor::KeyLabels,
     /// Devices left to one of their own (hardware) effects, by mode name
     /// (keyboards, mice: typing reactions, built-in animations).
     pub hardware_modes: BTreeMap<DeviceKey, String>,
@@ -310,6 +314,8 @@ impl Default for Config {
             updates: UpdatePrefs::default(),
             lighting: Default::default(),
             hidden_on_canvas: BTreeSet::new(),
+            led_paint: Default::default(),
+            key_labels: Default::default(),
             hardware_modes: BTreeMap::new(),
             network: Default::default(),
             smbus_lighting: false,

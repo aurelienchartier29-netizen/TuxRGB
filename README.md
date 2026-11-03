@@ -37,6 +37,9 @@
   recherche sur le réseau et éclairées comme le reste du PC.
 - **Prudent par défaut** : l'éclairage de la RAM (et des cartes mères sur
   SMBus) ne s'active qu'à votre demande, avec un avertissement clair.
+- **LED par LED** : chaque touche du clavier, chaque LED d'une bande ou d'un
+  ventilateur peut garder sa propre couleur, peinte à la souris, pendant que
+  le reste suit l'effet.
 - **Un canevas à l'image de votre PC** : chaque appareil et chaque
   ventilateur est placé et tourné là où il se trouve. Une vague traverse
   vraiment le boîtier, et la synchro écran donne à chaque LED la couleur de
@@ -121,8 +124,10 @@ fans, AIO coolers, keyboards, mice and LED strips, plus network lights
 (WLED, Philips Hue and WiZ, Govee, LIFX, Nanoleaf, Yeelight, Elgato, TP-Link
 Kasa) found with one search. The OpenRGB 1.1 engine is built in, so there is
 nothing else to install. It also controls fan speeds (fixed or curves) and
-the screens of NZXT Kraken, Corsair and DeepCool coolers and cases. RAM
-lighting, which writes on the memory bus, is only turned on when you ask.
+the screens of NZXT Kraken, Corsair and DeepCool coolers and cases. Every
+key of a keyboard, every LED of a strip or fan can keep a colour of its own,
+painted with the mouse, while the rest follows the effect. RAM lighting,
+which writes on the memory bus, is only turned on when you ask.
 
 The interface speaks English and French (it follows the system language).
 Download the AppImage (Linux) or the installer (Windows) from the

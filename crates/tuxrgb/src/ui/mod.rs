@@ -13,6 +13,7 @@ mod fan_curve;
 mod fans;
 #[rustfmt::skip]
 pub mod icons;
+pub mod led_editor;
 pub mod motion;
 mod onboarding;
 pub mod settings;

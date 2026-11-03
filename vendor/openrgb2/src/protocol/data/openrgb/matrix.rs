@@ -8,6 +8,24 @@ pub struct MatrixMapData {
     // data is always of length `self.width * self.height`
     data: Vec<u32>,
 }
+impl MatrixMapData {
+    /// Width in cells (TuxRGB patch).
+    pub fn width(&self) -> usize {
+        self.width as usize
+    }
+
+    /// Height in cells (TuxRGB patch).
+    pub fn height(&self) -> usize {
+        self.height as usize
+    }
+
+    /// Cells row by row: an LED index in the zone, `u32::MAX` for none
+    /// (TuxRGB patch).
+    pub fn cells(&self) -> &[u32] {
+        &self.data
+    }
+}
+
 impl SerToBuf for Option<MatrixMapData> {
     fn serialize(&self, buf: &mut crate::WriteMessage) -> crate::OpenRgbResult<()> {
         match self {

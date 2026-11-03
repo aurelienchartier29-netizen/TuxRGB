@@ -116,3 +116,6 @@ Initial version, see the [original repo](https://github.com/nicoulaj/openrgb-rs)
 - Responses are awaited 5 s instead of 1 s: the server answers a request for
   a controller after that controller's write in progress, which takes more
   than a second on slow hardware.
+- Added `Zone::matrix_map` and `MatrixMapData::{width, height, cells}`: the
+  key layout of matrix zones (keyboards), for TuxRGB's per-LED editor and
+  canvas (3.7).

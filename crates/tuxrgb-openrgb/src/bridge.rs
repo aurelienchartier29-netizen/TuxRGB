@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 use tuxrgb_core::engine::Frame;
 use tuxrgb_core::led_color::LedGrade;
-use tuxrgb_core::{DeviceInfo, DeviceKey, DeviceKind, Rgb, ZoneInfo, ZoneKind};
+use tuxrgb_core::{DeviceInfo, DeviceKey, DeviceKind, MatrixMap, Rgb, ZoneInfo, ZoneKind};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ServerMode {
@@ -1461,7 +1461,14 @@ fn convert(c: &Controller, managed: &Managed) -> DeviceInfo {
                 }
             },
             led_count: z.num_leds(),
-            matrix: None,
+            matrix_map: z.matrix_map().and_then(|(w, h, cells)| {
+                MatrixMap::new(
+                    w,
+                    h,
+                    cells.into_iter().map(|c| c.map(|c| c as u32)).collect(),
+                )
+            }),
+            matrix: z.matrix_map().map(|(w, h, _)| (w, h)),
             leds_min: z.leds_min(),
             leds_max: z.leds_max(),
             segments: z.segment_sizes(),
@@ -1527,6 +1534,7 @@ fn convert(c: &Controller, managed: &Managed) -> DeviceInfo {
         is_virtual: false,
         hardware_modes,
         hardware_mode: managed.hardware.get(&id).map(|h| h.mode.clone()),
+        led_names: c.led_iter().map(|l| l.name().to_owned()).collect(),
     }
 }
 

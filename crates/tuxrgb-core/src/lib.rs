@@ -26,9 +26,9 @@ pub mod process;
 pub mod signal;
 
 pub use color::Rgb;
-pub use device::{DeviceInfo, DeviceKey, DeviceKind, ZoneInfo, ZoneKind};
+pub use device::{DeviceInfo, DeviceKey, DeviceKind, MatrixMap, ZoneInfo, ZoneKind};
 pub use effects::{EffectKind, EffectParams, ParamKind, ParamSpec, ParamValue};
 pub use engine::{EngineCommand, EngineHandle, Frame, FrameSink};
 pub use layout::{LedPoint, Placement, Scene, SceneDevice};
-pub use lighting::{DeviceLighting, LightingMap, PartLighting, ZoneLighting};
+pub use lighting::{DeviceLighting, LedPaint, LightingMap, PaintMap, PartLighting, ZoneLighting};
 pub use signal::{AudioSpectrum, ScreenFrame, SharedInputs};

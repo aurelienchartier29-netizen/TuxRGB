@@ -87,6 +87,10 @@
       <caption>AMOLED theme: dark on pure black, for OLED screens</caption>
       <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/19-amoled.png</image>
     </screenshot>
+    <screenshot>
+      <caption>LED-by-LED colours: every key of a keyboard painted with the mouse</caption>
+      <image>https://raw.githubusercontent.com/aurelienchartier29-netizen/TuxRGB/main/docs/screenshots/en/20-led-editor.png</image>
+    </screenshot>
   </screenshots>
   <categories>
     <category>Settings</category>
@@ -107,6 +111,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="3.7.0" date="2026-11-02">
+      <description>
+        <p>Every key of a keyboard, every LED of a strip or fan can have its own colour.</p>
+        <ul>
+          <li>LED-by-LED editor: keyboards drawn with their real keys (AZERTY or QWERTY labels), strips and fans as rows and rings</li>
+          <li>Paint with the mouse, or at once: all, a zone, letters, digits, F keys, arrows, WASD, numeric keypad, modifiers</li>
+          <li>Painted LEDs keep their colour over the effect, the others follow it</li>
+          <li>Keyboard keys sit at their real place on the canvas</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.6.1" date="2026-11-01">
       <description>
         <p>Fix: the OpenRGB engine did not start on Ubuntu 26.10.</p>

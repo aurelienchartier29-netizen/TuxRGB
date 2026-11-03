@@ -13,6 +13,7 @@
 | Effets | 19 effets : Statique, Respiration (multi-teintes), Aurore, Plasma, Vague arc-en-ciel, Cycle de couleurs, Vague dégradée, Ciel étoilé, Comète, Scanner, Pluie, Bulles, Tourbillon, Feu, Orage, **Shader GLSL** (GPU), **Visualiseur audio** (PipeWire, sur chaque appareil), **Synchro écran** (portail ScreenCast, par LED), **Moniteur matériel** (température / charge CPU-GPU, mémoire ; en mode automatique, carte graphique → GPU, RAM → mémoire, appareils sans capteur → température CPU, ou charge CPU si elle est illisible) |
 | Couleurs | **Palette Système Harmonieuse** (dominante = accent exact du bureau, variante, nuance analogue / complémentaire / triadique), **fondus** entre couleurs, effets, préréglages et changements d'accent (1,2 s), luminosité globale qui suit le curseur quasi instantanément, **saturation 0–200 % perceptuelle** (Okhsv / OKLab : aucune dérive de teinte, aucun écrêtage, luminosité inchangée) appliquée sur le matériel dès l'image suivante, **couleurs fidèles à l'écran** (gamma réglable, et **balance des blancs appareil par appareil** : un carré blanc de l'écran comme référence, l'appareil réglé allumé en blanc et les autres éteints, les barrettes de RAM réglées ensemble ou une par une ; aussi proposée par l'assistant de premier lancement), luminosité appliquée sans changer la teinte |
 | Global ou par composant | L'effet de la page Effets s'applique **à tout le setup**. Chaque composant du canevas (appareil, zone, ventilateur) peut aussi **suivre l'effet global**, jouer **son propre effet** avec ses propres réglages (il couvre alors ce composant comme s'il était tout le setup), garder une **couleur** ou rester **éteint** ; « Tout synchroniser » remet tout sur l'effet global |
+| LED par LED | Appareils → **Personnaliser** : chaque LED d'un appareil dessinée là où elle est, **les claviers avec leurs vraies touches** (plan des touches fourni par OpenRGB, étiquettes AZERTY ou QWERTY), les bandes et ventilateurs en lignes et en anneaux. On **peint à la souris** (cliquer ou glisser), ou d'un coup avec les sélections rapides : tout, une zone, lettres, chiffres, F1–F12, flèches, ZQSD / WASD, pavé numérique, modificateurs. Une LED peinte garde sa couleur **par-dessus l'effet** ; les autres continuent de le suivre (en direct dans l'éditeur). Noir éteint une LED, « Rendre à l'effet » la libère ; tout se désactive d'un interrupteur sans être perdu. Les couleurs suivent la luminosité globale. Sur le canevas, les touches des claviers sont maintenant à leur vraie place : une vague traverse le clavier comme il faut |
 | Ventilateurs | **Par ventilateur, par connecteur** : un connecteur ARGB se divise en ventilateurs (comme les segments d'OpenRGB, nombre de LED propre à chacun), chacun est un élément du canevas qui se place, se tourne et se redimensionne seul |
 | Canevas | **Rotation libre** de chaque élément (curseur 0–359°, poignée de rotation sur le canevas, angles droits magnétiques), éléments **masquables** (toujours connectés et éclairés), élément sélectionné au premier plan, miroir, taille |
 | Afficheurs | Page **Afficheurs** : écrans des watercoolings **NZXT Kraken** Z / 2023 / 2024 et **Corsair** (iCUE ELITE LCD, iCUE LINK LCD, XC7, Nautilus), afficheurs numériques **DeepCool** (AK, AG, LS, LD, LP, LQ, AK Digital Pro, boîtiers CH) : température / charge / puissance / fréquence CPU et GPU, mémoire, heure, texte ou image, activation, fréquence de rafraîchissement, luminosité et orientation des écrans, aperçu en direct ; pilotes libres en USB HID, sans logiciel du fabricant |
@@ -50,9 +51,9 @@
 |---|---|---|
 | ![](screenshots/16-white-wizard.png) | ![](screenshots/17-white-settings.png) | ![](screenshots/18-smbus-wizard.png) |
 
-| Thème AMOLED |
-|---|
-| ![](screenshots/19-amoled.png) |
+| Thème AMOLED | LED par LED (clavier) |
+|---|---|
+| ![](screenshots/19-amoled.png) | ![](screenshots/20-led-editor.png) |
 
 Les mêmes captures en anglais sont dans `docs/screenshots/en/` (utilisées par
 la fiche AppStream). Elles sont produites par `tuxrgb --screenshot-tour`, qui

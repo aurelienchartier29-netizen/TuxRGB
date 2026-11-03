@@ -394,6 +394,21 @@ pub enum Message {
     OpenPartPicker(DeviceKey, usize, usize),
     /// A part's colour picker finished collapsing.
     PartPickerHidden,
+    // Per-LED editor (3.7)
+    /// Opens the editor of a device (`None`: back to the devices).
+    OpenLedEditor(Option<DeviceKey>),
+    SetLedTool(crate::ui::led_editor::LedTool),
+    /// LEDs of the edited device touched by the brush (or a quick
+    /// selection): painted, or given back to the effect.
+    LedPaint(Vec<usize>),
+    /// End of a brush stroke.
+    LedPaintEnd,
+    SetLedPaintEnabled(bool),
+    /// Every LED of the edited device back to the effect.
+    ClearLedPaint,
+    ToggleLedPicker,
+    LedPickerHidden,
+    SetKeyLabels(crate::ui::led_editor::KeyLabels),
     ResetLayout,
     Rescan,
     RestartEngine,
@@ -625,6 +640,14 @@ pub struct App {
     /// Part (device, zone, part) whose own-effect settings are open (they
     /// take the place of the zones under the canvas).
     pub own_editor: Option<(DeviceKey, usize, usize)>,
+    /// Device whose LEDs are being edited one by one (3.7).
+    pub led_editor: Option<DeviceKey>,
+    pub led_tool: crate::ui::led_editor::LedTool,
+    /// Colour of the per-LED brush.
+    pub led_brush: Rgb,
+    /// Its colour picker is open / still on screen while it collapses.
+    pub led_picker: bool,
+    pub led_picker_shown: bool,
     /// Colour picker of a part's own effect: (device, zone, part, setting).
     pub own_picker: Option<(DeviceKey, usize, usize, &'static str)>,
     pub own_picker_last: Option<(DeviceKey, usize, usize, &'static str)>,
@@ -765,6 +788,11 @@ impl App {
             zone_edits: Default::default(),
             part_picker: None,
             part_picker_last: None,
+            led_editor: None,
+            led_tool: Default::default(),
+            led_brush: Rgb::new(255, 64, 32),
+            led_picker: false,
+            led_picker_shown: false,
             part_picker_seen: None,
             own_editor: None,
             own_picker: None,
@@ -1726,6 +1754,19 @@ impl App {
         }
     }
 
+    /// LEDs painted or cleared on one device: the engine shows it at once.
+    fn push_paint(&mut self, key: &DeviceKey) {
+        let paint = self.config.led_paint.get(key).cloned().unwrap_or_default();
+        for d in self.scene.devices.iter_mut().filter(|d| d.info.key == *key) {
+            d.paint = paint.clone();
+        }
+        if let Some(s) = &self.services {
+            s.engine(EngineCommand::SetPaintedScene(Arc::new(
+                EngineScene::from_scene(&self.scene),
+            )));
+        }
+    }
+
     fn push_params(&self) {
         if let Some(s) = &self.services {
             s.engine(EngineCommand::SetParams(Arc::new(
@@ -1768,6 +1809,7 @@ impl App {
         self.scene = Scene::build(&source, &self.config.layout, &self.config.disabled_devices);
         self.scene
             .set_lighting(&self.config.lighting, &self.config.layout);
+        self.scene.set_paint(&self.config.led_paint);
         let now = Instant::now();
         for d in &self.scene.devices {
             self.device_seen.entry(d.info.key.clone()).or_insert(now);
@@ -2063,6 +2105,7 @@ impl App {
                 | Message::FanFixed(..)
                 | Message::FanRenameInput(_)
                 | Message::PickerChanged(_)
+                | Message::LedPaint(_)
                 | Message::HexInput(_)
                 | Message::ResizeSelected(_)
                 | Message::SetRotation(_)
@@ -2213,6 +2256,10 @@ impl App {
                     self.page = page;
                     self.settings_view = SettingsView::Main;
                     self.picker = None;
+                    // The per-LED editor closes with its page.
+                    self.led_editor = None;
+                    self.led_picker = false;
+                    self.led_picker_shown = false;
                     let spec = self.spatial();
                     for (i, s) in self.nav.iter_mut().enumerate() {
                         s.set_spec(spec);
@@ -2481,9 +2528,50 @@ impl App {
                         }
                         self.canvas_cache.clear();
                     }
+                    "devices-leds" => {
+                        // The keyboard back to TuxRGB, painted key by key:
+                        // the letters keep following the effect.
+                        if let Some(key) = self
+                            .scene
+                            .devices
+                            .iter()
+                            .find(|d| d.info.kind == tuxrgb_core::DeviceKind::Keyboard)
+                            .map(|d| d.info.key.clone())
+                        {
+                            let _ = self.update(Message::SetHardwareMode(key.clone(), None));
+                            let _ = self.update(Message::OpenLedEditor(Some(key.clone())));
+                            let groups = self
+                                .scene
+                                .devices
+                                .iter()
+                                .find(|d| d.info.key == key)
+                                .map(|d| {
+                                    crate::ui::led_editor::groups(
+                                        &d.info,
+                                        self.config.key_labels.azerty(),
+                                    )
+                                })
+                                .unwrap_or_default();
+                            let t = crate::i18n::t;
+                            for (name, color) in [
+                                (t("Modificateurs"), Rgb::new(235, 235, 255)),
+                                (t("Pavé numérique"), Rgb::new(150, 60, 255)),
+                                ("F1–F12", Rgb::new(255, 140, 0)),
+                                (t("Flèches"), Rgb::new(0, 220, 160)),
+                                ("ZQSD", Rgb::new(255, 30, 60)),
+                                ("WASD", Rgb::new(255, 30, 60)),
+                            ] {
+                                if let Some((_, leds)) = groups.iter().find(|(n, _)| n == name) {
+                                    self.led_brush = color;
+                                    let _ = self.update(Message::LedPaint(leds.clone()));
+                                }
+                            }
+                        }
+                    }
                     "displays" => {
                         // The demo displays: the AIO screen with two values,
                         // the digital display alternating.
+                        let _ = self.update(Message::OpenLedEditor(None));
                         let _ = self.update(Message::Navigate(Page::Displays));
                     }
                     "fans" => {
@@ -2816,6 +2904,22 @@ impl App {
                 self.picker = None;
                 self.part_picker = None;
                 self.own_picker = None;
+                self.led_picker = false;
+                Task::none()
+            }
+            Message::PickerChanged(color) if self.led_picker => {
+                self.led_brush = color;
+                self.hex_input = color.to_hex();
+                // The brush is for painting.
+                self.led_tool = crate::ui::led_editor::LedTool::Paint;
+                Task::none()
+            }
+            Message::HexInput(s) if self.led_picker => {
+                if let Some(color) = Rgb::from_hex(&s) {
+                    self.led_brush = color;
+                    self.led_tool = crate::ui::led_editor::LedTool::Paint;
+                }
+                self.hex_input = s;
                 Task::none()
             }
             Message::PickerChanged(color) => {
@@ -3615,6 +3719,89 @@ impl App {
             }
             Message::PartPickerHidden => {
                 self.part_picker_last = None;
+                Task::none()
+            }
+            Message::OpenLedEditor(key) => {
+                self.led_picker = false;
+                self.led_picker_shown = false;
+                self.led_editor = key;
+                Task::none()
+            }
+            Message::SetLedTool(tool) => {
+                self.led_tool = tool;
+                Task::none()
+            }
+            Message::LedPaint(leds) => {
+                let Some(key) = self.led_editor.clone() else {
+                    return Task::none();
+                };
+                let color = match self.led_tool {
+                    crate::ui::led_editor::LedTool::Paint => Some(self.led_brush),
+                    crate::ui::led_editor::LedTool::Effect => None,
+                };
+                let entry = self.config.led_paint.entry(key.clone()).or_default();
+                let mut changed = entry.apply(leds, color);
+                // Painting shows what is painted.
+                if color.is_some() && !entry.enabled {
+                    entry.enabled = true;
+                    changed = true;
+                }
+                if entry.colors.is_empty() && entry.enabled {
+                    self.config.led_paint.remove(&key);
+                }
+                if changed {
+                    self.push_paint(&key);
+                    self.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::LedPaintEnd => {
+                self.mark_dirty();
+                Task::none()
+            }
+            Message::SetLedPaintEnabled(on) => {
+                let Some(key) = self.led_editor.clone() else {
+                    return Task::none();
+                };
+                self.config
+                    .led_paint
+                    .entry(key.clone())
+                    .or_default()
+                    .enabled = on;
+                self.push_paint(&key);
+                self.mark_dirty();
+                Task::none()
+            }
+            Message::ClearLedPaint => {
+                let Some(key) = self.led_editor.clone() else {
+                    return Task::none();
+                };
+                if self.config.led_paint.remove(&key).is_some() {
+                    self.push_paint(&key);
+                    self.mark_dirty();
+                }
+                Task::none()
+            }
+            Message::ToggleLedPicker => {
+                self.led_picker = !self.led_picker;
+                if self.led_picker {
+                    self.led_picker_shown = true;
+                    self.picker = None;
+                    self.part_picker = None;
+                    self.own_picker = None;
+                    self.hex_input = self.led_brush.to_hex();
+                }
+                Task::none()
+            }
+            Message::LedPickerHidden => {
+                if !self.led_picker {
+                    self.led_picker_shown = false;
+                }
+                Task::none()
+            }
+            Message::SetKeyLabels(labels) => {
+                self.config.key_labels = labels;
+                self.mark_dirty();
                 Task::none()
             }
             Message::ResetLayout => {

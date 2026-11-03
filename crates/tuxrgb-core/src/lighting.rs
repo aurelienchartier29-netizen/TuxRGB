@@ -224,6 +224,60 @@ pub fn resize_part(sizes: &[usize], part: usize, leds: usize) -> Option<Vec<usiz
 /// Settings of every zone of one device (zone index → settings).
 pub type DeviceLighting = BTreeMap<usize, ZoneLighting>;
 
+/// Colours given LED by LED (TuxRGB 3.7, the per-LED editor). A painted
+/// LED keeps its colour over whatever its zone shows (the global effect,
+/// an effect of its own, a fixed colour); the others are untouched. Black
+/// turns an LED off. Like every fixed colour, they follow the global
+/// brightness and saturation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LedPaint {
+    /// Shown (the colours are kept while turned off).
+    pub enabled: bool,
+    /// Device LED index (OpenRGB order) → colour.
+    pub colors: BTreeMap<u32, Rgb>,
+}
+
+impl Default for LedPaint {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            colors: BTreeMap::new(),
+        }
+    }
+}
+
+impl LedPaint {
+    /// Something to show.
+    pub fn active(&self) -> bool {
+        self.enabled && !self.colors.is_empty()
+    }
+
+    /// Colour of an LED when it is painted and the paint is shown.
+    pub fn color(&self, led: usize) -> Option<Rgb> {
+        if !self.enabled {
+            return None;
+        }
+        self.colors.get(&(led as u32)).copied()
+    }
+
+    /// Paints (`Some`) or clears (`None`) LEDs; `true` when anything changed.
+    pub fn apply(&mut self, leds: impl IntoIterator<Item = usize>, color: Option<Rgb>) -> bool {
+        let mut changed = false;
+        for led in leds {
+            let led = led as u32;
+            changed |= match color {
+                Some(c) => self.colors.insert(led, c) != Some(c),
+                None => self.colors.remove(&led).is_some(),
+            };
+        }
+        changed
+    }
+}
+
+/// LED colours of every device.
+pub type PaintMap = BTreeMap<DeviceKey, LedPaint>;
+
 /// Settings of every device.
 pub type LightingMap = BTreeMap<DeviceKey, DeviceLighting>;
 
@@ -325,6 +379,7 @@ mod tests {
             kind: ZoneKind::Linear,
             led_count: n,
             matrix: None,
+            matrix_map: None,
             leds_min: 0,
             leds_max: max,
             segments: Vec::new(),
@@ -354,7 +409,32 @@ mod tests {
             is_virtual: false,
             hardware_modes: Vec::new(),
             hardware_mode: None,
+            led_names: Vec::new(),
         }
+    }
+
+    #[test]
+    fn painted_leds_keep_their_colour() {
+        let mut p = LedPaint::default();
+        assert!(!p.active());
+        assert!(p.apply([3, 4], Some(Rgb::new(255, 0, 0))));
+        assert!(
+            !p.apply([3], Some(Rgb::new(255, 0, 0))),
+            "same colour: no change"
+        );
+        assert_eq!(p.color(3), Some(Rgb::new(255, 0, 0)));
+        assert_eq!(p.color(5), None);
+        assert!(p.apply([4], None));
+        assert_eq!(p.colors.len(), 1);
+        p.enabled = false;
+        assert_eq!(p.color(3), None);
+        assert!(!p.active());
+        // Saved as JSON (keys as strings) and read back.
+        let json = serde_json::to_string(&p).unwrap();
+        let back: LedPaint = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, p);
+        let empty: LedPaint = serde_json::from_str("{}").unwrap();
+        assert!(empty.enabled);
     }
 
     fn split(parts: usize) -> ZoneLighting {

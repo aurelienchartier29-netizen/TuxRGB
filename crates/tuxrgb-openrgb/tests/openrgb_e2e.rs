@@ -21,7 +21,7 @@ use tuxrgb_openrgb::{BridgeCommand, BridgeConfig, BridgeEvent, BridgeStatus, Ser
 fn debug_config(dir: &std::path::Path) {
     std::fs::create_dir_all(dir).unwrap();
     let json = r#"{ "DebugDevices": { "devices": [
-        { "type": "motherboard", "resizable": true }, { "type": "dram" }, { "type": "keyboard" }, { "type": "argb" }
+        { "type": "motherboard", "resizable": true }, { "type": "dram" }, { "type": "keyboard", "keyboard": true }, { "type": "argb" }
     ] } }"#;
     std::fs::write(dir.join("OpenRGB.json"), json).unwrap();
 }
@@ -91,6 +91,32 @@ async fn streams_frames_to_a_real_openrgb_server() {
     }
     assert_eq!(devices.len(), 4, "debug devices not detected: {devices:?}");
     assert!(devices.iter().all(|d| d.controllable), "{devices:?}");
+    // The per-LED editor: every LED named, the keyboard's key layout read.
+    for d in &devices {
+        assert_eq!(d.led_names.len(), d.led_count, "{}", d.name);
+    }
+    let kb = devices
+        .iter()
+        .find(|d| d.kind == tuxrgb_core::DeviceKind::Keyboard)
+        .expect("debug keyboard");
+    let map = kb
+        .zones
+        .iter()
+        .find_map(|z| z.matrix_map.as_ref())
+        .expect("keyboard matrix map");
+    let placed = map.cells.iter().flatten().count();
+    eprintln!(
+        "debug keyboard: {}×{} map, {placed} keys placed, first LEDs {:?}",
+        map.width,
+        map.height,
+        &kb.led_names[..kb.led_names.len().min(4)]
+    );
+    assert!(placed > 50, "{placed}");
+    assert!(
+        kb.led_names.iter().any(|n| n == "Key: Escape"),
+        "{:?}",
+        kb.led_names
+    );
 
     // Stream one frame: device i gets a distinct colour.
     let palette = [

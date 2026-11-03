@@ -68,6 +68,13 @@ fn device_row<'a>(app: &'a App, index: usize, d: &'a SceneDevice) -> Element<'a,
             Surface::Tertiary,
         ));
     }
+    if d.paint.active() {
+        badges = badges.push(badge(
+            small(trf!("{} LED peintes", d.paint.colors.len())),
+            r,
+            Surface::Secondary,
+        ));
+    }
     let custom = lighting::custom_parts(info, Some(&d.lighting));
     if custom > 0 {
         badges = badges.push(badge(
@@ -587,6 +594,39 @@ fn zones_panel<'a>(app: &'a App, index: usize, d: &'a SceneDevice) -> Element<'a
     if info.hardware_mode.is_some() {
         return super::transition::smooth_scroll(scrollable(col).height(Length::Shrink), r);
     }
+    // Every LED its own colour (3.7): keys of a keyboard, LEDs of a strip.
+    if info.controllable && !info.single_color && info.led_count >= 2 {
+        let painted = d.paint.colors.len();
+        col = col.push(
+            row![
+                icon(icons::FORMAT_PAINT, 18.0).color(r.primary),
+                column![
+                    label("LED par LED"),
+                    small(if painted > 0 {
+                        trf!("{} LED peintes, les autres suivent l'effet.", painted)
+                    } else if info.kind == DeviceKind::Keyboard {
+                        crate::i18n::t("Une couleur pour chaque touche, peinte à la souris.")
+                            .to_owned()
+                    } else {
+                        crate::i18n::t("Une couleur pour chaque LED, peinte à la souris.")
+                            .to_owned()
+                    })
+                    .color(r.on_surface_variant),
+                ]
+                .spacing(space::XXS)
+                .width(Length::Fill),
+                widgets::icon_label_button(
+                    icons::EDIT,
+                    "Personnaliser",
+                    ButtonKind::Tonal,
+                    r,
+                    Some(Message::OpenLedEditor(Some(info.key.clone()))),
+                ),
+            ]
+            .spacing(space::S)
+            .align_y(Alignment::Center),
+        );
+    }
     col = col.push(
         row![
             icon(icons::SETTINGS_INPUT_COMPONENT, 18.0).color(r.primary),
@@ -1033,6 +1073,12 @@ fn editor(app: &App) -> Element<'_, Message> {
 }
 
 pub fn view(app: &App) -> Element<'_, Message> {
+    // The per-LED editor of a device takes the whole page.
+    if let Some(key) = &app.led_editor
+        && let Some(d) = app.scene.devices.iter().find(|d| d.info.key == *key)
+    {
+        return super::led_editor::view(app, &d.info);
+    }
     let r = &app.roles;
     let real = app
         .scene

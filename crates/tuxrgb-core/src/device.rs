@@ -127,6 +127,10 @@ pub struct ZoneInfo {
     pub led_count: usize,
     /// Matrix width/height when known (keyboards); `None` → auto grid.
     pub matrix: Option<(usize, usize)>,
+    /// Where each LED of a matrix zone sits (keyboards: the key layout
+    /// OpenRGB reports, see [`MatrixMap`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matrix_map: Option<MatrixMap>,
     /// Size limits reported by OpenRGB. Addressable headers (ARGB +5 V) have
     /// `leds_min < leds_max`: the user tells how many LEDs are plugged in.
     #[serde(default)]
@@ -137,6 +141,41 @@ pub struct ZoneInfo {
     /// split of a header), empty when there is none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub segments: Vec<usize>,
+}
+
+/// Cells of a matrix zone, row by row (OpenRGB's matrix map): the LED of
+/// the zone at each place, `None` for a gap (between key blocks).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MatrixMap {
+    pub width: usize,
+    pub height: usize,
+    pub cells: Vec<Option<u32>>,
+}
+
+impl MatrixMap {
+    /// A map that fits its size (`width × height` cells).
+    pub fn new(width: usize, height: usize, cells: Vec<Option<u32>>) -> Option<Self> {
+        (width > 0 && height > 0 && cells.len() == width * height).then_some(Self {
+            width,
+            height,
+            cells,
+        })
+    }
+
+    /// `(column, row)` of each LED of a zone of `leds` LEDs (its first
+    /// cell when it covers several), `None` for LEDs the map leaves out.
+    pub fn positions(&self, leds: usize) -> Vec<Option<(usize, usize)>> {
+        let mut out = vec![None; leds];
+        for (i, cell) in self.cells.iter().enumerate() {
+            if let Some(led) = cell.map(|l| l as usize)
+                && led < leds
+                && out[led].is_none()
+            {
+                out[led] = Some((i % self.width, i / self.width));
+            }
+        }
+        out
+    }
 }
 
 impl ZoneInfo {
@@ -187,6 +226,10 @@ pub struct DeviceInfo {
     /// alone until it is turned back to "TuxRGB effects".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hardware_mode: Option<String>,
+    /// Name of each LED, OpenRGB order ("Key: A", "Logo"…), empty when
+    /// unknown (TuxRGB 3.7: the per-LED editor).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub led_names: Vec<String>,
 }
 
 impl DeviceInfo {
@@ -202,6 +245,60 @@ impl DeviceInfo {
             &self.name
         }
     }
+}
+
+/// The demo keyboard: a full-size ISO layout (22 × 6), OpenRGB key names.
+fn demo_keyboard() -> (MatrixMap, Vec<String>) {
+    #[rustfmt::skip]
+    const ROWS: [&[(usize, &str)]; 6] = [
+        &[
+            (0, "Escape"), (2, "F1"), (3, "F2"), (4, "F3"), (5, "F4"), (6, "F5"), (7, "F6"),
+            (8, "F7"), (9, "F8"), (10, "F9"), (11, "F10"), (12, "F11"), (13, "F12"),
+            (15, "Print Screen"), (16, "Scroll Lock"), (17, "Pause/Break"),
+        ],
+        &[
+            (0, "`"), (1, "1"), (2, "2"), (3, "3"), (4, "4"), (5, "5"), (6, "6"), (7, "7"),
+            (8, "8"), (9, "9"), (10, "0"), (11, "-"), (12, "="), (13, "Backspace"),
+            (15, "Insert"), (16, "Home"), (17, "Page Up"), (18, "Num Lock"),
+            (19, "Number Pad /"), (20, "Number Pad *"), (21, "Number Pad -"),
+        ],
+        &[
+            (0, "Tab"), (1, "Q"), (2, "W"), (3, "E"), (4, "R"), (5, "T"), (6, "Y"), (7, "U"),
+            (8, "I"), (9, "O"), (10, "P"), (11, "["), (12, "]"), (13, "Enter"),
+            (15, "Delete"), (16, "End"), (17, "Page Down"), (18, "Number Pad 7"),
+            (19, "Number Pad 8"), (20, "Number Pad 9"), (21, "Number Pad +"),
+        ],
+        &[
+            (0, "Caps Lock"), (1, "A"), (2, "S"), (3, "D"), (4, "F"), (5, "G"), (6, "H"),
+            (7, "J"), (8, "K"), (9, "L"), (10, ";"), (11, "'"), (12, "#"),
+            (18, "Number Pad 4"), (19, "Number Pad 5"), (20, "Number Pad 6"),
+        ],
+        &[
+            (0, "Left Shift"), (1, "\\ (ISO)"), (2, "Z"), (3, "X"), (4, "C"), (5, "V"),
+            (6, "B"), (7, "N"), (8, "M"), (9, ","), (10, "."), (11, "/"), (13, "Right Shift"),
+            (16, "Up Arrow"), (18, "Number Pad 1"), (19, "Number Pad 2"), (20, "Number Pad 3"),
+            (21, "Number Pad Enter"),
+        ],
+        &[
+            (0, "Left Control"), (1, "Left Windows"), (2, "Left Alt"), (6, "Space"),
+            (10, "Right Alt"), (11, "Right Fn"), (12, "Menu"), (13, "Right Control"),
+            (15, "Left Arrow"), (16, "Down Arrow"), (17, "Right Arrow"), (18, "Number Pad 0"),
+            (20, "Number Pad ."),
+        ],
+    ];
+    const W: usize = 22;
+    let mut cells = vec![None; W * ROWS.len()];
+    let mut names = Vec::new();
+    for (row, keys) in ROWS.iter().enumerate() {
+        for (col, name) in keys.iter() {
+            cells[row * W + col] = Some(names.len() as u32);
+            names.push(format!("Key: {name}"));
+        }
+    }
+    (
+        MatrixMap::new(W, ROWS.len(), cells).expect("22 × 6 cells"),
+        names,
+    )
 }
 
 /// A plausible demo setup so the canvas and effects can be previewed without
@@ -232,6 +329,7 @@ pub fn demo_devices() -> Vec<DeviceInfo> {
                 _ => Vec::new(),
             },
             hardware_mode: None,
+            led_names: Vec::new(),
         }
     }
     fn zone(name: &str, kind: ZoneKind, led_count: usize) -> ZoneInfo {
@@ -240,6 +338,7 @@ pub fn demo_devices() -> Vec<DeviceInfo> {
             kind,
             led_count,
             matrix: None,
+            matrix_map: None,
             leds_min: led_count,
             leds_max: led_count,
             segments: Vec::new(),
@@ -290,20 +389,30 @@ pub fn demo_devices() -> Vec<DeviceInfo> {
             DeviceKind::Cooler,
             vec![zone("Anneau", ZoneKind::Linear, 16)],
         ),
-        dev(
-            9007,
-            "Clavier mécanique",
-            DeviceKind::Keyboard,
-            vec![ZoneInfo {
-                name: "Touches".into(),
-                kind: ZoneKind::Matrix,
-                led_count: 22 * 6,
-                matrix: Some((22, 6)),
-                leds_min: 22 * 6,
-                leds_max: 22 * 6,
-                segments: Vec::new(),
-            }],
-        ),
+        {
+            // A full-size ISO keyboard, keys named and placed as OpenRGB
+            // reports them (US names, whatever the printed layout).
+            let (map, names) = demo_keyboard();
+            let n = names.len();
+            DeviceInfo {
+                led_names: names,
+                ..dev(
+                    9007,
+                    "Clavier mécanique",
+                    DeviceKind::Keyboard,
+                    vec![ZoneInfo {
+                        name: "Touches".into(),
+                        kind: ZoneKind::Matrix,
+                        led_count: n,
+                        matrix: Some((map.width, map.height)),
+                        matrix_map: Some(map),
+                        leds_min: n,
+                        leds_max: n,
+                        segments: Vec::new(),
+                    }],
+                )
+            }
+        },
         dev(
             9008,
             "Souris",

@@ -54,7 +54,6 @@ impl<'c> Zone<'c> {
 
             #[call(segments)]
             pub(crate) fn segment_data(&self) -> Option<&[SegmentData]>;
-            #[expect(unused, reason = "Api not finalised yet")]
             #[call(matrix)]
             pub(crate) fn matrix_data(&self) -> Option<&MatrixMapData>;
         }
@@ -84,6 +83,19 @@ impl<'c> Zone<'c> {
             return Vec::new();
         }
         spans.into_iter().map(|(_, n)| n as usize).collect()
+    }
+
+    /// The matrix map of a matrix zone (TuxRGB patch): `(width, height,
+    /// cells)`, cells row by row, each the index of an LED in this zone or
+    /// `None` where there is no LED (a gap between keys).
+    pub fn matrix_map(&self) -> Option<(usize, usize, Vec<Option<usize>>)> {
+        let m = self.matrix_data()?;
+        let cells = m
+            .cells()
+            .iter()
+            .map(|&c| (c != u32::MAX).then_some(c as usize))
+            .collect();
+        Some((m.width(), m.height(), cells))
     }
 
     /// Returns the segment with the given `segment_id`.
