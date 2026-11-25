@@ -1,0 +1,31 @@
+/*---------------------------------------------------------*\
+| RGBController_AsusTUFLaptop_Linux.h                       |
+|                                                           |
+|   RGBController for ASUS TUF laptop                       |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include "RGBController.h"
+#include "AsusTUFLaptopController_Linux.h"
+
+class RGBController_AsusTUFLaptopLinux : public RGBController
+{
+public:
+    RGBController_AsusTUFLaptopLinux(AsusTUFLaptopLinuxController* controller_ptr);
+    ~RGBController_AsusTUFLaptopLinux();
+
+    void SetupZones();
+
+    void DeviceUpdateLEDs();
+    void DeviceUpdateZoneLEDs(int zone);
+    void DeviceUpdateSingleLED(int led);
+
+    void DeviceUpdateMode();
+
+private:
+    AsusTUFLaptopLinuxController* controller;
+};

@@ -1,0 +1,36 @@
+/*---------------------------------------------------------*\
+| RGBController_CMRGBController.h                           |
+|                                                           |
+|   RGBController for Cooler Master RGB controller          |
+|                                                           |
+|   Nic W (midgetspy)                           13 Apr 2021 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include <vector>
+#include "RGBController.h"
+#include "CMRGBController.h"
+
+class RGBController_CMRGBController : public RGBController
+{
+public:
+    RGBController_CMRGBController(CMRGBController* controller_ptr);
+    ~RGBController_CMRGBController();
+
+    void        SetupZones();
+
+    void        DeviceUpdateLEDs();
+    void        DeviceUpdateZoneLEDs(int zone);
+    void        DeviceUpdateSingleLED(int led);
+
+    void        DeviceUpdateMode();
+
+private:
+    CMRGBController*    controller;
+    void                LoadConfigFromDeviceController(int device_mode);
+    void                ReadAllModeConfigsFromDevice();
+};

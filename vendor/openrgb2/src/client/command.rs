@@ -1,0 +1,370 @@
+use std::collections::HashMap;
+
+use crate::{
+    Color, Controller, OpenRgbError, OpenRgbResult,
+    client::group::{ControllerGroup, ControllerIndex},
+};
+
+/// The different type of LED updates that are possible
+///
+/// For use with [`Command`] and [`CommandGroup`].
+enum SetLedCommand {
+    /// Update LEDs in a controller
+    Controller {
+        /// The colors to set
+        colors: Vec<Color>,
+    },
+    /// Update LEDs in a zone in a controller
+    Zone {
+        /// The ID of the zone
+        zone_id: usize,
+        /// The colors to set in the zone
+        colors: Vec<Color>,
+    },
+    /// Update LEDs in a segment in a zone in a controller
+    Segment {
+        /// The ID of the zone
+        zone_id: usize,
+        /// The ID of the segment
+        segment_id: usize,
+        /// The colors to set in the segment
+        colors: Vec<Color>,
+    },
+    /// Update a single LED in a controller
+    Single {
+        /// LED index in the controller
+        led_id: usize,
+        /// The color to set the LED to
+        color: Color,
+    },
+}
+
+/// [`Command`] equivalent for a [`ControllerGroup`], which allow you to update multiple controllers.
+///
+/// This is useful when doing updates for multiple controllers at once.
+pub struct CommandGroup<'a> {
+    group: &'a ControllerGroup,
+    commands: HashMap<usize, Command<'a>>,
+}
+
+impl<'a> CommandGroup<'a> {
+    pub(crate) fn new(group: &'a ControllerGroup) -> Self {
+        let map = group
+            .controllers()
+            .iter()
+            .map(|c| (c.id(), Command::new(c)))
+            .collect();
+        Self {
+            group,
+            commands: map,
+        }
+    }
+
+    /// Executes all commands in this group one after another.
+    pub async fn execute(self) -> OpenRgbResult<()> {
+        let colors = self
+            .commands
+            .iter()
+            .map(|(c_id, cmd)| (*c_id as u32, cmd.colors.as_slice()));
+
+        self.group.set_all_colors(colors).await?;
+        Ok(())
+    }
+
+    /// Returns a mutable reference to the command for the given controller ID.
+    fn get_cmd_mut(
+        &mut self,
+        controller_id: impl ControllerIndex,
+    ) -> OpenRgbResult<&mut Command<'a>> {
+        let c = self.group.get_controller(controller_id)?;
+        self.commands.get_mut(&c.id()).ok_or_else(|| {
+            OpenRgbError::CommandError(format!("Controller with id {} not found in group", c.id()))
+        })
+    }
+
+    /// Add a command to update a single LED in a controller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the controller is not found in this group.
+    pub fn set_controller_led<C: Into<Color>>(
+        &mut self,
+        controller_id: impl ControllerIndex,
+        led_id: usize,
+        color: C,
+    ) -> OpenRgbResult<()> {
+        let cmd = self.get_cmd_mut(controller_id)?;
+        cmd.set_led(led_id, color)
+    }
+
+    /// Add a command to update a multiple LEDs in a controller
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the controller is not found in this group.
+    pub fn set_controller_leds<C: Into<Color>>(
+        &mut self,
+        controller_id: impl ControllerIndex,
+        colors: impl IntoIterator<Item = C>,
+    ) -> OpenRgbResult<()> {
+        let cmd = self.get_cmd_mut(controller_id)?;
+        cmd.set_leds(colors)
+    }
+
+    /// Add a command to update a zone in a controller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the controller is not found in this group.
+    pub fn set_controller_zone_leds<C: Into<Color>>(
+        &mut self,
+        controller_id: impl ControllerIndex,
+        zone_id: usize,
+        colors: impl IntoIterator<Item = C>,
+    ) -> OpenRgbResult<()> {
+        let cmd = self.get_cmd_mut(controller_id)?;
+        cmd.set_zone_leds(zone_id, colors)
+    }
+
+    /// Add a command to update a single LED in a zone in a controller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the controller is not found in this group.
+    pub fn set_controller_zone_led<C: Into<Color>>(
+        &mut self,
+        controller_id: impl ControllerIndex,
+        zone_id: usize,
+        led_idx: usize,
+        color: C,
+    ) -> OpenRgbResult<()> {
+        let cmd = self.get_cmd_mut(controller_id)?;
+        cmd.set_zone_led(zone_id, led_idx, color)
+    }
+
+    /// Add a command to update a segment in a zone in a controller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the controller is not found in this group.
+    pub fn set_controller_segment_leds<C: Into<Color>>(
+        &mut self,
+        controller_id: impl ControllerIndex,
+        zone_id: usize,
+        segment_id: usize,
+        colors: impl IntoIterator<Item = C>,
+    ) -> OpenRgbResult<()> {
+        let cmd = self.get_cmd_mut(controller_id)?;
+        cmd.set_segment_leds(zone_id, segment_id, colors)
+    }
+}
+
+/// A command to update the LEDs in a controller.
+/// Commands must be executed using `[Self::execute()]`. Use `[Controller::cmd()]` to create a command.
+///
+/// When executed, all commands are combined into a single `UpdateCommand::Controller`,
+/// meaning only a single update is actually sent to the controller.
+///
+/// When two commands write to the same LED, the last command will overwrite the previous one.
+#[derive(Debug)]
+pub struct Command<'a> {
+    controller: &'a Controller,
+    colors: Vec<Color>,
+}
+
+impl<'a> Command<'a> {
+    pub(crate) fn new(controller: &'a Controller) -> Self {
+        Self {
+            controller,
+            colors: Vec::with_capacity(controller.num_leds()),
+        }
+    }
+
+    /// Executes this command, sending the update to the controller.
+    pub async fn execute(self) -> OpenRgbResult<()> {
+        self.controller.set_leds(self.colors).await?;
+        // self.controller.sync_controller_data().await?;
+        Ok(())
+    }
+
+    /// Adds a command to update a single LED in this controller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `led_id` is out of bounds for this controller.
+    pub fn set_led<C: Into<Color>>(&mut self, led_id: usize, color: C) -> OpenRgbResult<()> {
+        self.add_command(SetLedCommand::Single {
+            led_id,
+            color: color.into(),
+        })
+    }
+
+    /// Adds a command to update multiple LEDs in this controller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `colors` contains more colors than there are leds
+    pub fn set_leds<C: Into<Color>>(
+        &mut self,
+        colors: impl IntoIterator<Item = C>,
+    ) -> OpenRgbResult<()> {
+        self.add_command(SetLedCommand::Controller {
+            colors: colors.into_iter().map(Into::into).collect(),
+        })
+    }
+
+    /// Adds a command to update a single LED in a zone in this controller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `zone_id` and `led_idx` are out of bounds for this controller.
+    pub fn set_zone_led<C: Into<Color>>(
+        &mut self,
+        zone_id: usize,
+        led_idx: usize,
+        color: C,
+    ) -> OpenRgbResult<()> {
+        self.add_command(SetLedCommand::Single {
+            led_id: self.controller.get_zone_led_offset(zone_id)? + led_idx,
+            color: color.into(),
+        })
+    }
+
+    /// Adds a command to update multiple LEDs in a zone in this controller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `zone_id` is out of bounds or `colors` contains more colors than there are in this zone.
+    pub fn set_zone_leds<C: Into<Color>>(
+        &mut self,
+        zone_id: usize,
+        colors: impl IntoIterator<Item = C>,
+    ) -> OpenRgbResult<()> {
+        self.add_command(SetLedCommand::Zone {
+            zone_id,
+            colors: colors.into_iter().map(Into::into).collect(),
+        })
+    }
+
+    /// Adds a command to update a single led in a segment in a zone in this controller.
+    pub fn set_segment_led<C: Into<Color>>(
+        &mut self,
+        zone_id: usize,
+        segment_id: usize,
+        led_idx: usize,
+        color: C,
+    ) -> OpenRgbResult<()> {
+        let led_id = led_idx
+            + self
+                .controller
+                .get_zone(zone_id)?
+                .get_segment(segment_id)?
+                .offset();
+        self.add_command(SetLedCommand::Single {
+            led_id,
+            color: color.into(),
+        })
+    }
+
+    /// Adds a command to update multiple LEDs in a segment in a zone in this controller.
+    pub fn set_segment_leds<C: Into<Color>>(
+        &mut self,
+        zone_id: usize,
+        segment_id: usize,
+        colors: impl IntoIterator<Item = C>,
+    ) -> OpenRgbResult<()> {
+        self.add_command(SetLedCommand::Segment {
+            zone_id,
+            segment_id,
+            colors: colors.into_iter().map(Into::into).collect(),
+        })
+    }
+
+    /// Adds an `UpdateCommand` to this command.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index of `cmd` is out of bounds for the colors of this controller.
+    fn add_command(&mut self, cmd: SetLedCommand) -> OpenRgbResult<()> {
+        match cmd {
+            SetLedCommand::Controller { colors } => {
+                if colors.len() > self.controller.num_leds() {
+                    return Err(OpenRgbError::CommandError(format!(
+                        "Controller {} was given {} colors, while its length is {}",
+                        self.controller.name(),
+                        colors.len(),
+                        self.controller.num_leds()
+                    )));
+                }
+
+                self.set_colors(0, &colors)?;
+            }
+            SetLedCommand::Zone { zone_id, colors } => {
+                let zone = self.controller.get_zone(zone_id)?;
+                if colors.len() > zone.num_leds() {
+                    return Err(OpenRgbError::CommandError(format!(
+                        "Zone {} for controller {} was given {} colors, while its length is {}.",
+                        zone.name(),
+                        self.controller.name(),
+                        colors.len(),
+                        zone.num_leds()
+                    )));
+                }
+
+                self.set_colors(zone.offset(), &colors)?;
+            }
+            SetLedCommand::Segment {
+                zone_id,
+                segment_id,
+                colors,
+            } => {
+                let zone = self.controller.get_zone(zone_id)?;
+                let seg = zone.get_segment(segment_id)?;
+                if colors.len() > seg.num_leds() {
+                    return Err(OpenRgbError::CommandError(format!(
+                        "Segment {} for zone {} in controller {} was given {} colors, while its length is {}.",
+                        seg.name(),
+                        zone.name(),
+                        self.controller.name(),
+                        colors.len(),
+                        seg.num_leds()
+                    )));
+                }
+
+                let offset = zone.offset() + seg.offset();
+                self.set_colors(offset, &colors)?;
+            }
+            SetLedCommand::Single { led_id, color } => {
+                if led_id >= self.controller.num_leds() {
+                    return Err(OpenRgbError::CommandError(format!(
+                        "LED id {} is out of bounds for controller {} with {} LEDs",
+                        led_id,
+                        self.controller.name(),
+                        self.controller.num_leds()
+                    )));
+                }
+                self.set_colors(led_id, &[color])?;
+            }
+        }
+        Ok(())
+    }
+
+    /// This is only called internally, so it is safe to assume that the colors are properly bounded
+    fn set_colors(&mut self, offset: usize, colors: &[Color]) -> OpenRgbResult<()> {
+        let len = offset + colors.len();
+        if self.controller.colors().len() < len {
+            return Err(OpenRgbError::CommandError(format!(
+                "Cannot set {} colors at offset {}, controller only has {} colors",
+                colors.len(),
+                offset,
+                self.controller.colors().len()
+            )));
+        }
+
+        if self.colors.len() < len {
+            self.colors.resize(len, Color::default());
+        }
+        self.colors[offset..len].copy_from_slice(colors);
+        Ok(())
+    }
+}

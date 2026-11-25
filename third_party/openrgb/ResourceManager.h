@@ -1,0 +1,271 @@
+/*---------------------------------------------------------*\
+| ResourceManager.h                                         |
+|                                                           |
+|   OpenRGB Resource Manager controls access to application |
+|   components including RGBControllers, I2C interfaces,    |
+|   and network SDK components                              |
+|                                                           |
+|   Adam Honse (CalcProgrammer1)                27 Sep 2020 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <vector>
+#include <functional>
+#include <thread>
+#include <string>
+#include <vector>
+#include <nlohmann/json.hpp>
+#include "DetectionManager.h"
+#include "hidapi_wrapper.h"
+#include "i2c_smbus.h"
+#include "ResourceManagerCallback.h"
+#include "filesystem.h"
+#include "find_usb_serial_port.h"
+
+using json = nlohmann::json;
+
+class LogManager;
+class NetworkClient;
+class NetworkServer;
+class PluginManagerInterface;
+class ProfileManager;
+class RGBController;
+class SettingsManager;
+
+typedef struct
+{
+    unsigned short  vendor_id;
+    unsigned short  product_id;
+    unsigned short  release_number;
+    unsigned short  usage_page;
+    unsigned short  usage;
+    int             interface_number;
+    std::string     serial_number;
+    std::string     manufacturer_string;
+    std::string     product_string;
+    std::string     path;
+}   HIDDeviceInfo;
+
+typedef struct
+{
+    unsigned short  vendor_id;
+    unsigned short  product_id;
+    std::string     serial_number;
+    std::string     manufacturer_string;
+    std::string     product_string;
+}   USBDeviceInfo;
+
+class ResourceManager
+{
+public:
+    ResourceManager();
+    ~ResourceManager();
+
+    /*-----------------------------------------------------*\
+    | ResourceManager Global Instance Accessor              |
+    \*-----------------------------------------------------*/
+    static ResourceManager*             get();
+
+    /*-----------------------------------------------------*\
+    | Resource Accessors                                    |
+    \*-----------------------------------------------------*/
+    std::vector<NetworkClient*>&        GetClients();
+    filesystem::path                    GetConfigurationDirectory();
+    std::string                         GetDefaultServerHost();
+    unsigned short                      GetDefaultServerPort();
+    LogManager*                         GetLogManager();
+    std::vector<HIDDeviceInfo>          GetHIDDeviceInfo();
+    std::vector<i2c_smbus_interface*>&  GetI2CBuses();
+    std::vector<i2c_smbus_info>         GetI2CBusInfo();
+    std::vector<std::string>            GetSerialPorts();
+    std::vector<SerialDeviceInfo>       GetUSBSerialPorts();
+    std::vector<USBDeviceInfo>          GetUSBDeviceInfo();
+    PluginManagerInterface*             GetPluginManager();
+    ProfileManager*                     GetProfileManager();
+    std::vector<RGBController*>&        GetRGBControllers();
+    std::vector<RGBControllerInterface*>&   GetRGBControllerInterfaces();
+    NetworkServer*                      GetServer();
+    SettingsManager*                    GetSettingsManager();
+
+    void                                SetConfigurationDirectory(const filesystem::path &directory);
+    void                                SetDefaultServerHost(std::string server_host);
+    void                                SetDefaultServerPort(unsigned short server_port);
+    void                                SetPluginManager(PluginManagerInterface* plugin_manager_ptr);
+
+    /*-----------------------------------------------------*\
+    | Network Client Registration                           |
+    \*-----------------------------------------------------*/
+    void                                RegisterNetworkClient(NetworkClient* new_client);
+    void                                UnregisterNetworkClient(NetworkClient* network_client);
+    void                                QueueClientTeardown();
+
+    /*-----------------------------------------------------*\
+    | Local Client Accessors                                |
+    \*-----------------------------------------------------*/
+    NetworkClient*                      GetLocalClient();
+    unsigned int                        GetLocalClientProtocolVersion();
+    bool                                IsLocalClient();
+
+    /*-----------------------------------------------------*\
+    | Callback Registration Functions                       |
+    \*-----------------------------------------------------*/
+    void                                RegisterResourceManagerCallback(ResourceManagerCallback new_callback, void * new_callback_arg);
+    void                                UnregisterResourceManagerCallback(ResourceManagerCallback new_callback, void * new_callback_arg);
+
+    /*-----------------------------------------------------*\
+    | Functions to manage detection                         |
+    \*-----------------------------------------------------*/
+    bool                                GetDetectionEnabled();
+    unsigned int                        GetDetectionPercent();
+    std::string                         GetDetectionString();
+    void                                HandleDetectionComplete();
+    void                                StopDeviceDetection();
+    void                                RescanDevices();
+    void                                UpdateDeviceList();
+    void                                WaitForDetection();
+
+    /*-----------------------------------------------------*\
+    | Functions to signal update callbacks                  |
+    \*-----------------------------------------------------*/
+    void                                SignalResourceManagerUpdate(unsigned int update_reason);
+
+    void                                Initialize(bool tryConnect, bool detectDevices, bool startServer, bool applyPostOptions, bool startGui);
+    void                                InitializeServer();
+
+    void                                WaitForInitialization();
+
+    /*-----------------------------------------------------*\
+    | Service Shutdown                                      |
+    \*-----------------------------------------------------*/
+    void                                ServiceShutdown();
+
+private:
+    bool                                AttemptLocalConnection();
+    void                                ClientTeardownThreadFunction();
+    void                                SetupConfigurationDirectory();
+
+    /*-----------------------------------------------------*\
+    | Static pointer to shared instance of ResourceManager  |
+    \*-----------------------------------------------------*/
+    static ResourceManager*                     instance;
+
+    /*-----------------------------------------------------*\
+    | Auto connection permitting flag                       |
+    \*-----------------------------------------------------*/
+    bool                                        tryAutoConnect;
+
+    /*-----------------------------------------------------*\
+    | Detection enabled flag                                |
+    \*-----------------------------------------------------*/
+    bool                                        detection_enabled;
+
+    /*-----------------------------------------------------*\
+    | Flag to track the first detection completion          |
+    \*-----------------------------------------------------*/
+    bool                                        first_detection_complete;
+
+    /*-----------------------------------------------------*\
+    | Auto connection active flag                           |
+    \*-----------------------------------------------------*/
+    bool                                        auto_connection_active;
+
+    /*-----------------------------------------------------*\
+    | Auto connection client pointer                        |
+    \*-----------------------------------------------------*/
+    NetworkClient *                             auto_connection_client;
+
+    /*-----------------------------------------------------*\
+    | GUI start flag                                        |
+    \*-----------------------------------------------------*/
+    bool                                        start_gui;
+
+    /*-----------------------------------------------------*\
+    | Auto connection permitting flag                       |
+    \*-----------------------------------------------------*/
+    bool                                        start_server;
+
+    /*-----------------------------------------------------*\
+    | Auto connection permitting flag                       |
+    \*-----------------------------------------------------*/
+    bool                                        apply_post_options;
+
+    /*-----------------------------------------------------*\
+    | Initialization completion flag                        |
+    \*-----------------------------------------------------*/
+    std::atomic<bool>                           init_finished;
+
+    /*-----------------------------------------------------*\
+    | Plugin Manager                                        |
+    \*-----------------------------------------------------*/
+    PluginManagerInterface*                     plugin_manager;
+
+    /*-----------------------------------------------------*\
+    | Profile Manager                                       |
+    \*-----------------------------------------------------*/
+    ProfileManager*                             profile_manager;
+
+    /*-----------------------------------------------------*\
+    | Settings Manager                                      |
+    \*-----------------------------------------------------*/
+    SettingsManager*                            settings_manager;
+
+    /*-----------------------------------------------------*\
+    | RGBControllers                                        |
+    \*-----------------------------------------------------*/
+    std::vector<RGBController*>                 rgb_controllers;
+    std::vector<RGBController*>                 rgb_controllers_hw;
+    std::vector<RGBControllerInterface*>        rgb_controller_interfaces;
+
+    /*-----------------------------------------------------*\
+    | Network Server                                        |
+    \*-----------------------------------------------------*/
+    NetworkServer*                              server;
+    std::string                                 default_server_host;
+    unsigned short                              default_server_port;
+
+    /*-----------------------------------------------------*\
+    | Network Clients                                       |
+    \*-----------------------------------------------------*/
+    std::vector<NetworkClient*>                 clients;
+    std::mutex                                  ClientListMutex;
+
+    /*-----------------------------------------------------*\
+    | Client teardown thread                                |
+    |                                                       |
+    | Frees controllers a lost connection left behind,      |
+    | inside a DETECTION_STARTED / DETECTION_COMPLETE       |
+    | sequence. Runs on its own thread: StopClient joins    |
+    | the client's listener thread, and the sequence's      |
+    | callbacks need the GUI thread free                    |
+    \*-----------------------------------------------------*/
+    std::thread*                                ClientTeardownThread;
+    std::mutex                                  ClientTeardownMutex;
+    std::condition_variable                     ClientTeardownCv;
+    bool                                        ClientTeardownPending;
+    bool                                        ClientTeardownRunning;
+    std::vector<NetworkClient*>                 clients_to_remove;
+
+    /*-----------------------------------------------------*\
+    | Device List Mutex                                     |
+    \*-----------------------------------------------------*/
+    std::mutex                                  DeviceListChangeMutex;
+
+    /*-----------------------------------------------------*\
+    | ResourceManager Callbacks                             |
+    \*-----------------------------------------------------*/
+    std::vector<ResourceManagerCallback>        ResourceManagerCallbacks;
+    std::vector<void *>                         ResourceManagerCallbackArgs;
+    std::mutex                                  ResourceManagerCallbackMutex;
+
+    /*-----------------------------------------------------*\
+    | OpenRGB configuration directory path                  |
+    \*-----------------------------------------------------*/
+    filesystem::path                            config_dir;
+};

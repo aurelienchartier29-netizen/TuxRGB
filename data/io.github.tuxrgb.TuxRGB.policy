@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD polkit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
+<!--
+  Installed by native packages to /usr/share/polkit-1/actions/.
+  AppImage and Flatpak builds fall back to pkexec's generic
+  org.freedesktop.policykit.exec action (same admin authentication).
+-->
+<policyconfig>
+  <vendor>TuxRGB</vendor>
+  <vendor_url>https://github.com/tuxrgb/TuxRGB</vendor_url>
+  <icon_name>io.github.tuxrgb.TuxRGB</icon_name>
+
+  <action id="io.github.tuxrgb.TuxRGB.hardware-access">
+    <description>Configure RGB hardware access</description>
+    <description xml:lang="fr">Configurer l'accès au matériel RGB</description>
+    <message>Authentication is required to install the OpenRGB udev rules and enable I2C/SMBus access for RGB lighting (and, only if the SMBus is blocked, the acpi_enforce_resources=lax kernel parameter)</message>
+    <message xml:lang="fr">L'authentification est requise pour installer les règles udev d'OpenRGB et activer l'accès I2C/SMBus pour l'éclairage RGB (et, seulement si le SMBus est bloqué, le paramètre noyau acpi_enforce_resources=lax)</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/tuxrgb/tuxrgb-helper</annotate>
+  </action>
+</policyconfig>

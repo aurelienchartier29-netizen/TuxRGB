@@ -1,0 +1,431 @@
+From: TuxRGB
+Subject: [PATCH] DetectionManager: HID hotplug on Linux without hidapi hotplug
+
+Linux builds link the released hidapi, which has no hotplug API: a device
+plugged in after the detection stayed invisible until a full rescan (which
+also re-probes the SMBus RAM and motherboard), and an unplugged one stayed
+listed. A thread now sleeps in poll() on a NETLINK_KOBJECT_UEVENT socket
+(kernel and udev groups) and an eventfd used to stop it: no timer, no
+wake-up while nothing is plugged. A new hidraw node goes through the HID
+detectors exactly as during a full detection (taken from udevd's event,
+sent once its rules set the uaccess permissions, or 1.5 s after the
+kernel's when udevd is absent); a removed node's controllers are
+unregistered by detection_path, as the hidapi hotplug callbacks do. Builds
+with HID_HOTPLUG_ENABLED (Windows, hidapi-hotplug) are unchanged.
+Everything is local to DetectionManager.cpp: DetectionManager.h and the
+class layout do not change.
+
+--- a/DetectionManager.cpp
++++ b/DetectionManager.cpp
+@@ -80,6 +80,318 @@
+                                                      "<p>Multiple udev rules files can conflict, it is recommended to remove one of them.</p>");
+ #endif
+ 
++#if defined(__linux__) && !(HID_HOTPLUG_ENABLED)
++/*---------------------------------------------------------*\
++| TuxRGB: HID hotplug on Linux builds without hidapi        |
++| hotplug support (the hidraw hotplug branch of hidapi is   |
++| not released, and wakes up every 5 ms). A thread sleeps   |
++| in poll() on a kernel uevent netlink socket until a       |
++| hidraw node comes or goes, or until it is told to stop:   |
++| no timer, no wake-up while nothing happens.               |
++|                                                           |
++| Arrivals are taken from the udev group when udevd runs    |
++| (sent after its rules, so the uaccess permissions are     |
++| set), else from the kernel group after 1.5 s. Each new    |
++| hidraw node goes through the HID detectors, as during a   |
++| full detection; a removed node's controllers are          |
++| unregistered (detection_path), as with hidapi hotplug.    |
++\*---------------------------------------------------------*/
++#include <cerrno>
++#include <cstring>
++#include <functional>
++#include <thread>
++#include <linux/netlink.h>
++#include <poll.h>
++#include <sys/eventfd.h>
++#include <sys/socket.h>
++
++namespace
++{
++    struct TuxUevent
++    {
++        std::string action;
++        std::string subsystem;
++        std::string devname;
++        bool        from_udev = false;
++    };
++
++    bool TuxParseUevent(const char* buf, size_t len, TuxUevent& ev)
++    {
++        size_t pos;
++
++        /*-------------------------------------------------*\
++        | udev group: "libudev\0", magic, header size,      |
++        | properties offset (host order) ...                |
++        | kernel group: "action@devpath\0" KEY=VALUE\0 ...  |
++        \*-------------------------------------------------*/
++        if((len >= 40) && (memcmp(buf, "libudev", 8) == 0))
++        {
++            uint32_t properties_off;
++            memcpy(&properties_off, buf + 16, sizeof(properties_off));
++
++            if((properties_off < 40) || (properties_off >= len))
++            {
++                return(false);
++            }
++
++            pos          = properties_off;
++            ev.from_udev = true;
++        }
++        else
++        {
++            pos = strnlen(buf, len) + 1;
++        }
++
++        while(pos < len)
++        {
++            const char* kv = buf + pos;
++            size_t      n  = strnlen(kv, len - pos);
++
++            if(strncmp(kv, "ACTION=", 7) == 0)
++            {
++                ev.action.assign(kv + 7, n - 7);
++            }
++            else if(strncmp(kv, "SUBSYSTEM=", 10) == 0)
++            {
++                ev.subsystem.assign(kv + 10, n - 10);
++            }
++            else if(strncmp(kv, "DEVNAME=", 8) == 0)
++            {
++                ev.devname.assign(kv + 8, n - 8);
++            }
++
++            pos += n + 1;
++        }
++
++        if(!ev.devname.empty() && (ev.devname[0] != '/'))
++        {
++            ev.devname = "/dev/" + ev.devname;
++        }
++
++        return(!ev.action.empty());
++    }
++
++    struct TuxUeventHotplug
++    {
++        std::thread* thread  = nullptr;
++        int          stop_fd = -1;
++        std::mutex   mutex;
++    };
++
++    TuxUeventHotplug tux_uevent_hotplug;
++
++    void TuxUeventThread
++        (
++        int                                         nl_fd,
++        int                                         stop_fd,
++        std::function<void(const std::string&)>     removed,
++        std::function<void(hid_device_info*)>       arrived
++        )
++    {
++        using clock = std::chrono::steady_clock;
++
++        std::set<std::string>   known;
++        std::set<std::string>   forced;
++        bool                    udev_seen   = false;
++        bool                    pending     = false;
++        clock::time_point       due;
++        std::vector<char>       buf(16384);
++
++        /*-------------------------------------------------*\
++        | Nodes present now were seen by the detection      |
++        \*-------------------------------------------------*/
++        hid_device_info* devs = hid_enumerate(0, 0);
++
++        for(hid_device_info* d = devs; d; d = d->next)
++        {
++            known.insert(d->path);
++        }
++
++        hid_free_enumeration(devs);
++
++        while(true)
++        {
++            int timeout_ms = -1;
++
++            if(pending)
++            {
++                auto left  = std::chrono::duration_cast<std::chrono::milliseconds>(due - clock::now()).count();
++                timeout_ms = (left > 0) ? (int)left : 0;
++            }
++
++            pollfd fds[2] = { { nl_fd, POLLIN, 0 }, { stop_fd, POLLIN, 0 } };
++            int    ready  = poll(fds, 2, timeout_ms);
++
++            if(ready < 0)
++            {
++                if(errno == EINTR)
++                {
++                    continue;
++                }
++                break;
++            }
++
++            if(fds[1].revents != 0)
++            {
++                break;
++            }
++
++            if(fds[0].revents & POLLIN)
++            {
++                ssize_t len = recv(nl_fd, buf.data(), buf.size(), MSG_DONTWAIT);
++
++                if((len < 0) && (errno == ENOBUFS))
++                {
++                    /*-------------------------------------*\
++                    | Events were lost: look for new nodes  |
++                    \*-------------------------------------*/
++                    pending = true;
++                    due     = clock::now() + std::chrono::milliseconds(500);
++                }
++
++                TuxUevent ev;
++
++                if((len > 0) && TuxParseUevent(buf.data(), (size_t)len, ev) && (ev.subsystem == "hidraw") && !ev.devname.empty())
++                {
++                    LOG_DEBUG("[%s] HID hotplug: %s %s (%s)", DETECTIONMANAGER, ev.action.c_str(), ev.devname.c_str(), ev.from_udev ? "udev" : "kernel");
++
++                    if(ev.from_udev)
++                    {
++                        udev_seen = true;
++                    }
++
++                    /*-------------------------------------*\
++                    | With udevd running, its own event     |
++                    | (permissions set) is the one used     |
++                    \*-------------------------------------*/
++                    if(ev.from_udev || !udev_seen)
++                    {
++                        if(ev.action == "remove")
++                        {
++                            known.erase(ev.devname);
++                            forced.erase(ev.devname);
++                            removed(ev.devname);
++                        }
++                        else if(ev.action == "add")
++                        {
++                            if(ev.from_udev)
++                            {
++                                forced.insert(ev.devname);
++                            }
++
++                            pending = true;
++                            due     = clock::now() + std::chrono::milliseconds(ev.from_udev ? 200 : 1500);
++                        }
++                    }
++                }
++            }
++
++            if(pending && (clock::now() >= due))
++            {
++                pending = false;
++
++                std::set<std::string> present;
++
++                devs = hid_enumerate(0, 0);
++
++                LOG_DEBUG("[%s] HID hotplug: looking for new HID devices", DETECTIONMANAGER);
++
++                for(hid_device_info* d = devs; d; d = d->next)
++                {
++                    std::string path = d->path;
++
++                    if((known.find(path) == known.end()) || (forced.find(path) != forced.end()))
++                    {
++                        arrived(d);
++                    }
++
++                    present.insert(path);
++                }
++
++                hid_free_enumeration(devs);
++
++                known.swap(present);
++                forced.clear();
++            }
++        }
++
++        close(nl_fd);
++    }
++
++    void TuxStartUeventHotplug(std::function<void(const std::string&)> removed, std::function<void(hid_device_info*)> arrived)
++    {
++        std::lock_guard<std::mutex> lock(tux_uevent_hotplug.mutex);
++
++        if(tux_uevent_hotplug.thread)
++        {
++            return;
++        }
++
++        int nl_fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_KOBJECT_UEVENT);
++
++        if(nl_fd < 0)
++        {
++            LOG_WARNING("[%s] HID hotplug: no uevent socket (%s)", DETECTIONMANAGER, strerror(errno));
++            return;
++        }
++
++        sockaddr_nl addr;
++        memset(&addr, 0, sizeof(addr));
++        addr.nl_family = AF_NETLINK;
++        addr.nl_groups = 1 | 2;
++
++        if(bind(nl_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
++        {
++            addr.nl_groups = 1;
++
++            if(bind(nl_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
++            {
++                LOG_WARNING("[%s] HID hotplug: uevent socket refused (%s)", DETECTIONMANAGER, strerror(errno));
++                close(nl_fd);
++                return;
++            }
++        }
++
++        int stop_fd = eventfd(0, EFD_CLOEXEC);
++
++        if(stop_fd < 0)
++        {
++            close(nl_fd);
++            return;
++        }
++
++        tux_uevent_hotplug.stop_fd = stop_fd;
++        tux_uevent_hotplug.thread  = new std::thread(TuxUeventThread, nl_fd, stop_fd, removed, arrived);
++
++        LOG_INFO("[%s] HID hotplug: waiting for hidraw uevents", DETECTIONMANAGER);
++    }
++
++    void TuxStopUeventHotplug()
++    {
++        std::lock_guard<std::mutex> lock(tux_uevent_hotplug.mutex);
++
++        if(!tux_uevent_hotplug.thread)
++        {
++            return;
++        }
++
++        uint64_t one = 1;
++
++        if(write(tux_uevent_hotplug.stop_fd, &one, sizeof(one)) < 0)
++        {
++            LOG_WARNING("[%s] HID hotplug: could not stop the uevent thread", DETECTIONMANAGER);
++        }
++
++        tux_uevent_hotplug.thread->join();
++        delete tux_uevent_hotplug.thread;
++        tux_uevent_hotplug.thread = nullptr;
++
++        close(tux_uevent_hotplug.stop_fd);
++        tux_uevent_hotplug.stop_fd = -1;
++    }
++}
++#endif
++
+ /*---------------------------------------------------------*\
+ | Default hidapi wrappter that just uses default hidapi     |
+ \*---------------------------------------------------------*/
+@@ -179,6 +491,10 @@
+ 
+ DetectionManager::~DetectionManager()
+ {
++#if defined(__linux__) && !(HID_HOTPLUG_ENABLED)
++    TuxStopUeventHotplug();
++#endif
++
+     /*-----------------------------------------------------*\
+     | Exit HID in background thread                         |
+     \*-----------------------------------------------------*/
+@@ -855,6 +1171,70 @@
+         StartHIDHotplug();
+ #else
+         BackgroundDetectHIDDevices(hid_devices, detector_settings);
++#ifdef __linux__
++        /*-------------------------------------------------*        | TuxRGB: hot-plugged HID devices from uevents      |
++        \*-------------------------------------------------*/
++        TuxStartUeventHotplug
++        (
++            [this](const std::string& path)
++            {
++                std::vector<RGBController*> on_path;
++
++                RGBControllersMutex.lock();
++
++                for(RGBController* controller : rgb_controllers)
++                {
++                    if(controller->detection_path == path)
++                    {
++                        on_path.push_back(controller);
++                    }
++                }
++
++                RGBControllersMutex.unlock();
++
++                if(!on_path.empty())
++                {
++                    LOG_INFO("[%s] HID device disconnected: [%s]", DETECTIONMANAGER, path.c_str());
++                }
++
++                for(RGBController* controller : on_path)
++                {
++                    UnregisterRGBController(controller);
++                    delete controller;
++                }
++            },
++            [this](hid_device_info* device)
++            {
++                std::string path  = device->path;
++                bool        owned = false;
++
++                RGBControllersMutex.lock();
++
++                for(RGBController* controller : rgb_controllers)
++                {
++                    if(controller->detection_path == path)
++                    {
++                        owned = true;
++                        break;
++                    }
++                }
++
++                RGBControllersMutex.unlock();
++
++                if(owned)
++                {
++                    return;
++                }
++
++                json settings = ResourceManager::get()->GetSettingsManager()->GetSettings("Detectors");
++
++                LOG_INFO("[%s] HID device connected: [%04x:%04x - %s]", DETECTIONMANAGER, device->vendor_id, device->product_id, device->path);
++
++                RunHIDDetector(device, settings);
++                RunHIDWrappedDetector(&default_hidapi_wrapper, device, settings);
++            }
++        );
++#endif
+ #endif
+     }
+ 
+@@ -1751,6 +2131,10 @@
+ {
+     WaitForDetection();
+ 
++#if defined(__linux__) && !(HID_HOTPLUG_ENABLED)
++    TuxStopUeventHotplug();
++#endif
++
+ #if(HID_HOTPLUG_ENABLED)
+     StopHIDHotplug();
+ #endif

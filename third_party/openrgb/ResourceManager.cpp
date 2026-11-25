@@ -1,0 +1,1478 @@
+/*---------------------------------------------------------*\
+| ResourceManager.cpp                                       |
+|                                                           |
+|   OpenRGB Resource Manager controls access to application |
+|   components including RGBControllers, I2C interfaces,    |
+|   and network SDK components                              |
+|                                                           |
+|   Adam Honse (CalcProgrammer1)                27 Sep 2020 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#ifdef _WIN32
+#include <codecvt>
+#include <locale>
+#endif
+
+#include <stdlib.h>
+#include <string>
+#include "cli.h"
+#include "DetectionManager.h"
+#include "ResourceManager.h"
+#include "ProfileManager.h"
+#include "LogManager.h"
+#include "serial_port.h"
+#include "SettingsManager.h"
+#include "StringUtils.h"
+#include "NetworkClient.h"
+#include "NetworkServer.h"
+#include "filesystem.h"
+
+/*---------------------------------------------------------*\
+| Put these last to avoid some include order issues         |
+\*---------------------------------------------------------*/
+#include <hidapi.h>
+#include <libusb.h>
+
+#ifdef __linux__
+#include <sys/resource.h>
+#endif
+
+using namespace std::chrono_literals;
+
+/*---------------------------------------------------------*\
+| ResourceManager Callback Functions                        |
+\*---------------------------------------------------------*/
+static void ResourceManagerDetectionCallback(void * this_ptr, unsigned int update_reason)
+{
+    ResourceManager* this_obj = (ResourceManager *)this_ptr;
+
+    switch(update_reason)
+    {
+        case DETECTIONMANAGER_UPDATE_REASON_I2C_BUS_REGISTERED:
+            this_obj->SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_I2C_BUS_LIST_UPDATED);
+            break;
+
+        case DETECTIONMANAGER_UPDATE_REASON_DETECTION_STARTED:
+            this_obj->SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_DETECTION_STARTED);
+            break;
+
+        case DETECTIONMANAGER_UPDATE_REASON_RGBCONTROLLER_REGISTERED:
+        case DETECTIONMANAGER_UPDATE_REASON_RGBCONTROLLER_UNREGISTERED:
+        case DETECTIONMANAGER_UPDATE_REASON_RGBCONTROLLER_LIST_CLEARED:
+            this_obj->UpdateDeviceList();
+            break;
+
+        case DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED:
+            this_obj->SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
+            break;
+
+        case DETECTIONMANAGER_UPDATE_REASON_DETECTION_COMPLETE:
+            this_obj->HandleDetectionComplete();
+            this_obj->SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_DETECTION_COMPLETE);
+            break;
+    }
+}
+
+static void ResourceManagerNetworkClientCallback(void* this_ptr, unsigned int update_reason)
+{
+    ResourceManager* this_obj = (ResourceManager*)this_ptr;
+
+    switch(update_reason)
+    {
+        case NETWORKCLIENT_UPDATE_REASON_DEVICE_LIST_UPDATED:
+            this_obj->SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_CLIENT_INFO_UPDATED);
+            this_obj->UpdateDeviceList();
+            break;
+
+        case NETWORKCLIENT_UPDATE_REASON_CLIENT_CONNECTED:
+            this_obj->SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_CLIENT_INFO_UPDATED);
+            break;
+
+        /*-------------------------------------------------*\
+        | Unplanned connection loss: free the client's      |
+        | orphaned controllers on the teardown thread       |
+        \*-------------------------------------------------*/
+        case NETWORKCLIENT_UPDATE_REASON_CLIENT_DISCONNECTED:
+            this_obj->SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_CLIENT_INFO_UPDATED);
+            this_obj->QueueClientTeardown();
+            break;
+
+        case NETWORKCLIENT_UPDATE_REASON_DETECTION_STARTED:
+            this_obj->SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_DETECTION_STARTED);
+            break;
+
+        case NETWORKCLIENT_UPDATE_REASON_DETECTION_PROGRESS_CHANGED:
+            this_obj->SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
+            break;
+
+        case NETWORKCLIENT_UPDATE_REASON_DETECTION_COMPLETE:
+            this_obj->SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_DETECTION_COMPLETE);
+            break;
+
+        case NETWORKCLIENT_UPDATE_REASON_PROFILEMANAGER_PROFILE_LIST_UPDATED:
+            this_obj->GetProfileManager()->SignalProfileManagerUpdate(PROFILEMANAGER_UPDATE_REASON_PROFILE_LIST_UPDATED);
+            break;
+
+        case NETWORKCLIENT_UPDATE_REASON_PROFILEMANAGER_ACTIVE_PROFILE_CHANGED:
+            this_obj->GetProfileManager()->SignalProfileManagerUpdate(PROFILEMANAGER_UPDATE_REASON_ACTIVE_PROFILE_CHANGED);
+            break;
+
+        case NETWORKCLIENT_UPDATE_REASON_SERVER_FLAGS_RECEIVED:
+            if(this_obj->IsLocalClient())
+            {
+                this_obj->GetProfileManager()->UpdateProfileList();
+            }
+            break;
+    }
+}
+
+/*---------------------------------------------------------*\
+| ResourceManager name for log entries                      |
+\*---------------------------------------------------------*/
+const char* RESOURCEMANAGER = "ResourceManager";
+
+/*---------------------------------------------------------*\
+| ResourceManager Global Instance Pointer                   |
+\*---------------------------------------------------------*/
+ResourceManager* ResourceManager::instance;
+
+/*---------------------------------------------------------*\
+| Save default Server settings to the settings file if      |
+| they do not already exist in the loaded settings          |
+\*---------------------------------------------------------*/
+static void SaveDefaultServerSettings(SettingsManager* settings_manager)
+{
+    json server_settings    = settings_manager->GetSettings("Server");
+    bool settings_changed   = false;
+
+    if(!server_settings.contains("default_host"))
+    {
+        server_settings["default_host"]     = OPENRGB_SDK_HOST;
+        settings_changed                    = true;
+    }
+
+    if(!server_settings.contains("default_port"))
+    {
+        server_settings["default_port"]     = OPENRGB_SDK_PORT;
+        settings_changed                    = true;
+    }
+
+    if(!server_settings.contains("all_controllers"))
+    {
+        server_settings["all_controllers"]  = false;
+        settings_changed                    = true;
+    }
+
+    if(!server_settings.contains("legacy_workaround"))
+    {
+        server_settings["legacy_workaround"]= false;
+        settings_changed                    = true;
+    }
+
+    if(settings_changed)
+    {
+        settings_manager->SetSettings("Server", server_settings);
+        settings_manager->SaveSettings();
+    }
+}
+
+ResourceManager::ResourceManager()
+{
+    /*-----------------------------------------------------*\
+    | Initialize global instance pointer the when created   |
+    | There should only ever be one instance of             |
+    | ResourceManager                                       |
+    \*-----------------------------------------------------*/
+    if(!instance)
+    {
+        instance = this;
+    }
+    /*-----------------------------------------------------*\
+    | If, for whatever reason, ResourceManager already      |
+    | exists, delete this instance as only one should exist |
+    \*-----------------------------------------------------*/
+    else
+    {
+        delete this;
+        return;
+    }
+
+    /*-----------------------------------------------------*\
+    | Initialize Detection Variables                        |
+    \*-----------------------------------------------------*/
+    auto_connection_client      = NULL;
+    auto_connection_active      = false;
+    default_server_host         = "";
+    default_server_port         = 0;
+    detection_enabled           = true;
+    first_detection_complete    = false;
+    init_finished               = false;
+    plugin_manager              = NULL;
+    server                      = NULL;
+
+    /*-----------------------------------------------------*\
+    | Start the client teardown thread                      |
+    \*-----------------------------------------------------*/
+    ClientTeardownPending       = false;
+    ClientTeardownRunning       = true;
+    ClientTeardownThread        = new std::thread(&ResourceManager::ClientTeardownThreadFunction, this);
+
+    SetupConfigurationDirectory();
+
+    /*-----------------------------------------------------*\
+    | Load settings from file                               |
+    \*-----------------------------------------------------*/
+    settings_manager            = new SettingsManager();
+
+    settings_manager->LoadSettings(GetConfigurationDirectory() / "OpenRGB.json");
+
+    /*-----------------------------------------------------*\
+    | Create Detection settings schema                      |
+    \*-----------------------------------------------------*/
+    json                detection_settings_schema;
+
+    detection_settings_schema["hid_safe_mode"]["title"]                     = QT_TRANSLATE_NOOP("Settings", "HID Safe Mode");
+    detection_settings_schema["hid_safe_mode"]["type"]                      = "bool";
+    detection_settings_schema["hid_safe_mode"]["description"]               = QT_TRANSLATE_NOOP("Settings", "Use an alternate method for detecting HID devices");
+
+    detection_settings_schema["initial_detection_delay_ms"]["title"]        = QT_TRANSLATE_NOOP("Settings", "Initial Detection Delay (ms)");
+    detection_settings_schema["initial_detection_delay_ms"]["type"]         = "integer";
+    detection_settings_schema["initial_detection_delay_ms"]["description"]  = QT_TRANSLATE_NOOP("Settings", "Amount of time, in milliseconds, to wait before detecting devices when started");
+    detection_settings_schema["initial_detection_delay_ms"]["minimum"]      = 0;
+
+    settings_manager->RegisterSettingsSchemaIgnoreFilter("Detectors", QT_TRANSLATE_NOOP("Settings", "Detection"), detection_settings_schema);
+
+    /*-----------------------------------------------------*\
+    | Create LogManager settings schema                     |
+    \*-----------------------------------------------------*/
+    json                logmanager_settings_schema;
+
+    logmanager_settings_schema["log_console"]["title"]                      = QT_TRANSLATE_NOOP("Settings", "Enable Log Console");
+    logmanager_settings_schema["log_console"]["type"]                       = "bool";
+
+    logmanager_settings_schema["log_file"]["title"]                         = QT_TRANSLATE_NOOP("Settings", "Enable Log File");
+    logmanager_settings_schema["log_file"]["type"]                          = "bool";
+    logmanager_settings_schema["log_file"]["default"]                       = true;
+
+    logmanager_settings_schema["loglevel"]["title"]                         = QT_TRANSLATE_NOOP("Settings", "Log Level");
+    logmanager_settings_schema["loglevel"]["type"]                          = "integer";
+    logmanager_settings_schema["loglevel"]["default"]                       = 3;
+    logmanager_settings_schema["loglevel"]["enum"][0]                       = 0;
+    logmanager_settings_schema["loglevel"]["enumNames"][0]                  = "Fatal";
+    logmanager_settings_schema["loglevel"]["enum"][1]                       = 1;
+    logmanager_settings_schema["loglevel"]["enumNames"][1]                  = "Error";
+    logmanager_settings_schema["loglevel"]["enum"][2]                       = 2;
+    logmanager_settings_schema["loglevel"]["enumNames"][2]                  = "Warning";
+    logmanager_settings_schema["loglevel"]["enum"][3]                       = 3;
+    logmanager_settings_schema["loglevel"]["enumNames"][3]                  = "Info";
+    logmanager_settings_schema["loglevel"]["enum"][4]                       = 4;
+    logmanager_settings_schema["loglevel"]["enumNames"][4]                  = "Verbose";
+    logmanager_settings_schema["loglevel"]["enum"][5]                       = 5;
+    logmanager_settings_schema["loglevel"]["enumNames"][5]                  = "Debug";
+    logmanager_settings_schema["loglevel"]["enum"][6]                       = 6;
+    logmanager_settings_schema["loglevel"]["enumNames"][6]                  = "Trace";
+
+    logmanager_settings_schema["file_count_limit"]["title"]                 = QT_TRANSLATE_NOOP("Settings", "Log File Count Limit");
+    logmanager_settings_schema["file_count_limit"]["type"]                  = "integer";
+    logmanager_settings_schema["file_count_limit"]["description"]           = QT_TRANSLATE_NOOP("Settings", "Maximum number of log files to keep, 0 for no limit");
+    logmanager_settings_schema["file_count_limit"]["default"]               = 10;
+    logmanager_settings_schema["file_count_limit"]["minimum"]               = 0;
+
+    logmanager_settings_schema["dialog_no_show_hashes"]["title"]            = QT_TRANSLATE_NOOP("Settings", "Dialog No-Show Hashes");
+    logmanager_settings_schema["dialog_no_show_hashes"]["type"]             = "array";
+    logmanager_settings_schema["dialog_no_show_hashes"]["description"]      = QT_TRANSLATE_NOOP("Settings", "A list of hashes of dialog text that should not be shown.  Selecting \"Do Not Show Again\" on a dialog adds it to this list.");
+    logmanager_settings_schema["dialog_no_show_hashes"]["items"]["type"]    = "integer";
+    logmanager_settings_schema["dialog_no_show_hashes"]["visible"]          = false;
+
+    settings_manager->RegisterSettingsSchema("LogManager", QT_TRANSLATE_NOOP("Settings", "Log Manager"), logmanager_settings_schema);
+
+    /*-----------------------------------------------------*\
+    | Create Server settings schema                         |
+    \*-----------------------------------------------------*/
+    json                server_settings_schema;
+
+    server_settings_schema["all_controllers"]["title"]                      = QT_TRANSLATE_NOOP("Settings", "Serve All Controllers");
+    server_settings_schema["all_controllers"]["type"]                       = "bool";
+    server_settings_schema["all_controllers"]["description"]                = QT_TRANSLATE_NOOP("Settings", "Include controllers provided by client connections and plugins");
+
+    server_settings_schema["default_host"]["title"]                         = QT_TRANSLATE_NOOP("Settings", "Default Host");
+    server_settings_schema["default_host"]["type"]                          = "string";
+    server_settings_schema["default_host"]["default"]                       = OPENRGB_SDK_HOST;
+
+    server_settings_schema["default_port"]["title"]                         = QT_TRANSLATE_NOOP("Settings", "Default Port");
+    server_settings_schema["default_port"]["type"]                          = "integer";
+    server_settings_schema["default_port"]["default"]                       = OPENRGB_SDK_PORT;
+    server_settings_schema["default_port"]["minimum"]                       = 0;
+    server_settings_schema["default_port"]["maximum"]                       = 65535;
+
+    server_settings_schema["legacy_workaround"]["title"]                    = QT_TRANSLATE_NOOP("Settings", "Legacy Workaround");
+    server_settings_schema["legacy_workaround"]["type"]                     = "bool";
+    server_settings_schema["legacy_workaround"]["description"]              = QT_TRANSLATE_NOOP("Settings", "Workaround for some older SDK implementations that sent incorrect packet size for certain packets");
+
+    settings_manager->RegisterSettingsSchemaLocalOnly("Server", QT_TRANSLATE_NOOP("Settings", "Server"), server_settings_schema);
+
+    /*-----------------------------------------------------*\
+    | Configure the log manager                             |
+    \*-----------------------------------------------------*/
+    LogManager::get()->Configure(settings_manager->GetSettings("LogManager"), GetConfigurationDirectory());
+
+    /*-----------------------------------------------------*\
+    | Save default Server settings if not present           |
+    \*-----------------------------------------------------*/
+    SaveDefaultServerSettings(settings_manager);
+
+    /*-----------------------------------------------------*\
+    | Load sizes list from file                             |
+    \*-----------------------------------------------------*/
+    profile_manager         = new ProfileManager(GetConfigurationDirectory());
+
+    /*-----------------------------------------------------*\
+    | If configured, lower process priority to potentially  |
+    | reduce interference with other programs. Positive     |
+    | nice values decrease priority on Linux and MacOS.     |
+    \*-----------------------------------------------------*/
+    json general_settings   = settings_manager->GetSettings("General");
+    bool low_priority       = false;
+
+    if(general_settings.contains("low_priority"))
+    {
+        low_priority        = general_settings["low_priority"];
+    }
+
+    if(low_priority)
+    {
+#if defined(__linux__) || defined(__APPLE__)
+        setpriority(PRIO_PROCESS, 0, 10);
+#endif
+#ifdef _WIN32
+        SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
+#endif
+    }
+}
+
+ResourceManager::~ResourceManager()
+{
+    /*-----------------------------------------------------*\
+    | Stop the client teardown thread                       |
+    \*-----------------------------------------------------*/
+    ClientTeardownMutex.lock();
+    ClientTeardownRunning = false;
+    ClientTeardownMutex.unlock();
+
+    ClientTeardownCv.notify_all();
+
+    if(ClientTeardownThread)
+    {
+        ClientTeardownThread->join();
+        delete ClientTeardownThread;
+        ClientTeardownThread = nullptr;
+    }
+}
+
+/*---------------------------------------------------------*\
+| ResourceManager Global Instance Accessor                  |
+\*---------------------------------------------------------*/
+ResourceManager* ResourceManager::get()
+{
+    /*-----------------------------------------------------*\
+    | If ResourceManager does not exist yet, create it      |
+    \*-----------------------------------------------------*/
+    if(!instance)
+    {
+        instance = new ResourceManager();
+    }
+
+    return instance;
+}
+
+/*---------------------------------------------------------*\
+| Resource Accessors                                        |
+\*---------------------------------------------------------*/
+std::vector<NetworkClient*>& ResourceManager::GetClients()
+{
+    return(clients);
+}
+
+filesystem::path ResourceManager::GetConfigurationDirectory()
+{
+    return(config_dir);
+}
+
+std::string ResourceManager::GetDefaultServerHost()
+{
+    return(default_server_host);
+}
+
+unsigned short ResourceManager::GetDefaultServerPort()
+{
+    return(default_server_port);
+}
+
+std::vector<HIDDeviceInfo> ResourceManager::GetHIDDeviceInfo()
+{
+    if(IsLocalClient())
+    {
+        return(GetLocalClient()->GetHIDDeviceInfo());
+    }
+    else
+    {
+        hid_device_info*                    hid_devices;
+        std::vector<HIDDeviceInfo>          hid_info;
+
+        hid_devices = hid_enumerate(0,0);
+
+        while(hid_devices)
+        {
+            HIDDeviceInfo                   hid_device_info;
+
+            hid_device_info.vendor_id           = hid_devices->vendor_id;
+            hid_device_info.product_id          = hid_devices->product_id;
+            hid_device_info.release_number      = hid_devices->release_number;
+            hid_device_info.usage_page          = hid_devices->usage_page;
+            hid_device_info.usage               = hid_devices->usage;
+            hid_device_info.interface_number    = hid_devices->interface_number;
+            hid_device_info.serial_number       = StringUtils::wchar_to_string(hid_devices->serial_number);
+            hid_device_info.manufacturer_string = StringUtils::wchar_to_string(hid_devices->manufacturer_string);
+            hid_device_info.product_string      = StringUtils::wchar_to_string(hid_devices->product_string);
+            hid_device_info.path                = hid_devices->path;
+
+            hid_info.push_back(hid_device_info);
+
+            hid_devices = hid_devices->next;
+        }
+
+        return(hid_info);
+    }
+}
+
+std::vector<i2c_smbus_interface*> & ResourceManager::GetI2CBuses()
+{
+    return DetectionManager::get()->GetI2CBuses();
+}
+
+std::vector<i2c_smbus_info> ResourceManager::GetI2CBusInfo()
+{
+    if(IsLocalClient())
+    {
+        return(GetLocalClient()->GetI2CBusInfo());
+    }
+    else
+    {
+        std::vector<i2c_smbus_info>         bus_info;
+        std::vector<i2c_smbus_interface*>   buses       = GetI2CBuses();
+
+        for(std::size_t bus_idx = 0; bus_idx < buses.size(); bus_idx++)
+        {
+            bus_info.push_back(buses[bus_idx]->info);
+        }
+
+        return(bus_info);
+    }
+}
+
+std::vector<std::string> ResourceManager::GetSerialPorts()
+{
+    if(IsLocalClient())
+    {
+        return(GetLocalClient()->GetSerialPorts());
+    }
+    else
+    {
+        return(serial_port::getSerialPorts());
+    }
+}
+
+std::vector<SerialDeviceInfo> ResourceManager::GetUSBSerialPorts()
+{
+    if(IsLocalClient())
+    {
+        return(GetLocalClient()->GetUSBSerialPorts());
+    }
+    else
+    {
+        return(find_usb_serial_ports());
+    }
+}
+
+std::vector<USBDeviceInfo> ResourceManager::GetUSBDeviceInfo()
+{
+    if(IsLocalClient())
+    {
+        return(GetLocalClient()->GetUSBDeviceInfo());
+    }
+    else
+    {
+        std::size_t                         usb_device_count;
+        libusb_device**                     usb_devices;
+        std::vector<USBDeviceInfo>          usb_info;
+
+        if(libusb_init(NULL) >= 0)
+        {
+            usb_device_count = libusb_get_device_list(NULL, &usb_devices);
+
+            for(std::size_t usb_device_idx = 0; usb_device_idx < usb_device_count; usb_device_idx++)
+            {
+                libusb_device_descriptor    usb_desc;
+                libusb_device_handle*       usb_handle;
+
+                if(libusb_get_device_descriptor(usb_devices[usb_device_idx], &usb_desc) >= 0)
+                {
+                    USBDeviceInfo           usb_device_info;
+                    char                    usb_descriptor_buf[256];
+
+                    usb_device_info.vendor_id   = usb_desc.idVendor;
+                    usb_device_info.product_id  = usb_desc.idProduct;
+
+                    if(libusb_open(usb_devices[usb_device_idx], &usb_handle) >= 0)
+                    {
+                        if(usb_desc.iSerialNumber)
+                        {
+                            libusb_get_string_descriptor_ascii(usb_handle, usb_desc.iSerialNumber, (unsigned char*)usb_descriptor_buf, sizeof(usb_descriptor_buf));
+                            usb_device_info.serial_number.assign(usb_descriptor_buf);
+                        }
+
+                        if(usb_desc.iManufacturer)
+                        {
+                            libusb_get_string_descriptor_ascii(usb_handle, usb_desc.iManufacturer, (unsigned char*)usb_descriptor_buf, sizeof(usb_descriptor_buf));
+                            usb_device_info.manufacturer_string.assign(usb_descriptor_buf);
+                        }
+
+                        if(usb_desc.iProduct)
+                        {
+                            libusb_get_string_descriptor_ascii(usb_handle, usb_desc.iProduct, (unsigned char*)usb_descriptor_buf, sizeof(usb_descriptor_buf));
+                            usb_device_info.product_string.assign(usb_descriptor_buf);
+                        }
+
+                        libusb_close(usb_handle);
+                    }
+
+                    usb_info.push_back(usb_device_info);
+                }
+            }
+
+            libusb_free_device_list(usb_devices, 1);
+        }
+
+        return(usb_info);
+    }
+}
+
+LogManager* ResourceManager::GetLogManager()
+{
+    return LogManager::get();
+}
+
+PluginManagerInterface* ResourceManager::GetPluginManager()
+{
+    return(plugin_manager);
+}
+
+ProfileManager* ResourceManager::GetProfileManager()
+{
+    return(profile_manager);
+}
+
+std::vector<RGBController*>& ResourceManager::GetRGBControllers()
+{
+    return(rgb_controllers);
+}
+
+std::vector<RGBControllerInterface*>& ResourceManager::GetRGBControllerInterfaces()
+{
+    return(rgb_controller_interfaces);
+}
+
+NetworkServer* ResourceManager::GetServer()
+{
+    return(server);
+}
+
+SettingsManager* ResourceManager::GetSettingsManager()
+{
+    return(settings_manager);
+}
+
+void ResourceManager::SetConfigurationDirectory(const filesystem::path &directory)
+{
+    config_dir = directory;
+    settings_manager->LoadSettings(directory / "OpenRGB.json");
+    LogManager::get()->Configure(settings_manager->GetSettings("LogManager"), GetConfigurationDirectory());
+    SaveDefaultServerSettings(settings_manager);
+    profile_manager->SetConfigurationDirectory(directory);
+}
+
+void ResourceManager::SetDefaultServerHost(std::string new_server_host)
+{
+    default_server_host = new_server_host;
+}
+
+void ResourceManager::SetDefaultServerPort(unsigned short new_server_port)
+{
+    default_server_port = new_server_port;
+}
+
+void ResourceManager::SetPluginManager(PluginManagerInterface* plugin_manager_ptr)
+{
+    plugin_manager = plugin_manager_ptr;
+
+    if(server)
+    {
+        server->SetPluginManager(plugin_manager);
+    }
+}
+
+/*---------------------------------------------------------*\
+| Network Client Registration                               |
+\*---------------------------------------------------------*/
+void ResourceManager::RegisterNetworkClient(NetworkClient* new_client)
+{
+    new_client->RegisterNetworkClientCallback(ResourceManagerNetworkClientCallback, this);
+
+    ClientListMutex.lock();
+
+    clients.push_back(new_client);
+
+    ClientListMutex.unlock();
+}
+
+void ResourceManager::UnregisterNetworkClient(NetworkClient* network_client)
+{
+    /*-----------------------------------------------------*\
+    | Queue the removal for the teardown thread. This is    |
+    | called on the GUI thread, and the teardown rebuilds   |
+    | the device list, whose DEVICE_LIST_UPDATED handler    |
+    | is a BlockingQueuedConnection to the GUI thread. It   |
+    | also keeps StopClient's join off the GUI thread       |
+    \*-----------------------------------------------------*/
+    ClientTeardownMutex.lock();
+
+    if(std::find(clients_to_remove.begin(), clients_to_remove.end(), network_client) == clients_to_remove.end())
+    {
+        clients_to_remove.push_back(network_client);
+    }
+
+    ClientTeardownPending = true;
+
+    ClientTeardownMutex.unlock();
+
+    ClientTeardownCv.notify_all();
+}
+
+void ResourceManager::QueueClientTeardown()
+{
+    ClientTeardownMutex.lock();
+    ClientTeardownPending = true;
+    ClientTeardownMutex.unlock();
+
+    ClientTeardownCv.notify_all();
+}
+
+void ResourceManager::ClientTeardownThreadFunction()
+{
+    std::unique_lock<std::mutex> lock(ClientTeardownMutex);
+
+    while(ClientTeardownRunning)
+    {
+        if(!ClientTeardownPending)
+        {
+            ClientTeardownCv.wait(lock);
+            continue;
+        }
+
+        ClientTeardownPending = false;
+
+        /*-------------------------------------------------*\
+        | Take the clients queued for removal off the       |
+        | pending list                                      |
+        \*-------------------------------------------------*/
+        std::vector<NetworkClient*> remove_list;
+
+        remove_list.swap(clients_to_remove);
+
+        lock.unlock();
+
+        /*-------------------------------------------------*\
+        | Stop the clients being removed and take them out  |
+        | of the clients list. StopClient joins the client  |
+        | threads and moves the client's controllers to     |
+        | orphaned_controllers; the delete below frees them |
+        \*-------------------------------------------------*/
+        for(std::size_t remove_idx = 0; remove_idx < remove_list.size(); remove_idx++)
+        {
+            remove_list[remove_idx]->StopClient();
+            remove_list[remove_idx]->ClearCallbacks();
+
+            /*---------------------------------------------*\
+            | If the removed client is the auto local       |
+            | connection, leave client mode. Rescan and     |
+            | GetDetection* use auto_connection_client,     |
+            | which the delete below would leave pointing   |
+            | at freed memory                               |
+            \*---------------------------------------------*/
+            if(remove_list[remove_idx] == auto_connection_client)
+            {
+                auto_connection_active  = false;
+                auto_connection_client  = NULL;
+            }
+
+            ClientListMutex.lock();
+
+            std::vector<NetworkClient*>::iterator client_it = std::find(clients.begin(), clients.end(), remove_list[remove_idx]);
+
+            if(client_it != clients.end())
+            {
+                clients.erase(client_it);
+            }
+
+            ClientListMutex.unlock();
+        }
+
+        /*-------------------------------------------------*\
+        | Collect the orphaned controllers from the clients |
+        | that remain. Ownership moves here, so a client    |
+        | deleted later cannot free them a second time      |
+        \*-------------------------------------------------*/
+        std::vector<RGBController*> orphaned;
+
+        ClientListMutex.lock();
+
+        for(std::size_t client_idx = 0; client_idx < clients.size(); client_idx++)
+        {
+            clients[client_idx]->TakeOrphanedControllers(orphaned);
+        }
+
+        ClientListMutex.unlock();
+
+        /*-------------------------------------------------*\
+        | Run the same sequence a rescan does while the     |
+        | controllers are still allocated. Consumers        |
+        | release them on DETECTION_STARTED, the GUI        |
+        | deletes the device pages (whose destructors use   |
+        | the controller) on UpdateDeviceList, and plugins  |
+        | rebuild on DETECTION_COMPLETE. Free them last,    |
+        | once nothing references them                      |
+        \*-------------------------------------------------*/
+        if(!remove_list.empty() || !orphaned.empty())
+        {
+            SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_DETECTION_STARTED);
+
+            UpdateDeviceList();
+
+            SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_DETECTION_COMPLETE);
+
+            /*---------------------------------------------*\
+            | Deleting a removed client frees the           |
+            | controllers StopClient left on it             |
+            \*---------------------------------------------*/
+            for(std::size_t remove_idx = 0; remove_idx < remove_list.size(); remove_idx++)
+            {
+                delete remove_list[remove_idx];
+            }
+
+            for(std::size_t orphaned_idx = 0; orphaned_idx < orphaned.size(); orphaned_idx++)
+            {
+                delete orphaned[orphaned_idx];
+            }
+        }
+
+        lock.lock();
+    }
+}
+
+/*---------------------------------------------------------*\
+| Local Client Accessors                                    |
+\*---------------------------------------------------------*/
+NetworkClient* ResourceManager::GetLocalClient()
+{
+    return(auto_connection_client);
+}
+
+unsigned int ResourceManager::GetLocalClientProtocolVersion()
+{
+    return(auto_connection_client->GetProtocolVersion());
+}
+
+bool ResourceManager::IsLocalClient()
+{
+    return(auto_connection_active && (auto_connection_client != NULL) && auto_connection_client->GetLocal());
+}
+
+/*---------------------------------------------------------*\
+| Callback Registration Functions                           |
+\*---------------------------------------------------------*/
+void ResourceManager::RegisterResourceManagerCallback(ResourceManagerCallback new_callback, void * new_callback_arg)
+{
+    ResourceManagerCallbackMutex.lock();
+
+    for(size_t idx = 0; idx < ResourceManagerCallbacks.size(); idx++)
+    {
+        if(ResourceManagerCallbacks[idx] == new_callback && ResourceManagerCallbackArgs[idx] == new_callback_arg)
+        {
+            ResourceManagerCallbackMutex.unlock();
+
+            LOG_TRACE("[%s] Tried to register an already registered ResourceManager callback, skipping.  Total callbacks registered: %d", RESOURCEMANAGER, ResourceManagerCallbacks.size());
+
+            return;
+        }
+    }
+
+    ResourceManagerCallbacks.push_back(new_callback);
+    ResourceManagerCallbackArgs.push_back(new_callback_arg);
+
+    ResourceManagerCallbackMutex.unlock();
+
+    LOG_TRACE("[%s] Registered ResourceManager callback.  Total callbacks registered: %d", RESOURCEMANAGER, ResourceManagerCallbacks.size());
+}
+
+void ResourceManager::UnregisterResourceManagerCallback(ResourceManagerCallback callback, void * callback_arg)
+{
+    ResourceManagerCallbackMutex.lock();
+
+    for(size_t idx = 0; idx < ResourceManagerCallbacks.size(); idx++)
+    {
+        if(ResourceManagerCallbacks[idx] == callback && ResourceManagerCallbackArgs[idx] == callback_arg)
+        {
+            ResourceManagerCallbacks.erase(ResourceManagerCallbacks.begin() + idx);
+            ResourceManagerCallbackArgs.erase(ResourceManagerCallbackArgs.begin() + idx);
+        }
+    }
+
+    ResourceManagerCallbackMutex.unlock();
+
+    LOG_TRACE("[%s] Unregistered ResourceManager callback.  Total callbacks registered: %d", RESOURCEMANAGER, ResourceManagerCallbackArgs.size());
+}
+
+/*---------------------------------------------------------*\
+| Functions to manage detection                             |
+\*---------------------------------------------------------*/
+
+bool ResourceManager::GetDetectionEnabled()
+{
+    return(detection_enabled);
+}
+
+unsigned int ResourceManager::GetDetectionPercent()
+{
+    if(auto_connection_active && (auto_connection_client != NULL) && auto_connection_client->GetLocal())
+    {
+        return auto_connection_client->DetectionManager_GetDetectionPercent();
+    }
+    else
+    {
+        return DetectionManager::get()->GetDetectionPercent();
+    }
+}
+
+std::string ResourceManager::GetDetectionString()
+{
+    if(auto_connection_active && (auto_connection_client != NULL) && auto_connection_client->GetLocal())
+    {
+        return auto_connection_client->DetectionManager_GetDetectionString();
+    }
+    else
+    {
+        return DetectionManager::get()->GetDetectionString();
+    }
+}
+
+void ResourceManager::HandleDetectionComplete()
+{
+    if(!first_detection_complete)
+    {
+        if(start_server && !start_gui)
+        {
+            profile_manager->LoadAutoProfileServiceStartup();
+        }
+
+        first_detection_complete = true;
+    }
+}
+
+void ResourceManager::ServiceShutdown()
+{
+    /*-----------------------------------------------------*\
+    | Only run service shutdown operations when running as  |
+    | a background service (headless server mode). In GUI   |
+    | mode, the GUI close event handles profile loading.    |
+    \*-----------------------------------------------------*/
+    if(!start_server || start_gui)
+    {
+        return;
+    }
+
+    LOG_INFO("[%s] Service shutting down", RESOURCEMANAGER);
+
+    /*-----------------------------------------------------*\
+    | Wait for any in-progress detection to finish before   |
+    | loading a profile so that the full device list is     |
+    | available.                                            |
+    \*-----------------------------------------------------*/
+    WaitForDetection();
+
+    /*-----------------------------------------------------*\
+    | Load the exit profile if one is configured. This      |
+    | runs the same profile mechanism used when the GUI     |
+    | closes, allowing a profile to be applied to           |
+    | controllers before they are closed and deleted during |
+    | Cleanup().                                            |
+    \*-----------------------------------------------------*/
+    if(profile_manager)
+    {
+        if(profile_manager->LoadAutoProfileServiceShutdown())
+        {
+            /*---------------------------------------------*\
+            | Pause briefly to ensure that all profiles     |
+            | are loaded.                                   |
+            \*---------------------------------------------*/
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+    }
+}
+
+void ResourceManager::RescanDevices()
+{
+    /*-----------------------------------------------------*\
+    | If automatic local connection is active, the primary  |
+    | instance is the local server, so send rescan requests |
+    | to the automatic local connection client              |
+    \*-----------------------------------------------------*/
+    if(auto_connection_active && (auto_connection_client != NULL) && auto_connection_client->GetLocal())
+    {
+        auto_connection_client->SendRequest_RescanDevices();
+    }
+
+    /*-----------------------------------------------------*\
+    | If detection is disabled and there is exactly one     |
+    | client, the primary instance is the connected server, |
+    | so send rescan requests to the first (and only)       |
+    | client                                                |
+    \*-----------------------------------------------------*/
+    else if(!detection_enabled && clients.size() == 1)
+    {
+        clients[0]->SendRequest_RescanDevices();
+    }
+
+    /*-----------------------------------------------------*\
+    | If detection is enabled, start detection              |
+    \*-----------------------------------------------------*/
+    if(detection_enabled)
+    {
+        DetectionManager::get()->BeginDetection();
+    }
+}
+
+void ResourceManager::StopDeviceDetection()
+{
+    //TODO: Call DetectionManager::AbortDetection() or send SDK command if local client
+}
+
+void ResourceManager::UpdateDeviceList()
+{
+    DeviceListChangeMutex.lock();
+
+    /*-----------------------------------------------------*\
+    | Clear the controller list                             |
+    \*-----------------------------------------------------*/
+    rgb_controllers.clear();
+    rgb_controller_interfaces.clear();
+
+    /*-----------------------------------------------------*\
+    | Insert hardware controllers into controller list.     |
+    | Hold the detection lock across the copy so a          |
+    | concurrent registration cannot invalidate the list.   |
+    \*-----------------------------------------------------*/
+    DetectionManager::get()->LockRGBControllers();
+    rgb_controllers_hw          = DetectionManager::get()->GetRGBControllers();
+    DetectionManager::get()->UnlockRGBControllers();
+
+    for(std::size_t rgb_controller_idx = 0; rgb_controller_idx < rgb_controllers_hw.size(); rgb_controller_idx++)
+    {
+        rgb_controllers.push_back(rgb_controllers_hw[rgb_controller_idx]);
+    }
+
+    /*-----------------------------------------------------*\
+    | Insert plugin controllers into controller list        |
+    \*-----------------------------------------------------*/
+    if(plugin_manager)
+    {
+        std::vector<RGBController*> rgb_controllers_plugins = plugin_manager->GetRGBControllers();
+
+        for(std::size_t rgb_controller_idx = 0; rgb_controller_idx < rgb_controllers_plugins.size(); rgb_controller_idx++)
+        {
+            rgb_controllers.push_back(rgb_controllers_plugins[rgb_controller_idx]);
+        }
+    }
+
+    /*-----------------------------------------------------*\
+    | Insert client controllers into controller list        |
+    \*-----------------------------------------------------*/
+    ClientListMutex.lock();
+
+    for(std::size_t client_idx = 0; client_idx < clients.size(); client_idx++)
+    {
+        std::vector<RGBController*> rgb_controllers_client  = clients[client_idx]->GetRGBControllers();
+
+        for(std::size_t rgb_controller_idx = 0; rgb_controller_idx < rgb_controllers_client.size(); rgb_controller_idx++)
+        {
+            rgb_controllers.push_back(rgb_controllers_client[rgb_controller_idx]);
+        }
+    }
+
+    ClientListMutex.unlock();
+
+    /*-----------------------------------------------------*\
+    | Update server list                                    |
+    \*-----------------------------------------------------*/
+    if(server)
+    {
+        json server_settings    = settings_manager->GetSettings("Server");
+        bool all_controllers    = false;
+
+        if(server_settings.contains("all_controllers"))
+        {
+            all_controllers     = server_settings["all_controllers"];
+        }
+
+        if(all_controllers)
+        {
+            server->SetControllers(rgb_controllers);
+        }
+        else
+        {
+            server->SetControllers(rgb_controllers_hw);
+        }
+    }
+
+    /*-----------------------------------------------------*\
+    | Synchronize interfaces with controllers               |
+    \*-----------------------------------------------------*/
+    rgb_controller_interfaces.reserve(rgb_controllers.size());
+
+    for(RGBController* rgb_controller : rgb_controllers)
+    {
+        rgb_controller_interfaces.push_back((RGBControllerInterface*)rgb_controller);
+    }
+
+    /*-----------------------------------------------------*\
+    | Signal list has changed                               |
+    \*-----------------------------------------------------*/
+    DeviceListChangeMutex.unlock();
+
+    /*-----------------------------------------------------*\
+    | Signal device list update                             |
+    \*-----------------------------------------------------*/
+    SignalResourceManagerUpdate(RESOURCEMANAGER_UPDATE_REASON_DEVICE_LIST_UPDATED);
+}
+
+void ResourceManager::WaitForDetection()
+{
+    DetectionManager::get()->WaitForDetection();
+}
+
+/*---------------------------------------------------------*\
+| Function to signal update callbacks                       |
+\*---------------------------------------------------------*/
+void ResourceManager::SignalResourceManagerUpdate(unsigned int update_reason)
+{
+    if(server)
+    {
+        server->SignalResourceManagerUpdate(update_reason);
+    }
+
+    /*-----------------------------------------------------*\
+    | Snapshot the callback list, then invoke unlocked. A   |
+    | blocking callback must not hold the mutex: the GUI's  |
+    | blocking device list callback waits forever once the  |
+    | event loop has exited at shutdown, and a held mutex   |
+    | then deadlocks the unregister in the dialog           |
+    | destructor. A callback may still fire once after its  |
+    | unregister returns.                                   |
+    \*-----------------------------------------------------*/
+    ResourceManagerCallbackMutex.lock();
+
+    std::vector<ResourceManagerCallback>    callbacks       = ResourceManagerCallbacks;
+    std::vector<void *>                     callback_args   = ResourceManagerCallbackArgs;
+
+    ResourceManagerCallbackMutex.unlock();
+
+    for(std::size_t callback_idx = 0; callback_idx < callbacks.size(); callback_idx++)
+    {
+        callbacks[callback_idx](callback_args[callback_idx], update_reason);
+    }
+
+    LOG_TRACE("[%s] ResourceManager update signalled: %d", RESOURCEMANAGER, update_reason);
+}
+
+void ResourceManager::SetupConfigurationDirectory()
+{
+    config_dir.clear();
+#ifdef _WIN32
+    const wchar_t* appdata = _wgetenv(L"APPDATA");
+    if(appdata != NULL)
+    {
+        config_dir = appdata;
+    }
+#else
+    const char* xdg_config_home = getenv("XDG_CONFIG_HOME");
+    const char* home            = getenv("HOME");
+    /*-----------------------------------------------------*\
+    | Check both XDG_CONFIG_HOME and APPDATA environment    |
+    | variables.  If neither exist, use current directory   |
+    \*-----------------------------------------------------*/
+    if(xdg_config_home != NULL)
+    {
+        config_dir = xdg_config_home;
+    }
+    else if(home != NULL)
+    {
+        config_dir = home;
+        config_dir /= ".config";
+    }
+#endif
+
+
+    /*-----------------------------------------------------*\
+    | If a configuration directory was found, append OpenRGB|
+    \*-----------------------------------------------------*/
+    if(config_dir != "")
+    {
+        config_dir.append("OpenRGB");
+
+        /*-------------------------------------------------*\
+        | Create OpenRGB configuration directory if it      |
+        | doesn't exist                                     |
+        \*-------------------------------------------------*/
+        filesystem::create_directories(config_dir);
+    }
+    else
+    {
+        config_dir = "./";
+    }
+}
+
+bool ResourceManager::AttemptLocalConnection()
+{
+    LOG_DEBUG("[%s] Attempting local server connection...", RESOURCEMANAGER);
+
+    bool success = false;
+
+    auto_connection_client = new NetworkClient();
+
+    std::string titleString = "OpenRGB ";
+    titleString.append(VERSION_STRING);
+
+    auto_connection_client->RequestLocalClient(true);
+    auto_connection_client->SetConnectTimeout(1000);
+    auto_connection_client->SetName(titleString.c_str());
+    auto_connection_client->StartClient();
+
+    for(int timeout = 0; timeout < 10; timeout++)
+    {
+        if(auto_connection_client->GetConnected())
+        {
+            break;
+        }
+        std::this_thread::sleep_for(5ms);
+    }
+
+    if(!auto_connection_client->GetConnected())
+    {
+        LOG_TRACE("[%s] Client failed to connect", RESOURCEMANAGER);
+        auto_connection_client->StopClient();
+        LOG_TRACE("[%s] Client stopped", RESOURCEMANAGER);
+
+        delete auto_connection_client;
+
+        auto_connection_client = NULL;
+    }
+    else
+    {
+        ResourceManager::get()->RegisterNetworkClient(auto_connection_client);
+        LOG_TRACE("[%s] Registered network client", RESOURCEMANAGER);
+
+        success = true;
+
+        /*-------------------------------------------------*\
+        | Wait up to 5 seconds for the client connection to |
+        | retrieve all controllers                          |
+        \*-------------------------------------------------*/
+        for(int timeout = 0; timeout < 1000; timeout++)
+        {
+            if(auto_connection_client->GetOnline())
+            {
+                break;
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+    }
+
+    return success;
+}
+
+void ResourceManager::Initialize(bool tryConnect, bool detectDevices, bool startServer, bool applyPostOptions, bool startGui)
+{
+    /*-----------------------------------------------------*\
+    | Cache the parameters                                  |
+    | Don't try auto connect if starting server             |
+    \*-----------------------------------------------------*/
+    tryAutoConnect                  = tryConnect && !startServer;
+    detection_enabled               = detectDevices;
+    start_server                    = startServer;
+    start_gui                       = startGui;
+    apply_post_options              = applyPostOptions;
+
+    /*-----------------------------------------------------*\
+    | If enabled, try connecting to local server instead of |
+    | detecting devices from this instance of OpenRGB       |
+    \*-----------------------------------------------------*/
+    if(tryAutoConnect)
+    {
+        /*-------------------------------------------------*\
+        | Attempt connection to local server                |
+        \*-------------------------------------------------*/
+        if(AttemptLocalConnection())
+        {
+            LOG_DEBUG("[%s] Local OpenRGB server connected, running in client mode", RESOURCEMANAGER);
+
+            /*---------------------------------------------*\
+            | Set auto connection active flag and disable   |
+            | detection if the local server was connected   |
+            \*---------------------------------------------*/
+            auto_connection_active  = true;
+            detection_enabled       = false;
+
+            /*---------------------------------------------*\
+            | If local client, set local log level to       |
+            | server's log level and download log entries   |
+            \*---------------------------------------------*/
+            if(auto_connection_client->GetLocal() && auto_connection_client->GetSupportsLogManagerAPI())
+            {
+                /*-----------------------------------------*\
+                | Reconfigure local log manager using       |
+                | remote settings                           |
+                \*-----------------------------------------*/
+                LogManager::get()->Configure(settings_manager->GetSettings("LogManager"), GetConfigurationDirectory());
+
+                /*-----------------------------------------*\
+                | Update local log manager log level from   |
+                | the server's log level                    |
+                \*-----------------------------------------*/
+                unsigned int log_level = auto_connection_client->LogManager_GetLogLevel();
+                LogManager::get()->SetLogLevel(log_level, true);
+
+                /*-----------------------------------------*\
+                | Download the server's buffered log        |
+                | entries                                   |
+                \*-----------------------------------------*/
+                auto_connection_client->LogManager_GetLogBuffer();
+            }
+
+            /*---------------------------------------------*\
+            | Update the profile list                       |
+            \*---------------------------------------------*/
+            profile_manager->UpdateProfileList();
+        }
+
+        tryAutoConnect = false;
+    }
+
+    /*-----------------------------------------------------*\
+    | Migrate legacy profiles after attempting local        |
+    | connection so that migrated profiles get uploaded to  |
+    | the server if connected                               |
+    \*-----------------------------------------------------*/
+    profile_manager->MigrateLegacyProfiles();
+
+    /*-----------------------------------------------------*\
+    | Initialize Saved Client Connections                   |
+    \*-----------------------------------------------------*/
+    json client_settings            = settings_manager->GetSettings("Client");
+
+    if(client_settings.contains("clients"))
+    {
+        for(unsigned int client_idx = 0; client_idx < client_settings["clients"].size(); client_idx++)
+        {
+            NetworkClient * client = new NetworkClient();
+
+            std::string titleString = "OpenRGB ";
+            titleString.append(VERSION_STRING);
+
+            std::string     client_ip   = client_settings["clients"][client_idx]["ip"];
+            unsigned short  client_port = client_settings["clients"][client_idx]["port"];
+
+            client->SetIP(client_ip.c_str());
+            client->SetName(titleString.c_str());
+            client->SetPort(client_port);
+
+            client->StartClient();
+
+            for(int timeout = 0; timeout < 100; timeout++)
+            {
+                if(client->GetConnected())
+                {
+                    break;
+                }
+                std::this_thread::sleep_for(10ms);
+            }
+
+            RegisterNetworkClient(client);
+        }
+    }
+
+    /*-----------------------------------------------------*\
+    | If the server host and port have been set on the CLI, |
+    | use those values.  Otherwise, get default server host |
+    | and port from settings if configured.                 |
+    \*-----------------------------------------------------*/
+    json server_settings            = settings_manager->GetSettings("Server");
+
+    if(default_server_host == "")
+    {
+        if(server_settings.contains("default_host"))
+        {
+            default_server_host = server_settings["default_host"];
+        }
+        else
+        {
+            default_server_host = OPENRGB_SDK_HOST;
+        }
+    }
+
+    if(default_server_port == 0)
+    {
+        if(server_settings.contains("default_port"))
+        {
+            default_server_port = server_settings["default_port"];
+        }
+        else
+        {
+            default_server_port = OPENRGB_SDK_PORT;
+        }
+    }
+
+    /*-----------------------------------------------------*\
+    | Start server if requested                             |
+    \*-----------------------------------------------------*/
+    if(start_server)
+    {
+        InitializeServer();
+        server->StartServer();
+        if(!server->GetOnline())
+        {
+            LOG_DEBUG("[%s] Server failed to start", RESOURCEMANAGER);
+        }
+    }
+
+    /*-----------------------------------------------------*\
+    | Perform actual detection if enabled                   |
+    \*-----------------------------------------------------*/
+    if(detection_enabled)
+    {
+        LOG_DEBUG("[%s] Local OpenRGB server not found, running in standalone mode", RESOURCEMANAGER);
+
+        DetectionManager::get()->RegisterDetectionCallback(ResourceManagerDetectionCallback, this);
+        DetectionManager::get()->BeginDetection();
+    }
+
+    /*-----------------------------------------------------*\
+    | Process command line arguments after detection only   |
+    | if the pre-detection parsing indicated it should be   |
+    | run                                                   |
+    \*-----------------------------------------------------*/
+    if(apply_post_options)
+    {
+        cli_post_detection();
+    }
+
+    init_finished = true;
+}
+
+void ResourceManager::InitializeServer()
+{
+    /*-----------------------------------------------------*\
+    | Initialize Server Instance                            |
+    |   If configured, pass through full controller list    |
+    |   including clients.  Otherwise, pass only local      |
+    |   hardware controllers                                |
+    \*-----------------------------------------------------*/
+    json server_settings    = settings_manager->GetSettings("Server");
+    bool legacy_workaround  = false;
+
+    server                  = new NetworkServer();
+
+    /*-----------------------------------------------------*\
+    | Set server name                                       |
+    \*-----------------------------------------------------*/
+    std::string titleString = "OpenRGB ";
+    titleString.append(VERSION_STRING);
+
+    server->SetName(titleString);
+    server->SetSettingsManager(settings_manager);
+
+    /*-----------------------------------------------------*\
+    | Enable legacy SDK workaround in server if configured  |
+    \*-----------------------------------------------------*/
+    if(server_settings.contains("legacy_workaround"))
+    {
+        legacy_workaround   = server_settings["legacy_workaround"];
+    }
+
+    if(legacy_workaround)
+    {
+        server->SetLegacyWorkaroundEnable(true);
+    }
+
+    server->SetProfileManager(profile_manager);
+
+    if(plugin_manager)
+    {
+        server->SetPluginManager(plugin_manager);
+    }
+
+    bool all_controllers    = false;
+
+    if(server_settings.contains("all_controllers"))
+    {
+        all_controllers     = server_settings["all_controllers"];
+    }
+
+    if(all_controllers)
+    {
+        server->SetControllers(rgb_controllers);
+    }
+    else
+    {
+        server->SetControllers(rgb_controllers_hw);
+    }
+
+    /*-----------------------------------------------------*\
+    | If the server host and port have been set on the CLI, |
+    | use those values.  Otherwise, get default server host |
+    | and port from settings if configured.                 |
+    \*-----------------------------------------------------*/
+    if(default_server_host != "")
+    {
+        server->SetHost(default_server_host);
+    }
+
+    if(default_server_port != 0)
+    {
+        server->SetPort(default_server_port);
+    }
+}
+
+void ResourceManager::WaitForInitialization()
+{
+    /*-----------------------------------------------------*\
+    | A reliable sychronization of this kind is impossible  |
+    | without the use of a `barrier` implementation, which  |
+    | is only introduced in C++20                           |
+    \*-----------------------------------------------------*/
+    while(!init_finished)
+    {
+        std::this_thread::sleep_for(1ms);
+    };
+}
