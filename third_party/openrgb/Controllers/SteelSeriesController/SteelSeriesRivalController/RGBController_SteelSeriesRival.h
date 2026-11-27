@@ -1,0 +1,34 @@
+/*---------------------------------------------------------*\
+| RGBController_SteelSeriesRival.h                          |
+|                                                           |
+|   RGBController for SteelSeries Rival                     |
+|                                                           |
+|   B Horn (bahorn)                             13 May 2020 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include "RGBController.h"
+#include "SteelSeriesRivalController.h"
+
+class RGBController_SteelSeriesRival : public RGBController
+{
+public:
+    RGBController_SteelSeriesRival(SteelSeriesRivalController* controller_ptr);
+    ~RGBController_SteelSeriesRival();
+
+    void        SetupZones();
+
+    void        DeviceUpdateLEDs();
+    void        DeviceUpdateZoneLEDs(int zone);
+    void        DeviceUpdateSingleLED(int led);
+
+    void        DeviceUpdateMode();
+    void        DeviceSaveMode();
+
+private:
+    SteelSeriesRivalController* controller;
+};

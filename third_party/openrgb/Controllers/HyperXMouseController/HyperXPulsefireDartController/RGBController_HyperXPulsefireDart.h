@@ -1,0 +1,35 @@
+/*---------------------------------------------------------*\
+| RGBController_HyperXPulsefireDart.h                       |
+|                                                           |
+|   RGBController for HyperX Pulsefire Dart                 |
+|                                                           |
+|   Santeri Pikarinen (santeri3700)             26 Dec 2020 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#pragma once
+
+#include <chrono>
+#include "RGBController.h"
+#include "HyperXPulsefireDartController.h"
+
+class RGBController_HyperXPulsefireDart : public RGBController
+{
+public:
+    RGBController_HyperXPulsefireDart(HyperXPulsefireDartController* controller_ptr);
+    ~RGBController_HyperXPulsefireDart();
+
+    void        SetupZones();
+
+    void        DeviceUpdateLEDs();
+    void        DeviceUpdateZoneLEDs(int zone);
+    void        DeviceUpdateSingleLED(int led);
+
+    void        DeviceUpdateMode();
+    void        DeviceSaveMode();
+
+private:
+    HyperXPulsefireDartController* controller;
+};

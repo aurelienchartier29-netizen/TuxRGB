@@ -1,0 +1,16 @@
+From: TuxRGB
+Subject: [PATCH] RetroidAYN: udev rule printed with backslashes
+
+The Retroid/AYN custom udev rule was escaped twice, so --print-udev-rules
+wrote SUBSYSTEM==\"leds\", KERNEL==\"rgb:*\", TAG+=\"uaccess\" with the
+backslashes: udev cannot parse that line (and TuxRGB's rule checker,
+rightly, refuses the whole file). Escaped once, like the other custom rules.
+
+--- a/Controllers/RetroidAYNController/RetroidAYNControllerDetect_Linux.cpp
++++ b/Controllers/RetroidAYNController/RetroidAYNControllerDetect_Linux.cpp
+@@ -134,4 +134,4 @@
+ 
+ REGISTER_DETECTOR("Retroid/AYN RGB", DetectRetroidAYNControllers);
+ 
+-REGISTER_CUSTOM_UDEV_RULE(retroid_ayn_rgb, "Retroid/AYN RGB", "SUBSYSTEM==\\\"leds\\\", KERNEL==\\\"rgb:*\\\", TAG+=\\\"uaccess\\\"");
++REGISTER_CUSTOM_UDEV_RULE(retroid_ayn_rgb, "Retroid/AYN RGB", "SUBSYSTEM==\"leds\", KERNEL==\"rgb:*\", TAG+=\"uaccess\"");

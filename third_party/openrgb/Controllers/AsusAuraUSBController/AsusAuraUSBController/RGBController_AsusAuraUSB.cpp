@@ -1,0 +1,366 @@
+/*---------------------------------------------------------*\
+| RGBController_AsusAuraUSB.cpp                             |
+|                                                           |
+|   RGBController for ASUS Aura USB device                  |
+|                                                           |
+|   Adam Honse (CalcProgrammer1)                18 Jan 2020 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#include "RGBController_AsusAuraUSB.h"
+
+/**------------------------------------------------------------------*\
+    @name Asus Aura USB
+    @category Motherboard
+    @type USB
+    @save :x:
+    @direct :white_check_mark:
+    @effects :white_check_mark:
+    @detectors DetectAsusAuraUSBTerminal,DetectAsusAuraUSBAddressable
+    @comment The Asus Aura USB controller applies to most AMD and
+        Intel mainboards from the x470 and z390 chipset generations.
+\*-------------------------------------------------------------------*/
+
+RGBController_AuraUSB::RGBController_AuraUSB(AuraUSBController* controller_ptr) :
+    initializedMode(false)
+{
+    controller                  = controller_ptr;
+
+    name                        = controller->GetDeviceName();
+    vendor                      = "ASUS";
+    type                        = DEVICE_TYPE_MOTHERBOARD;
+    description                 = "ASUS Aura USB Device";
+    location                    = controller->GetDeviceLocation();
+    serial                      = controller->GetSerialString();
+    version                     = controller->GetDeviceVersion();
+
+    mode Direct;
+    Direct.name                 = "Direct";
+    Direct.value                = AURA_MODE_DIRECT;
+    Direct.flags                = MODE_FLAG_HAS_PER_LED_COLOR;
+    Direct.color_mode           = MODE_COLORS_PER_LED;
+    modes.push_back(Direct);
+
+    mode Off;
+    Off.name                    = "Off";
+    Off.value                   = AURA_MODE_OFF;
+    Off.flags                   = 0;
+    Off.color_mode              = MODE_COLORS_NONE;
+    modes.push_back(Off);
+
+    mode Static;
+    Static.name                 = "Static";
+    Static.value                = AURA_MODE_STATIC;
+    Static.flags                = MODE_FLAG_HAS_MODE_SPECIFIC_COLOR;
+    Static.colors_min           = 1;
+    Static.colors_max           = 1;
+    Static.color_mode           = MODE_COLORS_MODE_SPECIFIC;
+    Static.colors.resize(1);
+    modes.push_back(Static);
+
+    mode Breathing;
+    Breathing.name              = "Breathing";
+    Breathing.value             = AURA_MODE_BREATHING;
+    Breathing.flags             = MODE_FLAG_HAS_MODE_SPECIFIC_COLOR;
+    Breathing.colors_min        = 1;
+    Breathing.colors_max        = 1;
+    Breathing.color_mode        = MODE_COLORS_MODE_SPECIFIC;
+    Breathing.colors.resize(1);
+    modes.push_back(Breathing);
+
+    mode Flashing;
+    Flashing.name               = "Flashing";
+    Flashing.value              = AURA_MODE_FLASHING;
+    Flashing.flags              = MODE_FLAG_HAS_MODE_SPECIFIC_COLOR;
+    Flashing.colors_min         = 1;
+    Flashing.colors_max         = 1;
+    Flashing.color_mode         = MODE_COLORS_MODE_SPECIFIC;
+    Flashing.colors.resize(1);
+    modes.push_back(Flashing);
+
+    mode SpectrumCycle;
+    SpectrumCycle.name          = "Spectrum Cycle";
+    SpectrumCycle.value         = AURA_MODE_SPECTRUM_CYCLE;
+    SpectrumCycle.flags         = 0;
+    SpectrumCycle.color_mode    = MODE_COLORS_NONE;
+    modes.push_back(SpectrumCycle);
+
+    mode Rainbow;
+    Rainbow.name                = "Rainbow";
+    Rainbow.value               = AURA_MODE_RAINBOW;
+    Rainbow.flags               = 0;
+    Rainbow.color_mode          = MODE_COLORS_NONE;
+    modes.push_back(Rainbow);
+
+    mode ChaseFade;
+    ChaseFade.name              = "Chase Fade";
+    ChaseFade.value             = AURA_MODE_CHASE_FADE;
+    ChaseFade.flags             = MODE_FLAG_HAS_MODE_SPECIFIC_COLOR;
+    ChaseFade.colors_min        = 1;
+    ChaseFade.colors_max        = 1;
+    ChaseFade.color_mode        = MODE_COLORS_MODE_SPECIFIC;
+    ChaseFade.colors.resize(1);
+    modes.push_back(ChaseFade);
+
+    mode Chase;
+    Chase.name                  = "Chase";
+    Chase.value                 = AURA_MODE_CHASE;
+    Chase.flags                 = MODE_FLAG_HAS_MODE_SPECIFIC_COLOR;
+    Chase.colors_min            = 1;
+    Chase.colors_max            = 1;
+    Chase.color_mode            = MODE_COLORS_MODE_SPECIFIC;
+    Chase.colors.resize(1);
+    modes.push_back(Chase);
+
+    mode SpectrumCycleBreathing;
+    SpectrumCycleBreathing.name       = "Spectrum Cycle Breathing";
+    SpectrumCycleBreathing.value      = AURA_MODE_SPECTRUM_CYCLE_BREATHING;
+    SpectrumCycleBreathing.flags      = 0;
+    SpectrumCycleBreathing.color_mode = MODE_COLORS_NONE;
+    modes.push_back(SpectrumCycleBreathing);
+
+    mode SpectrumCycleChaseFade;
+    SpectrumCycleChaseFade.name       = "Spectrum Cycle Chase Fade";
+    SpectrumCycleChaseFade.value      = AURA_MODE_SPECTRUM_CYCLE_CHASE_FADE;
+    SpectrumCycleChaseFade.flags      = 0;
+    SpectrumCycleChaseFade.color_mode = MODE_COLORS_NONE;
+    modes.push_back(SpectrumCycleChaseFade);
+
+    mode SpectrumCycleChase;
+    SpectrumCycleChase.name           = "Spectrum Cycle Chase";
+    SpectrumCycleChase.value          = AURA_MODE_SPECTRUM_CYCLE_CHASE;
+    SpectrumCycleChase.flags          = 0;
+    SpectrumCycleChase.color_mode     = MODE_COLORS_NONE;
+    modes.push_back(SpectrumCycleChase);
+
+    mode SpectrumCycleWave;
+    SpectrumCycleWave.name            = "Spectrum Cycle Wave";
+    SpectrumCycleWave.value           = AURA_MODE_SPECTRUM_CYCLE_WAVE;
+    SpectrumCycleWave.flags           = 0;
+    SpectrumCycleWave.color_mode      = MODE_COLORS_NONE;
+    modes.push_back(SpectrumCycleWave);
+
+    mode ChaseRainbowPulse;
+    ChaseRainbowPulse.name            = "Chase Rainbow Pulse";
+    ChaseRainbowPulse.value           = AURA_MODE_CHASE_RAINBOW_PULSE;
+    ChaseRainbowPulse.flags           = 0;
+    ChaseRainbowPulse.color_mode      = MODE_COLORS_NONE;
+    modes.push_back(ChaseRainbowPulse);
+
+    mode RandomFlicker;
+    RandomFlicker.name                = "Random Flicker";
+    RandomFlicker.value               = AURA_MODE_RANDOM_FLICKER;
+    RandomFlicker.flags               = 0;
+    RandomFlicker.color_mode          = MODE_COLORS_NONE;
+    modes.push_back(RandomFlicker);
+
+    mode GentleTransition;
+    GentleTransition.name             = "Gentle Transition";
+    GentleTransition.value            = AURA_MODE_GENTLE_TRANSITION;
+    GentleTransition.flags            = 0;
+    GentleTransition.color_mode       = MODE_COLORS_NONE;
+    modes.push_back(GentleTransition);
+
+    mode WavePropagation;
+    WavePropagation.name              = "Wave Propagation";
+    WavePropagation.value             = AURA_MODE_WAVE_PROPAGATION;
+    WavePropagation.flags             = 0;
+    WavePropagation.color_mode        = MODE_COLORS_NONE;
+    modes.push_back(WavePropagation);
+
+    mode WavePropagationPause;
+    WavePropagationPause.name         = "Wave Propagation Pause";
+    WavePropagationPause.value        = AURA_MODE_WAVE_PROPAGATION_PAUSE;
+    WavePropagationPause.flags        = 0;
+    WavePropagationPause.color_mode   = MODE_COLORS_NONE;
+    modes.push_back(WavePropagationPause);
+
+    mode RedPulse;
+    RedPulse.name                     = "Red Pulse";
+    RedPulse.value                    = AURA_MODE_RED_PULSE;
+    RedPulse.flags                    = 0;
+    RedPulse.color_mode               = MODE_COLORS_NONE;
+    modes.push_back(RedPulse);
+
+    SetupZones();
+}
+
+RGBController_AuraUSB::~RGBController_AuraUSB()
+{
+    Shutdown();
+
+    delete controller;
+}
+
+void RGBController_AuraUSB::SetupZones()
+{
+    /*-------------------------------------------------*\
+    | Only set LED count on the first run               |
+    \*-------------------------------------------------*/
+    bool first_run = false;
+
+    if(zones.size() == 0)
+    {
+        first_run = true;
+    }
+
+    /*-------------------------------------------------*\
+    | Clear any existing color/LED configuration        |
+    \*-------------------------------------------------*/
+    leds.clear();
+    colors.clear();
+    zones.resize(controller->GetChannelCount());
+
+    /*-------------------------------------------------*\
+    | Set zones and leds                                |
+    \*-------------------------------------------------*/
+    int addressableCounter = 1;
+
+    for(std::size_t channel_idx = 0; channel_idx < zones.size(); channel_idx++)
+    {
+        AuraDeviceInfo device_info  = controller->GetAuraDevices()[channel_idx];
+
+        if(device_info.device_type == AuraDeviceType::FIXED)
+        {
+            zones[channel_idx].name                     = "Aura Mainboard";
+            zones[channel_idx].type                     = ZONE_TYPE_LINEAR;
+            zones[channel_idx].leds_min                 = device_info.num_leds;
+            zones[channel_idx].leds_max                 = device_info.num_leds;
+            zones[channel_idx].leds_count               = device_info.num_leds;
+        }
+        else
+        {
+            zones[channel_idx].leds_min                 = 0;
+            zones[channel_idx].leds_max                 = AURA_ADDRESSABLE_MAX_LEDS;
+
+            if(first_run)
+            {
+                zones[channel_idx].flags                = ZONE_FLAG_MANUALLY_CONFIGURABLE_SIZE
+                                                        | ZONE_FLAG_MANUALLY_CONFIGURABLE_NAME
+                                                        | ZONE_FLAG_MANUALLY_CONFIGURABLE_TYPE
+                                                        | ZONE_FLAG_MANUALLY_CONFIGURABLE_MATRIX_MAP
+                                                        | ZONE_FLAG_MANUALLY_CONFIGURABLE_SEGMENTS;
+            }
+
+            if(!(zones[channel_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_NAME))
+            {
+                zones[channel_idx].name                 = "Addressable RGB Header ";
+                zones[channel_idx].name.append(std::to_string(addressableCounter));
+            }
+
+            if(!(zones[channel_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SIZE))
+            {
+                zones[channel_idx].leds_count           = 0;
+            }
+
+            if(!(zones[channel_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_TYPE))
+            {
+                zones[channel_idx].type                 = ZONE_TYPE_LINEAR;
+            }
+
+            if(!(zones[channel_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_MATRIX_MAP))
+            {
+                zones[channel_idx].matrix_map.width     = 0;
+                zones[channel_idx].matrix_map.height    = 0;
+                zones[channel_idx].matrix_map.map.resize(0);
+            }
+
+            addressableCounter++;
+        }
+
+        unsigned int num_mainboard_leds = device_info.num_leds - device_info.num_headers;
+
+        for(unsigned int led_ch_idx = 0; led_ch_idx < zones[channel_idx].leds_count; led_ch_idx++)
+        {
+            unsigned led_idx = led_ch_idx + 1;
+            led new_led;
+
+            new_led.name = zones[channel_idx].name;
+
+            if(device_info.device_type == AuraDeviceType::FIXED && led_ch_idx >= num_mainboard_leds)
+            {
+                new_led.name.append(", RGB Header ");
+                led_idx -= num_mainboard_leds;
+            }
+            else
+            {
+                new_led.name.append(", LED ");
+            }
+
+            new_led.name.append(std::to_string(led_idx));
+
+            new_led.value = (unsigned int)channel_idx;
+
+            leds.push_back(new_led);
+        }
+    }
+
+    SetupColors();
+}
+
+void RGBController_AuraUSB::DeviceConfigureZone(int zone_idx)
+{
+    if((size_t)zone_idx < zones.size())
+    {
+        SetupZones();
+    }
+}
+
+void RGBController_AuraUSB::DeviceUpdateLEDs()
+{
+    if(!initializedMode)
+    {
+        DeviceUpdateMode();
+    }
+    for(std::size_t zone_idx = 0; zone_idx < zones.size(); zone_idx++)
+    {
+        controller->SetChannelLEDs((unsigned char)zone_idx, zones[zone_idx].colors, zones[zone_idx].leds_count);
+    }
+}
+
+void RGBController_AuraUSB::DeviceUpdateZoneLEDs(int zone)
+{
+    if(!initializedMode)
+    {
+        DeviceUpdateMode();
+    }
+
+    controller->SetChannelLEDs(zone, zones[zone].colors, zones[zone].leds_count);
+}
+
+void RGBController_AuraUSB::DeviceUpdateSingleLED(int led)
+{
+    if(!initializedMode)
+    {
+        DeviceUpdateMode();
+    }
+
+    unsigned int channel = leds[led].value;
+
+    controller->SetChannelLEDs(channel, zones[channel].colors, zones[channel].leds_count);
+}
+
+void RGBController_AuraUSB::DeviceUpdateMode()
+{
+    initializedMode   = true;
+    unsigned char red = 0;
+    unsigned char grn = 0;
+    unsigned char blu = 0;
+
+    if(modes[active_mode].color_mode == MODE_COLORS_MODE_SPECIFIC)
+    {
+        red = RGBGetRValue(modes[active_mode].colors[0]);
+        grn = RGBGetGValue(modes[active_mode].colors[0]);
+        blu = RGBGetBValue(modes[active_mode].colors[0]);
+    }
+
+    for(unsigned int zone_idx = 0; zone_idx < zones.size(); zone_idx++)
+    {
+        if(zones[zone_idx].leds_count > 0)
+        {
+            controller->SetMode(zone_idx, modes[active_mode].value, red, grn, blu);
+        }
+    }
+}

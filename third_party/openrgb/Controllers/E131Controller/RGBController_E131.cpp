@@ -1,0 +1,394 @@
+/*---------------------------------------------------------*\
+| RGBController_E131.cpp                                    |
+|                                                           |
+|   RGBController for E1.31 devices                         |
+|                                                           |
+|   Adam Honse (CalcProgrammer1)                18 Oct 2019 |
+|                                                           |
+|   This file is part of the OpenRGB project                |
+|   SPDX-License-Identifier: GPL-2.0-or-later               |
+\*---------------------------------------------------------*/
+
+#include <e131.h>
+#include <math.h>
+#include "RGBController_E131.h"
+
+using namespace std::chrono_literals;
+
+/**------------------------------------------------------------------*\
+    @name E1.31 Devices
+    @category LEDStrip
+    @type E1.31
+    @save :x:
+    @direct :white_check_mark:
+    @effects :x:
+    @detectors DetectE131Controllers
+    @comment
+\*-------------------------------------------------------------------*/
+
+RGBController_E131::RGBController_E131(std::vector<E131Device> device_list)
+{
+    bool multicast  = false;
+
+    devices         = device_list;
+
+    name            = "E1.31 Device Group";
+    type            = DEVICE_TYPE_LEDSTRIP;
+    description     = "E1.31 Streaming ACN Device";
+    location        = "E1.31: ";
+
+    /*-----------------------------------------------------*\
+    | If this controller only represents a single device,   |
+    | use the device name for the controller name           |
+    \*-----------------------------------------------------*/
+    if(devices.size() == 1)
+    {
+        name        = devices[0].name;
+    }
+    else if(devices[0].ip != "")
+    {
+        name       += " (" + devices[0].ip + ")";
+    }
+
+    /*-----------------------------------------------------*\
+    | Append the destination address to the location field  |
+    \*-----------------------------------------------------*/
+    if(devices[0].ip != "")
+    {
+        location   += "Unicast " + devices[0].ip + ", ";
+    }
+    else
+    {
+        location   += "Multicast, ";
+        multicast   = true;
+    }
+
+    /*-----------------------------------------------------*\
+    | Calculate universe list                               |
+    | Use this to fill in the location field                |
+    \*-----------------------------------------------------*/
+    std::vector<unsigned int> universe_list;
+
+    for(unsigned int device_idx = 0; device_idx < devices.size(); device_idx++)
+    {
+        float universe_size = (float)devices[device_idx].universe_size;
+        unsigned int total_universes = (unsigned int)ceil( ( ( devices[device_idx].num_leds * 3 ) + devices[device_idx].start_channel ) / universe_size );
+
+        for(unsigned int univ_idx = 0; univ_idx < total_universes; univ_idx++)
+        {
+            bool found = false;
+
+            for(unsigned int univ_list_idx = 0; univ_list_idx < universe_list.size(); univ_list_idx++)
+            {
+                if((devices[device_idx].start_universe + univ_idx) == universe_list[univ_list_idx])
+                {
+                    found = true;
+                    break;
+                }
+            }
+
+            if(!found)
+            {
+                universe_list.push_back(devices[device_idx].start_universe + univ_idx);
+            }
+        }
+    }
+
+    /*-----------------------------------------------------*\
+    | Append "Universe" and make plural if there are        |
+    | multiple universes in use                             |
+    \*-----------------------------------------------------*/
+    location           += "Universe";
+
+    if(universe_list.size() > 1)
+    {
+        location       += "s ";
+    }
+    else
+    {
+        location       += " ";
+    }
+
+    /*-----------------------------------------------------*\
+    | Append comma separated list of universes              |
+    \*-----------------------------------------------------*/
+    for(unsigned int univ_list_idx = 0; univ_list_idx < universe_list.size(); univ_list_idx++)
+    {
+        location += std::to_string(universe_list[univ_list_idx]);
+
+        if(univ_list_idx < (universe_list.size() - 1))
+        {
+            location   += ", ";
+        }
+    }
+
+    /*-----------------------------------------------------*\
+    | Set up modes                                          |
+    \*-----------------------------------------------------*/
+    mode Direct;
+    Direct.name         = "Direct";
+    Direct.value        = 0;
+    Direct.flags        = MODE_FLAG_HAS_PER_LED_COLOR;
+    Direct.color_mode   = MODE_COLORS_PER_LED;
+    modes.push_back(Direct);
+
+    /*-----------------------------------------------------*\
+    | Create E1.31 socket                                   |
+    \*-----------------------------------------------------*/
+    sockfd              = e131_socket();
+
+    keepalive_delay     = 0ms;
+
+    SetupZones();
+
+    for(std::size_t device_idx = 0; device_idx < devices.size(); device_idx++)
+    {
+        /*-------------------------------------------------*\
+        | Update keepalive delay                            |
+        \*-------------------------------------------------*/
+        if(devices[device_idx].keepalive_time > 0)
+        {
+            if(keepalive_delay.count() == 0 || keepalive_delay.count() > devices[device_idx].keepalive_time)
+            {
+                keepalive_delay = std::chrono::milliseconds(devices[device_idx].keepalive_time);
+            }
+        }
+
+        /*-------------------------------------------------*\
+        | Add Universes                                     |
+        \*-------------------------------------------------*/
+        float universe_size = (float)devices[device_idx].universe_size;
+        unsigned int total_universes = (unsigned int)ceil( ( ( devices[device_idx].num_leds * 3 ) + devices[device_idx].start_channel ) / universe_size );
+
+        for (unsigned int univ_idx = 0; univ_idx < total_universes; univ_idx++)
+        {
+            unsigned int universe = devices[device_idx].start_universe + univ_idx;
+            bool universe_exists = false;
+
+            for (std::size_t pkt_idx = 0; pkt_idx < packets.size(); pkt_idx++)
+            {
+                if(universes[pkt_idx] == universe)
+                {
+                    universe_exists = true;
+                }
+            }
+
+            if(!universe_exists)
+            {
+                e131_packet_t   packet;
+                e131_addr_t     dest_addr;
+
+                e131_pkt_init(&packet, (uint16_t)universe, (uint16_t)universe_size);
+
+                if(multicast)
+                {
+                    e131_multicast_dest(&dest_addr, universe, E131_DEFAULT_PORT);
+                }
+                else
+                {
+                    e131_unicast_dest(&dest_addr, devices[0].ip.c_str(), E131_DEFAULT_PORT);
+                }
+
+                packets.push_back(packet);
+                universes.push_back(universe);
+                dest_addrs.push_back(dest_addr);
+            }
+        }
+    }
+
+    if(keepalive_delay.count() > 0)
+    {
+        keepalive_thread_run = 1;
+        keepalive_thread = new std::thread(&RGBController_E131::KeepaliveThreadFunction, this);
+    }
+    else
+    {
+        keepalive_thread_run = 0;
+        keepalive_thread = nullptr;
+    }
+}
+
+RGBController_E131::~RGBController_E131()
+{
+    Shutdown();
+
+    if(keepalive_thread != nullptr)
+    {
+        keepalive_thread_run = 0;
+        keepalive_thread->join();
+        delete keepalive_thread;
+    }
+}
+
+void RGBController_E131::SetupZones()
+{
+    /*-----------------------------------------------------*\
+    | Only set LED count on the first run                   |
+    \*-----------------------------------------------------*/
+    bool first_run = false;
+
+    if(zones.size() == 0)
+    {
+        first_run = true;
+    }
+
+    /*-----------------------------------------------------*\
+    | Clear any existing color/LED configuration            |
+    \*-----------------------------------------------------*/
+    leds.clear();
+    colors.clear();
+    zones.resize(devices.size());
+
+    /*-----------------------------------------------------*\
+    | Set zones and leds                                    |
+    \*-----------------------------------------------------*/
+    for(std::size_t zone_idx = 0; zone_idx < zones.size(); zone_idx++)
+    {
+        zones[zone_idx].leds_min                = devices[zone_idx].num_leds;
+        zones[zone_idx].leds_max                = devices[zone_idx].num_leds;
+
+        if(first_run)
+        {
+            zones[zone_idx].flags               = ZONE_FLAG_MANUALLY_CONFIGURABLE_NAME
+                                                | ZONE_FLAG_MANUALLY_CONFIGURABLE_TYPE
+                                                | ZONE_FLAG_MANUALLY_CONFIGURABLE_MATRIX_MAP
+                                                | ZONE_FLAG_MANUALLY_CONFIGURABLE_SEGMENTS;
+        }
+
+        if(!(zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_NAME))
+        {
+            zones[zone_idx].name                = devices[zone_idx].name;
+        }
+
+        zones[zone_idx].leds_count = devices[zone_idx].num_leds;
+
+        if(!(zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_TYPE))
+        {
+            zones[zone_idx].type                = ZONE_TYPE_LINEAR;
+        }
+
+        if(!(zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_MATRIX_MAP))
+        {
+            zones[zone_idx].matrix_map.width    = 0;
+            zones[zone_idx].matrix_map.height   = 0;
+            zones[zone_idx].matrix_map.map.resize(0);
+        }
+    }
+
+    /*-----------------------------------------------------*\
+     | Add LEDs                                              |
+     \*-----------------------------------------------------*/
+    for(std::size_t zone_idx = 0; zone_idx < zones.size(); zone_idx++)
+    {
+        for(std::size_t led_idx = 0; led_idx < zones[zone_idx].leds_count; led_idx++)
+        {
+            led new_led;
+
+            new_led.name                        = zones[zone_idx].name + " LED ";
+            new_led.name.append(std::to_string(led_idx));
+
+            leds.push_back(new_led);
+        }
+    }
+
+    SetupColors();
+}
+
+void RGBController_E131::DeviceConfigureZone(int zone_idx)
+{
+    if((size_t)zone_idx < zones.size())
+    {
+        SetupZones();
+    }
+}
+
+void RGBController_E131::DeviceUpdateLEDs()
+{
+    int color_idx = 0;
+
+    last_update_time = std::chrono::steady_clock::now();
+
+    for(std::size_t device_idx = 0; device_idx < devices.size(); device_idx++)
+    {
+        float universe_size = (float)devices[device_idx].universe_size;
+        unsigned int total_universes = (unsigned int)ceil( ( ( devices[device_idx].num_leds * 3 ) + devices[device_idx].start_channel ) / universe_size );
+        unsigned int channel_idx = devices[device_idx].start_channel;
+        unsigned int led_idx = 0;
+        unsigned int rgb_idx = 0;
+        bool         done = false;
+
+        for (unsigned int univ_idx = 0; univ_idx < total_universes; univ_idx++)
+        {
+            unsigned int universe = devices[device_idx].start_universe + univ_idx;
+
+            for(std::size_t packet_idx = 0; packet_idx < packets.size(); packet_idx++)
+            {
+                if(!done && (universes[packet_idx] == universe))
+                {
+                    while(!done && (channel_idx <= universe_size))
+                    {
+                        switch(rgb_idx)
+                        {
+                            case 0:
+                                packets[packet_idx].dmp.prop_val[channel_idx] = RGBGetRValue( colors[color_idx] );
+                                rgb_idx = 1;
+                                break;
+                            case 1:
+                                packets[packet_idx].dmp.prop_val[channel_idx] = RGBGetGValue( colors[color_idx] );
+                                rgb_idx = 2;
+                                break;
+                            case 2:
+                                packets[packet_idx].dmp.prop_val[channel_idx] = RGBGetBValue( colors[color_idx] );
+                                rgb_idx = 0;
+                                led_idx++;
+                                color_idx++;
+                                break;
+                        }
+
+                        if(led_idx >= devices[device_idx].num_leds)
+                        {
+                            done = true;
+                        }
+
+                        channel_idx++;
+                    }
+                }
+            }
+
+            channel_idx = 1;
+        }
+    }
+
+    for(std::size_t packet_idx = 0; packet_idx < packets.size(); packet_idx++)
+    {
+        e131_send(sockfd, &packets[packet_idx], &dest_addrs[packet_idx]);
+        packets[packet_idx].frame.seq_number++;
+    }
+}
+
+void RGBController_E131::DeviceUpdateZoneLEDs(int /*zone*/)
+{
+    DeviceUpdateLEDs();
+}
+
+void RGBController_E131::DeviceUpdateSingleLED(int /*led*/)
+{
+    DeviceUpdateLEDs();
+}
+
+void RGBController_E131::DeviceUpdateMode()
+{
+
+}
+
+void RGBController_E131::KeepaliveThreadFunction()
+{
+    while(keepalive_thread_run.load())
+    {
+        if((std::chrono::steady_clock::now() - last_update_time) > ( keepalive_delay * 0.95f ) )
+        {
+            UpdateLEDsInternal();
+        }
+        std::this_thread::sleep_for(keepalive_delay / 2);
+    }
+}

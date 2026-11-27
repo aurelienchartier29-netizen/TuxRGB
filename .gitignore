@@ -1,0 +1,12 @@
+/target
+/build
+/build-flatpak
+/.flatpak-builder
+/build-openrgb
+*.AppImage.zsync
+__pycache__/
+# Built binaries go to GitHub Releases, not into the repository.
+/dist/*.AppImage
+/dist/*.AppImage.sha256
+/dist/*.exe
+/dist/*.exe.sha256
